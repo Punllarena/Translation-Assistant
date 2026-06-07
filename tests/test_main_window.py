@@ -359,6 +359,20 @@ class TestSaveToDB:
         lines = win._db.get_lines(win._doc_id)
         assert lines[0]["translated_text"] == "MyTranslation"
 
+    def test_load_content_switches_to_linked_profile_immediately(self, win):
+        """Profile switches at document creation, not just on open."""
+        win._db.create_profile("JP")
+        win._db.set_series_profile("My Novel", "JP")
+        content = _sep_file("%Text\n")
+        win.load_content(content, title="Ch1", series_title="My Novel")
+        assert win._settings.profile_used == "JP"
+
+    def test_load_content_no_switch_when_no_series_link(self, win):
+        win._settings.profile_used = "Default"
+        content = _sep_file("%Text\n")
+        win.load_content(content, title="Standalone")
+        assert win._settings.profile_used == "Default"
+
     def test_save_preserves_raw_text_in_db(self, win):
         _load(win, "%Hello\n")
         win._on_save()

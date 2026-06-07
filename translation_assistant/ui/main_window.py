@@ -364,6 +364,11 @@ class MainWindow(QMainWindow):
         )
         self._db.save_lines(doc_id, self._lines_as_db_rows())
         self._doc_id = doc_id
+        if series_title:
+            linked = self._db.get_series_profile(series_title)
+            if linked and self._db.get_profile_id(linked) is not None:
+                self._settings.profile_used = linked
+                self._load_glossary_for_profile()
         self._finish_load()
 
     def open_document(self, doc_id: int) -> None:
