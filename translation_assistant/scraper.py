@@ -22,7 +22,7 @@ def validate_url(url: str) -> None:
 
 def fetch_syosetu(url: str) -> tuple[str, str]:
     validate_url(url)
-    resp = requests.get(url, timeout=10, headers={"User-Agent": _UA})
+    resp = requests.get(url, timeout=10, headers={"User-Agent": _UA}, cookies={"over18": "yes"})
     resp.raise_for_status()
     soup = BeautifulSoup(resp.text, "html.parser")
 
