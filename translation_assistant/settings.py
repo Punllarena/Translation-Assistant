@@ -4,7 +4,7 @@ Application settings backed by QSettings (ini file per user).
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QSettings
+from PySide6.QtCore import QByteArray, QSettings
 
 
 def _get_app_root() -> Path:
@@ -114,6 +114,16 @@ class AppSettings:
     @tts_lang.setter
     def tts_lang(self, value: int) -> None:
         self._qs.setValue("TTSLang", value)
+
+    # --- splitter layout state ---
+
+    @property
+    def splitter_state(self) -> QByteArray:
+        return self._qs.value("SplitterState", QByteArray())
+
+    @splitter_state.setter
+    def splitter_state(self, value: QByteArray) -> None:
+        self._qs.setValue("SplitterState", value)
 
     def save(self) -> None:
         """Flush settings to disk immediately."""

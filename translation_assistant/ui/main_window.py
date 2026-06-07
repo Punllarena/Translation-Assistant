@@ -8,7 +8,7 @@ from PySide6.QtCore import QEvent, Qt, QTimer, Signal
 from PySide6.QtGui import QFont, QIcon, QKeyEvent, QTextCursor
 from PySide6.QtWidgets import (
     QApplication, QFileDialog, QLabel, QMainWindow, QMenu,
-    QMessageBox, QSizePolicy, QStatusBar, QTextEdit, QVBoxLayout, QWidget,
+    QMessageBox, QSizePolicy, QSplitter, QStatusBar, QTextEdit, QVBoxLayout, QWidget,
 )
 
 from translation_assistant.settings import AppSettings
@@ -157,6 +157,12 @@ class MainWindow(QMainWindow):
         self._action_export.triggered.connect(self._on_export)
         self._action_export.setEnabled(False)
 
+        file_menu.addSeparator()
+        self._action_db_export = file_menu.addAction("Export Database Backup…")
+        self._action_db_export.triggered.connect(self._on_db_export)
+        self._action_db_import = file_menu.addAction("Import Database Backup…")
+        self._action_db_import.triggered.connect(self._on_db_import)
+
         # Settings
         settings_menu = mb.addMenu("Settings")
         self._action_profile = settings_menu.addAction("Profile (CTRL+P)")
@@ -221,6 +227,9 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(5, 5, 5, 0)
         layout.setSpacing(0)
 
+        self._splitter = QSplitter(Qt.Orientation.Vertical)
+        self._splitter.setChildrenCollapsible(False)
+
         self._review_top = ReviewTextEdit()
         self._review_top.setReadOnly(True)
         self._review_top.setFont(font)
@@ -229,34 +238,48 @@ class MainWindow(QMainWindow):
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
         self._review_top.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
+        self._review_top.setMinimumHeight(50)
         self._review_top.line_double_clicked.connect(self._on_review_top_double_click)
-        layout.addWidget(self._review_top, stretch=1)
+        self._splitter.addWidget(self._review_top)
 
         self._raw_line = QTextEdit()
         self._raw_line.setReadOnly(True)
         self._raw_line.setFont(font)
-        self._raw_line.setFixedHeight(52)
+        self._raw_line.setMinimumHeight(40)
         self._raw_line.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
-        layout.addWidget(self._raw_line)
+        self._splitter.addWidget(self._raw_line)
 
         self._translated_line = QTextEdit()
         self._translated_line.setFont(font)
-        self._translated_line.setFixedHeight(52)
+        self._translated_line.setMinimumHeight(40)
         self._translated_line.setAcceptRichText(False)
         self._translated_line.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         self._translated_line.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._translated_line.customContextMenuRequested.connect(self._on_translated_context_menu)
-        layout.addWidget(self._translated_line)
+        self._splitter.addWidget(self._translated_line)
         self._spell_highlighter = SpellHighlighter(self._translated_line.document())
 
         self._review_bottom = ReviewTextEdit()
         self._review_bottom.setReadOnly(True)
         self._review_bottom.setFont(font)
         self._review_bottom.setPlainText(_HELP_BOTTOM)
-        self._review_bottom.setFixedHeight(137)
+        self._review_bottom.setMinimumHeight(50)
         self._review_bottom.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         self._review_bottom.line_double_clicked.connect(self._on_review_bottom_double_click)
-        layout.addWidget(self._review_bottom)
+        self._splitter.addWidget(self._review_bottom)
+
+        self._splitter.setStretchFactor(0, 1)
+        self._splitter.setStretchFactor(1, 0)
+        self._splitter.setStretchFactor(2, 0)
+        self._splitter.setStretchFactor(3, 0)
+
+        saved = self._settings.splitter_state
+        if not saved.isEmpty():
+            self._splitter.restoreState(saved)
+        else:
+            self._splitter.setSizes([300, 52, 52, 137])
+
+        layout.addWidget(self._splitter)
 
         for widget in (self._review_top, self._raw_line,
                        self._translated_line, self._review_bottom):
@@ -782,6 +805,61 @@ class MainWindow(QMainWindow):
         self._filesaved_label.setText("File exported....")
         self._filesaved_timer.start()
 
+    def _on_db_export(self) -> None:
+        """Copy ta.db to a user-chosen backup file."""
+        import shutil
+        with self._topmost_suspended():
+            dest, _ = QFileDialog.getSaveFileName(
+                self, "Export Database Backup", "ta_backup.db", "SQLite Database (*.db)"
+            )
+        if not dest:
+            return
+        self._save_current_translation()
+        self._save_to_db()
+        shutil.copy2(self._settings.db_path, dest)
+        self._filesaved_label.setText("Database exported.")
+        self._filesaved_timer.start()
+
+    def _on_db_import(self) -> None:
+        """Replace ta.db with a backup file, then reload."""
+        import shutil
+        from translation_assistant.db import Database
+        with self._topmost_suspended():
+            src, _ = QFileDialog.getOpenFileName(
+                self, "Import Database Backup", "", "SQLite Database (*.db)"
+            )
+        if not src:
+            return
+        confirm = QMessageBox.question(
+            self, "Import Database",
+            "This will replace the current database with the selected backup.\n"
+            "Any unsaved changes will be lost. Continue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+        self._db.close()
+        shutil.copy2(src, self._settings.db_path)
+        self._db = Database(self._settings.db_path)
+        # Reset document state
+        self._doc_id = None
+        self._raw_lines = []
+        self._translated_lines = []
+        self._raw_section = ""
+        self._array_pointer = 0
+        self._parse_sentences = []
+        self._parse_pointer = -1
+        # Reset UI
+        self._review_top.setPlainText(_HELP_TOP)
+        self._review_bottom.setPlainText(_HELP_BOTTOM)
+        self._raw_line.clear()
+        self._translated_line.clear()
+        self._action_save.setEnabled(False)
+        self._action_export.setEnabled(False)
+        self._load_glossary_for_profile()
+        self._filesaved_label.setText("Database imported.")
+        self._filesaved_timer.start()
+
     # ------------------------------------------------------------------
     # Dialogs
     # ------------------------------------------------------------------
@@ -1044,6 +1122,7 @@ class MainWindow(QMainWindow):
                 self._set_topmost(True)
 
     def closeEvent(self, event) -> None:
+        self._settings.splitter_state = self._splitter.saveState()
         self._save_current_translation()
         self._settings.save()
         super().closeEvent(event)

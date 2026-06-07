@@ -29,8 +29,22 @@ if [[ "${1:-}" != "--skip-tests" ]]; then
 fi
 
 # ── Build ─────────────────────────────────────────────────────────────────────
+# Preserve ta.db across the build — PyInstaller --noconfirm wipes the output dir
+DB_BACKUP=""
+if [[ -f "dist/TranslationAssistant/ta.db" ]]; then
+    DB_BACKUP="$(mktemp --suffix=.db)"
+    cp "dist/TranslationAssistant/ta.db" "$DB_BACKUP"
+    echo "=== Backed up ta.db before build ==="
+fi
+
 echo "=== Building with PyInstaller ==="
 pyinstaller translation_assistant.spec --clean --noconfirm
+
+if [[ -n "$DB_BACKUP" ]]; then
+    cp "$DB_BACKUP" "dist/TranslationAssistant/ta.db"
+    rm "$DB_BACKUP"
+    echo "=== Restored ta.db after build ==="
+fi
 
 echo ""
 echo "=== Build complete ==="
