@@ -34,7 +34,7 @@ def fetch_syosetu(url: str) -> tuple[str, str]:
     )
     if not content_el:
         raise ValueError("Could not find novel text on page")
-    content = content_el.get_text(separator="\n", strip=True)
+    content = "\n".join(p.get_text(strip=True) for p in content_el.find_all("p"))
 
     return title, content
 
