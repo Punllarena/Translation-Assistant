@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
 from translation_assistant.core import build_new_file
 
 _CJK_FAMILIES = ["Microsoft YaHei", "Noto Sans CJK SC", "WenQuanYi Micro Hei", "sans-serif"]
+_USE_SERIES = "Use the Series Title"
 
 
 class NewFileDialog(QDialog):
@@ -77,6 +78,7 @@ class NewFileDialog(QDialog):
         self._link_profile_check = QCheckBox("Link series to glossary profile:")
         self._profile_combo = QComboBox()
         profiles = self._db.list_profiles() if self._db else []
+        self._profile_combo.addItem(_USE_SERIES)
         self._profile_combo.addItems(profiles)
         link_row.addWidget(self._link_profile_check)
         link_row.addWidget(self._profile_combo)
@@ -116,8 +118,15 @@ class NewFileDialog(QDialog):
         self._series_order = self._order_spin.value()
         self._chapter_title = self._chapter_edit.text().strip()
         if self._link_profile_check.isChecked() and self._series_title and self._db:
-            self._linked_profile = self._profile_combo.currentText()
-            self._db.set_series_profile(self._series_title, self._linked_profile)
+            choice = self._profile_combo.currentText()
+            if choice == _USE_SERIES:
+                profile_name = self._series_title
+                if self._db.get_profile_id(profile_name) is None:
+                    self._db.create_profile(profile_name)
+            else:
+                profile_name = choice
+            self._linked_profile = profile_name
+            self._db.set_series_profile(self._series_title, profile_name)
         else:
             self._linked_profile = ""
         self.accept()

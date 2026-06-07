@@ -301,6 +301,58 @@ class TestNewFileDialog:
         dlg._on_create()
         assert dlg.linked_profile == ""
 
+    def test_profile_combo_has_use_series_title_option(self, qapp, mem_db):
+        dlg = NewFileDialog(mem_db)
+        items = [dlg._profile_combo.itemText(i) for i in range(dlg._profile_combo.count())]
+        assert "Use the Series Title" in items
+
+    def test_use_series_title_creates_new_profile(self, qapp, mem_db):
+        dlg = NewFileDialog(mem_db)
+        dlg._series_edit.setText("My Novel")
+        dlg._link_profile_check.setChecked(True)
+        idx = next(i for i in range(dlg._profile_combo.count())
+                   if dlg._profile_combo.itemText(i) == "Use the Series Title")
+        dlg._profile_combo.setCurrentIndex(idx)
+        dlg._entry_box.setPlainText("text")
+        dlg._on_create()
+        assert mem_db.get_profile_id("My Novel") is not None
+
+    def test_use_series_title_links_new_profile_to_series(self, qapp, mem_db):
+        dlg = NewFileDialog(mem_db)
+        dlg._series_edit.setText("My Novel")
+        dlg._link_profile_check.setChecked(True)
+        idx = next(i for i in range(dlg._profile_combo.count())
+                   if dlg._profile_combo.itemText(i) == "Use the Series Title")
+        dlg._profile_combo.setCurrentIndex(idx)
+        dlg._entry_box.setPlainText("text")
+        dlg._on_create()
+        assert mem_db.get_series_profile("My Novel") == "My Novel"
+
+    def test_use_series_title_linked_profile_property(self, qapp, mem_db):
+        dlg = NewFileDialog(mem_db)
+        dlg._series_edit.setText("My Novel")
+        dlg._link_profile_check.setChecked(True)
+        idx = next(i for i in range(dlg._profile_combo.count())
+                   if dlg._profile_combo.itemText(i) == "Use the Series Title")
+        dlg._profile_combo.setCurrentIndex(idx)
+        dlg._entry_box.setPlainText("text")
+        dlg._on_create()
+        assert dlg.linked_profile == "My Novel"
+
+    def test_use_series_title_does_not_duplicate_existing_profile(self, qapp, mem_db):
+        """If profile with series name already exists, reuse it."""
+        mem_db.create_profile("My Novel")
+        dlg = NewFileDialog(mem_db)
+        dlg._series_edit.setText("My Novel")
+        dlg._link_profile_check.setChecked(True)
+        idx = next(i for i in range(dlg._profile_combo.count())
+                   if dlg._profile_combo.itemText(i) == "Use the Series Title")
+        dlg._profile_combo.setCurrentIndex(idx)
+        dlg._entry_box.setPlainText("text")
+        dlg._on_create()
+        # Only one profile named "My Novel"
+        assert mem_db.list_profiles().count("My Novel") == 1
+
 
 # ---------------------------------------------------------------------------
 # ProfileDialog — DB-backed
