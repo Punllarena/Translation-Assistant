@@ -130,28 +130,63 @@ class TestOpenDocumentDialog:
         dlg._on_open()
         assert dlg.selected_doc_id == doc_id
 
+    def test_delete_requires_confirmation(self, qapp, mem_db):
+        from unittest.mock import patch
+        from PySide6.QtWidgets import QMessageBox
+        mem_db.create_document("To Delete")
+        dlg = OpenDocumentDialog(mem_db)
+        dlg._tree.setCurrentItem(_first_leaf(dlg))
+        with patch.object(QMessageBox, "question",
+                          return_value=QMessageBox.StandardButton.No) as mock_q:
+            dlg._on_delete()
+            assert mock_q.called
+        assert len(mem_db.list_documents()) == 1  # not deleted
+
+    def test_delete_confirmed_removes_document(self, qapp, mem_db):
+        from unittest.mock import patch
+        from PySide6.QtWidgets import QMessageBox
+        mem_db.create_document("To Delete")
+        dlg = OpenDocumentDialog(mem_db)
+        dlg._tree.setCurrentItem(_first_leaf(dlg))
+        with patch.object(QMessageBox, "question",
+                          return_value=QMessageBox.StandardButton.Yes):
+            dlg._on_delete()
+        assert mem_db.list_documents() == []
+
     def test_delete_removes_document_from_db(self, qapp, mem_db):
+        from unittest.mock import patch
+        from PySide6.QtWidgets import QMessageBox
         mem_db.create_document("To Delete")
         dlg = OpenDocumentDialog(mem_db)
         leaf = _first_leaf(dlg)
         dlg._tree.setCurrentItem(leaf)
-        dlg._on_delete()
+        with patch.object(QMessageBox, "question",
+                          return_value=QMessageBox.StandardButton.Yes):
+            dlg._on_delete()
         assert mem_db.list_documents() == []
 
     def test_delete_removes_leaf_from_tree(self, qapp, mem_db):
+        from unittest.mock import patch
+        from PySide6.QtWidgets import QMessageBox
         mem_db.create_document("To Delete")
         dlg = OpenDocumentDialog(mem_db)
         leaf = _first_leaf(dlg)
         dlg._tree.setCurrentItem(leaf)
-        dlg._on_delete()
+        with patch.object(QMessageBox, "question",
+                          return_value=QMessageBox.StandardButton.Yes):
+            dlg._on_delete()
         assert _first_leaf(dlg) is None
 
     def test_delete_removes_empty_group(self, qapp, mem_db):
+        from unittest.mock import patch
+        from PySide6.QtWidgets import QMessageBox
         mem_db.create_document("Only Doc")
         dlg = OpenDocumentDialog(mem_db)
         leaf = _first_leaf(dlg)
         dlg._tree.setCurrentItem(leaf)
-        dlg._on_delete()
+        with patch.object(QMessageBox, "question",
+                          return_value=QMessageBox.StandardButton.Yes):
+            dlg._on_delete()
         assert _root(dlg).childCount() == 0
 
     def test_double_click_opens_doc(self, qapp, mem_db):
@@ -181,6 +216,40 @@ class TestOpenDocumentDialog:
                    if not _first_leaf_is_hidden(dlg, t)]
         assert "Alpha" in visible
         assert "Beta" in visible
+
+    def test_last_edited_column_exists(self, qapp, mem_db):
+        mem_db.create_document("Doc")
+        dlg = OpenDocumentDialog(mem_db)
+        assert dlg._tree.columnCount() >= 3
+        leaf = _first_leaf(dlg)
+        assert leaf.text(2) != ""  # last-edited not blank
+
+    def test_edit_btn_disabled_initially(self, qapp, mem_db):
+        mem_db.create_document("Doc")
+        dlg = OpenDocumentDialog(mem_db)
+        assert not dlg._edit_btn.isEnabled()
+
+    def test_edit_btn_enabled_on_leaf_select(self, qapp, mem_db):
+        mem_db.create_document("Doc")
+        dlg = OpenDocumentDialog(mem_db)
+        dlg._tree.setCurrentItem(_first_leaf(dlg))
+        assert dlg._edit_btn.isEnabled()
+
+    def test_do_edit_updates_db_metadata(self, qapp, mem_db):
+        doc_id = mem_db.create_document("Old")
+        dlg = OpenDocumentDialog(mem_db)
+        dlg._do_edit(doc_id, "Series A", 2, "New Chapter")
+        doc = mem_db.get_document(doc_id)
+        assert doc["series_title"] == "Series A"
+        assert doc["series_order"] == 2
+        assert doc["chapter_title"] == "New Chapter"
+
+    def test_do_edit_refreshes_tree(self, qapp, mem_db):
+        doc_id = mem_db.create_document("Old", chapter_title="Old Chapter")
+        dlg = OpenDocumentDialog(mem_db)
+        dlg._do_edit(doc_id, "", 0, "New Chapter")
+        assert "New Chapter" in _all_leaf_titles(dlg)
+        assert "Old Chapter" not in _all_leaf_titles(dlg)
 
 
 def _first_leaf_is_hidden(dlg, title: str) -> bool:

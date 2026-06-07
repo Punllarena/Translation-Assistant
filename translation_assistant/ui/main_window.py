@@ -510,13 +510,14 @@ class MainWindow(QMainWindow):
         self._clipboard_timer.stop()
         self._save_current_translation()
 
+        from translation_assistant.core import line_has_content
         n = len(self._raw_lines)
         eof = False
         p = self._array_pointer
         while True:
             if p < n - 1:
                 p += 1
-                if self._raw_lines[p]:
+                if line_has_content(self._raw_lines[p]):
                     break
             else:
                 eof = True
@@ -548,6 +549,7 @@ class MainWindow(QMainWindow):
         self._clipboard_timer.stop()
         self._save_current_translation()
 
+        from translation_assistant.core import line_has_content
         p = self._array_pointer
         eof = False
         while True:
@@ -555,7 +557,7 @@ class MainWindow(QMainWindow):
                 eof = True
                 break
             p -= 1
-            if self._raw_lines[p]:
+            if line_has_content(self._raw_lines[p]):
                 break
 
         self._array_pointer = p
@@ -588,9 +590,10 @@ class MainWindow(QMainWindow):
         self._tl_complete = pct
         if pct == 100:
             return
+        from translation_assistant.core import line_has_content
         n = len(self._raw_lines)
         for i in range(n):
-            if self._raw_lines[i] and not self._translated_lines[i]:
+            if line_has_content(self._raw_lines[i]) and not self._translated_lines[i]:
                 self._array_pointer = i
                 self._update_ui_for_pointer()
                 break

@@ -303,6 +303,11 @@ def build_review_text(
     return "".join(parts), offset_map
 
 
+def line_has_content(raw: str) -> bool:
+    """True if a raw line has translatable text (not a blank/marker-only line)."""
+    return bool(raw.lstrip("%$").strip())
+
+
 def calculate_progress(
     raw_lines: list[str], translated_lines: list[str]
 ) -> tuple[int, int]:
@@ -316,11 +321,11 @@ def calculate_progress(
     split by a single space — matching VB's Split(str, " ").Count behaviour
     (empty tokens from leading / trailing spaces are included).
     """
-    total_raw = sum(1 for r in raw_lines if r)
+    total_raw = sum(1 for r in raw_lines if line_has_content(r))
     if total_raw == 0:
         return 0, 0
 
-    done = sum(1 for r, t in zip(raw_lines, translated_lines) if r and t)
+    done = sum(1 for r, t in zip(raw_lines, translated_lines) if line_has_content(r) and t)
     word_count = sum(len(t.split(" ")) for t in translated_lines)
     percent = int((done / total_raw) * 100)
     return percent, word_count

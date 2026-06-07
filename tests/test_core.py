@@ -413,6 +413,26 @@ class TestCalculateProgress:
         assert pct == 0
         assert wc == 0
 
+    def test_bare_percent_marker_not_counted(self):
+        """Bare '%' lines (blank source paragraphs) excluded from total."""
+        raw = ["%A", "%", "%B"]
+        tl = ["tA", "", "tB"]
+        pct, _ = calculate_progress(raw, tl)
+        assert pct == 100
+
+    def test_bare_dollar_marker_not_counted(self):
+        """Bare '$' lines excluded from total."""
+        raw = ["%A", "$", "%B"]
+        tl = ["tA", "", "tB"]
+        pct, _ = calculate_progress(raw, tl)
+        assert pct == 100
+
+    def test_whitespace_only_raw_line_not_counted(self):
+        raw = ["%A", "%  ", "%B"]
+        tl = ["tA", "", "tB"]
+        pct, _ = calculate_progress(raw, tl)
+        assert pct == 100
+
 
 # ---------------------------------------------------------------------------
 # build_clipboard_output

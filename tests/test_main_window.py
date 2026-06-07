@@ -157,6 +157,14 @@ class TestNavigateForward:
         win._navigate_forward()
         assert win._array_pointer == 2
 
+    def test_advance_skips_bare_percent_marker(self, win):
+        """'%' line (blank source paragraph) skipped by forward nav."""
+        win._raw_lines = ["%A", "%", "%B"]
+        win._translated_lines = ["", "", ""]
+        win._array_pointer = 0
+        win._navigate_forward()
+        assert win._array_pointer == 2
+
     def test_advance_saves_translation(self, win):
         _load(win, "%A\n%B\n")
         win._translated_line.setPlainText("Hello")
@@ -211,6 +219,14 @@ class TestNavigateBackward:
 
     def test_page_up_skips_empty_lines(self, win):
         _load(win, "%A\n\n%B\n")
+        win._array_pointer = 2
+        win._navigate_backward()
+        assert win._array_pointer == 0
+
+    def test_page_up_skips_bare_percent_marker(self, win):
+        """'%' line (blank source paragraph) skipped by backward nav."""
+        win._raw_lines = ["%A", "%", "%B"]
+        win._translated_lines = ["", "", ""]
         win._array_pointer = 2
         win._navigate_backward()
         assert win._array_pointer == 0
