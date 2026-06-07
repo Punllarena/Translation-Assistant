@@ -373,8 +373,15 @@ class MainWindow(QMainWindow):
         self._translated_lines = [r["translated_text"] for r in rows]
         self._raw_section = ""
         self._doc_id = doc_id
-        pos = self._db.get_document(doc_id)["last_position"]
+        doc = self._db.get_document(doc_id)
+        pos = doc["last_position"]
         self._array_pointer = min(pos, max(0, len(self._raw_lines) - 1))
+        series = doc.get("series_title", "")
+        if series:
+            linked = self._db.get_series_profile(series)
+            if linked and self._db.get_profile_id(linked) is not None:
+                self._settings.profile_used = linked
+                self._load_glossary_for_profile()
         self._finish_load()
 
     def _lines_as_db_rows(self) -> list[dict]:

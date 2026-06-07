@@ -4,8 +4,8 @@ New-file creation dialog — equivalent to frmNew.
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
-    QCompleter, QDialog, QFormLayout, QLabel, QLineEdit,
-    QPlainTextEdit, QPushButton, QSpinBox, QVBoxLayout,
+    QCheckBox, QComboBox, QCompleter, QDialog, QFormLayout, QHBoxLayout,
+    QLabel, QLineEdit, QPlainTextEdit, QPushButton, QSpinBox, QVBoxLayout,
 )
 
 from translation_assistant.core import build_new_file
@@ -19,8 +19,8 @@ class NewFileDialog(QDialog):
     chapter title), formats it into the ---SEPERATOR--- structure, and stores
     everything in the DB via the caller.
 
-    After accept(), raw_output_text, series_title, series_order, and
-    chapter_title are populated.
+    After accept(), raw_output_text, series_title, series_order, chapter_title,
+    and linked_profile are populated.
     """
 
     def __init__(self, db, parent=None) -> None:
@@ -30,6 +30,7 @@ class NewFileDialog(QDialog):
         self._series_title = ""
         self._series_order = 0
         self._chapter_title = ""
+        self._linked_profile = ""
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -45,7 +46,6 @@ class NewFileDialog(QDialog):
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(6)
 
-        # Metadata fields
         form = QFormLayout()
         form.setSpacing(4)
 
@@ -55,7 +55,9 @@ class NewFileDialog(QDialog):
         if series_names:
             completer = QCompleter(series_names, self)
             completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+            completer.activated.connect(self._on_series_changed)
             self._series_edit.setCompleter(completer)
+        self._series_edit.textChanged.connect(self._on_series_changed)
         form.addRow("Series Title:", self._series_edit)
 
         self._order_spin = QSpinBox()
@@ -70,7 +72,17 @@ class NewFileDialog(QDialog):
 
         layout.addLayout(form)
 
-        # Source text input
+        # Profile link row
+        link_row = QHBoxLayout()
+        self._link_profile_check = QCheckBox("Link series to glossary profile:")
+        self._profile_combo = QComboBox()
+        profiles = self._db.list_profiles() if self._db else []
+        self._profile_combo.addItems(profiles)
+        link_row.addWidget(self._link_profile_check)
+        link_row.addWidget(self._profile_combo)
+        link_row.addStretch()
+        layout.addLayout(link_row)
+
         layout.addWidget(QLabel("Source text:"))
         self._entry_box = QPlainTextEdit()
         self._entry_box.setFont(cjk_font)
@@ -85,11 +97,29 @@ class NewFileDialog(QDialog):
 
         self._series_edit.setFocus()
 
+    def _on_series_changed(self, text: str) -> None:
+        if not text.strip():
+            return
+        if self._db:
+            next_order = self._db.get_next_series_order(text.strip())
+            self._order_spin.setValue(next_order)
+            linked = self._db.get_series_profile(text.strip())
+            if linked:
+                idx = self._profile_combo.findText(linked)
+                if idx >= 0:
+                    self._profile_combo.setCurrentIndex(idx)
+                self._link_profile_check.setChecked(True)
+
     def _on_create(self) -> None:
         self._raw_output_text = build_new_file(self._entry_box.toPlainText())
         self._series_title = self._series_edit.text().strip()
         self._series_order = self._order_spin.value()
         self._chapter_title = self._chapter_edit.text().strip()
+        if self._link_profile_check.isChecked() and self._series_title and self._db:
+            self._linked_profile = self._profile_combo.currentText()
+            self._db.set_series_profile(self._series_title, self._linked_profile)
+        else:
+            self._linked_profile = ""
         self.accept()
 
     @property
@@ -107,3 +137,7 @@ class NewFileDialog(QDialog):
     @property
     def chapter_title(self) -> str:
         return self._chapter_title
+
+    @property
+    def linked_profile(self) -> str:
+        return self._linked_profile

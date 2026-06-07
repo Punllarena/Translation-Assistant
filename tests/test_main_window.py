@@ -405,6 +405,26 @@ class TestOpenDocument:
         win.open_document(doc_id)
         assert win._array_pointer == 1
 
+    def test_open_document_switches_to_series_linked_profile(self, win):
+        win._db.create_profile("JP")
+        win._db.set_series_profile("My Novel", "JP")
+        doc_id = win._db.create_document("Ch1", series_title="My Novel")
+        win._db.save_lines(doc_id, [
+            {"line_number": 0, "prefix": "%", "raw_text": "Text", "translated_text": ""},
+        ])
+        win.open_document(doc_id)
+        assert win._settings.profile_used == "JP"
+
+    def test_open_document_no_switch_when_no_series_link(self, win):
+        win._db.create_profile("JP")
+        win._settings.profile_used = "Default"
+        doc_id = win._db.create_document("Standalone")
+        win._db.save_lines(doc_id, [
+            {"line_number": 0, "prefix": "%", "raw_text": "Text", "translated_text": ""},
+        ])
+        win.open_document(doc_id)
+        assert win._settings.profile_used == "Default"
+
 
 # ---------------------------------------------------------------------------
 # Glossary and parse chars

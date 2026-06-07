@@ -62,6 +62,11 @@ CREATE INDEX IF NOT EXISTS idx_lines_document ON lines(document_id, line_number)
 CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS series_profiles (
+    series_title TEXT PRIMARY KEY,
+    profile_name TEXT NOT NULL DEFAULT ''
+);
 """
 
 
@@ -246,6 +251,28 @@ class Database:
             "WHERE series_title != '' ORDER BY series_title"
         ).fetchall()
         return [r[0] for r in rows]
+
+    def get_series_profile(self, series_title: str) -> str:
+        row = self._conn.execute(
+            "SELECT profile_name FROM series_profiles WHERE series_title = ?",
+            (series_title,),
+        ).fetchone()
+        return row[0] if row else ""
+
+    def set_series_profile(self, series_title: str, profile_name: str) -> None:
+        self._conn.execute(
+            "INSERT INTO series_profiles (series_title, profile_name) VALUES (?, ?) "
+            "ON CONFLICT(series_title) DO UPDATE SET profile_name = excluded.profile_name",
+            (series_title, profile_name),
+        )
+        self._conn.commit()
+
+    def get_next_series_order(self, series_title: str) -> int:
+        row = self._conn.execute(
+            "SELECT MAX(series_order) FROM documents WHERE series_title = ?",
+            (series_title,),
+        ).fetchone()
+        return (row[0] or 0) + 1
 
     def delete_document(self, doc_id: int) -> None:
         self._conn.execute("DELETE FROM documents WHERE id = ?", (doc_id,))

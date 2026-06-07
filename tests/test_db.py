@@ -506,3 +506,44 @@ def test_migration_adds_columns_to_existing_db(tmp_path):
     assert docs[0]["title"] == "old"
     assert docs[0]["series_title"] == ""
     db2.close()
+
+
+# ---------------------------------------------------------------------------
+# Series-profile linking
+# ---------------------------------------------------------------------------
+
+def test_series_profiles_table_exists(db):
+    assert "series_profiles" in _tables(db)
+
+def test_get_series_profile_returns_empty_for_unknown(db):
+    assert db.get_series_profile("Unknown Series") == ""
+
+def test_set_series_profile_stores_link(db):
+    db.create_profile("JP")
+    db.set_series_profile("My Novel", "JP")
+    assert db.get_series_profile("My Novel") == "JP"
+
+def test_set_series_profile_upserts(db):
+    db.create_profile("JP")
+    db.create_profile("CN")
+    db.set_series_profile("My Novel", "JP")
+    db.set_series_profile("My Novel", "CN")
+    assert db.get_series_profile("My Novel") == "CN"
+
+def test_set_series_profile_empty_string_clears_link(db):
+    db.create_profile("JP")
+    db.set_series_profile("My Novel", "JP")
+    db.set_series_profile("My Novel", "")
+    assert db.get_series_profile("My Novel") == ""
+
+def test_get_next_series_order_returns_1_for_new_series(db):
+    assert db.get_next_series_order("Brand New") == 1
+
+def test_get_next_series_order_returns_max_plus_one(db):
+    db.create_document("C1", series_title="Novel", series_order=3)
+    db.create_document("C2", series_title="Novel", series_order=7)
+    assert db.get_next_series_order("Novel") == 8
+
+def test_get_next_series_order_ignores_other_series(db):
+    db.create_document("C1", series_title="Novel A", series_order=5)
+    assert db.get_next_series_order("Novel B") == 1

@@ -218,6 +218,89 @@ class TestNewFileDialog:
         assert dlg.series_order == 0
         assert dlg.chapter_title == ""
 
+    # --- series order auto-suggestion ---
+
+    def test_order_auto_suggests_1_for_new_series(self, qapp, mem_db):
+        dlg = NewFileDialog(mem_db)
+        dlg._series_edit.setText("Brand New Series")
+        dlg._on_series_changed("Brand New Series")
+        assert dlg._order_spin.value() == 1
+
+    def test_order_auto_suggests_next_for_existing_series(self, qapp, mem_db):
+        mem_db.create_document("C1", series_title="Novel", series_order=3)
+        dlg = NewFileDialog(mem_db)
+        dlg._series_edit.setText("Novel")
+        dlg._on_series_changed("Novel")
+        assert dlg._order_spin.value() == 4
+
+    def test_order_not_changed_when_series_cleared(self, qapp, mem_db):
+        dlg = NewFileDialog(mem_db)
+        dlg._order_spin.setValue(5)
+        dlg._on_series_changed("")
+        assert dlg._order_spin.value() == 5
+
+    # --- profile link ---
+
+    def test_profile_link_checkbox_exists(self, qapp, mem_db):
+        dlg = NewFileDialog(mem_db)
+        assert hasattr(dlg, "_link_profile_check")
+
+    def test_profile_link_combo_exists(self, qapp, mem_db):
+        dlg = NewFileDialog(mem_db)
+        assert hasattr(dlg, "_profile_combo")
+
+    def test_profile_link_combo_lists_profiles(self, qapp, mem_db):
+        mem_db.create_profile("JP")
+        dlg = NewFileDialog(mem_db)
+        items = [dlg._profile_combo.itemText(i) for i in range(dlg._profile_combo.count())]
+        assert "Default" in items
+        assert "JP" in items
+
+    def test_profile_preselected_for_known_series(self, qapp, mem_db):
+        mem_db.create_profile("JP")
+        mem_db.set_series_profile("My Novel", "JP")
+        dlg = NewFileDialog(mem_db)
+        dlg._series_edit.setText("My Novel")
+        dlg._on_series_changed("My Novel")
+        assert dlg._profile_combo.currentText() == "JP"
+        assert dlg._link_profile_check.isChecked()
+
+    def test_on_create_saves_series_profile_link(self, qapp, mem_db):
+        mem_db.create_profile("JP")
+        dlg = NewFileDialog(mem_db)
+        dlg._series_edit.setText("New Series")
+        dlg._link_profile_check.setChecked(True)
+        dlg._profile_combo.setCurrentText("JP")
+        dlg._entry_box.setPlainText("text")
+        dlg._on_create()
+        assert mem_db.get_series_profile("New Series") == "JP"
+
+    def test_on_create_does_not_save_link_when_unchecked(self, qapp, mem_db):
+        mem_db.create_profile("JP")
+        dlg = NewFileDialog(mem_db)
+        dlg._series_edit.setText("New Series")
+        dlg._link_profile_check.setChecked(False)
+        dlg._entry_box.setPlainText("text")
+        dlg._on_create()
+        assert mem_db.get_series_profile("New Series") == ""
+
+    def test_link_property_returns_profile_name_when_checked(self, qapp, mem_db):
+        mem_db.create_profile("JP")
+        dlg = NewFileDialog(mem_db)
+        dlg._series_edit.setText("Novel")
+        dlg._link_profile_check.setChecked(True)
+        dlg._profile_combo.setCurrentText("JP")
+        dlg._entry_box.setPlainText("text")
+        dlg._on_create()
+        assert dlg.linked_profile == "JP"
+
+    def test_link_property_returns_empty_when_unchecked(self, qapp, mem_db):
+        dlg = NewFileDialog(mem_db)
+        dlg._link_profile_check.setChecked(False)
+        dlg._entry_box.setPlainText("text")
+        dlg._on_create()
+        assert dlg.linked_profile == ""
+
 
 # ---------------------------------------------------------------------------
 # ProfileDialog — DB-backed
