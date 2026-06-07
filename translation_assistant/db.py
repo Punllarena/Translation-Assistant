@@ -82,6 +82,16 @@ class Database:
             self._conn.commit()
         # Ensure foreign keys are on for this connection (WAL set per session)
         self._conn.execute("PRAGMA foreign_keys = ON")
+        # Idempotent column migrations
+        existing = {r[1] for r in self._conn.execute("PRAGMA table_info(documents)").fetchall()}
+        for col, defn in [
+            ("series_title",  "TEXT    NOT NULL DEFAULT ''"),
+            ("series_order",  "INTEGER NOT NULL DEFAULT 0"),
+            ("chapter_title", "TEXT    NOT NULL DEFAULT ''"),
+        ]:
+            if col not in existing:
+                self._conn.execute(f"ALTER TABLE documents ADD COLUMN {col} {defn}")
+        self._conn.commit()
 
     def close(self) -> None:
         self._conn.close()
@@ -193,16 +203,49 @@ class Database:
 
     def list_documents(self) -> list[dict]:
         rows = self._conn.execute(
-            "SELECT id, title, updated_at, last_position FROM documents ORDER BY updated_at DESC"
+            """
+            SELECT d.id, d.title, d.series_title, d.series_order, d.chapter_title,
+                   d.updated_at, d.last_position,
+                   CAST(COALESCE(
+                       SUM(CASE WHEN l.translated_text != '' THEN 1 ELSE 0 END) * 100
+                       / NULLIF(COUNT(l.id), 0), 0
+                   ) AS INTEGER) AS progress
+            FROM documents d
+            LEFT JOIN lines l ON l.document_id = d.id
+            GROUP BY d.id
+            ORDER BY d.updated_at DESC
+            """
         ).fetchall()
         return [dict(r) for r in rows]
 
-    def create_document(self, title: str) -> int:
+    def create_document(self, title: str, *,
+                        series_title: str = "",
+                        series_order: int = 0,
+                        chapter_title: str = "") -> int:
         cur = self._conn.execute(
-            "INSERT INTO documents (title) VALUES (?)", (title,)
+            "INSERT INTO documents (title, series_title, series_order, chapter_title) "
+            "VALUES (?, ?, ?, ?)",
+            (title, series_title, series_order, chapter_title),
         )
         self._conn.commit()
         return cur.lastrowid
+
+    def update_document_metadata(self, doc_id: int, *,
+                                 series_title: str,
+                                 series_order: int,
+                                 chapter_title: str) -> None:
+        self._conn.execute(
+            "UPDATE documents SET series_title=?, series_order=?, chapter_title=? WHERE id=?",
+            (series_title, series_order, chapter_title, doc_id),
+        )
+        self._conn.commit()
+
+    def get_series_list(self) -> list[str]:
+        rows = self._conn.execute(
+            "SELECT DISTINCT series_title FROM documents "
+            "WHERE series_title != '' ORDER BY series_title"
+        ).fetchall()
+        return [r[0] for r in rows]
 
     def delete_document(self, doc_id: int) -> None:
         self._conn.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
@@ -210,7 +253,8 @@ class Database:
 
     def get_document(self, doc_id: int) -> dict:
         row = self._conn.execute(
-            "SELECT id, title, source_language, created_at, updated_at, last_position "
+            "SELECT id, title, series_title, series_order, chapter_title, "
+            "source_language, created_at, updated_at, last_position "
             "FROM documents WHERE id = ?",
             (doc_id,),
         ).fetchone()

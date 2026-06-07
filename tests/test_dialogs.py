@@ -161,33 +161,62 @@ class TestPhraseDialog:
 # ---------------------------------------------------------------------------
 
 class TestNewFileDialog:
-    def test_instantiates(self, qapp):
-        dlg = NewFileDialog()
+    def test_instantiates(self, qapp, mem_db):
+        dlg = NewFileDialog(mem_db)
         assert dlg is not None
 
-    def test_initial_raw_output_empty(self, qapp):
-        dlg = NewFileDialog()
+    def test_initial_raw_output_empty(self, qapp, mem_db):
+        dlg = NewFileDialog(mem_db)
         assert dlg.raw_output_text == ""
 
-    def test_create_sets_raw_output_text(self, qapp):
-        dlg = NewFileDialog()
+    def test_create_sets_raw_output_text(self, qapp, mem_db):
+        dlg = NewFileDialog(mem_db)
         dlg._entry_box.setPlainText("A。B\nC")
         dlg._on_create()
         assert "---SEPERATOR---" in dlg.raw_output_text
         assert dlg.raw_output_text != ""
 
-    def test_create_uses_core_build_new_file(self, qapp):
-        dlg = NewFileDialog()
+    def test_create_uses_core_build_new_file(self, qapp, mem_db):
+        dlg = NewFileDialog(mem_db)
         dlg._entry_box.setPlainText("Hello world")
         dlg._on_create()
         assert "%Hello world" in dlg.raw_output_text
         assert "---SEPERATOR---" in dlg.raw_output_text
 
-    def test_create_accepts_dialog(self, qapp):
-        dlg = NewFileDialog()
+    def test_create_accepts_dialog(self, qapp, mem_db):
+        dlg = NewFileDialog(mem_db)
         dlg._entry_box.setPlainText("Some text")
         dlg._on_create()
         assert dlg.result() == QDialog.DialogCode.Accepted
+
+    def test_series_title_property(self, qapp, mem_db):
+        dlg = NewFileDialog(mem_db)
+        dlg._series_edit.setText("My Novel")
+        dlg._entry_box.setPlainText("text")
+        dlg._on_create()
+        assert dlg.series_title == "My Novel"
+
+    def test_series_order_property(self, qapp, mem_db):
+        dlg = NewFileDialog(mem_db)
+        dlg._order_spin.setValue(3)
+        dlg._entry_box.setPlainText("text")
+        dlg._on_create()
+        assert dlg.series_order == 3
+
+    def test_chapter_title_property(self, qapp, mem_db):
+        dlg = NewFileDialog(mem_db)
+        dlg._chapter_edit.setText("The Beginning")
+        dlg._entry_box.setPlainText("text")
+        dlg._on_create()
+        assert dlg.chapter_title == "The Beginning"
+
+    def test_metadata_defaults_to_empty(self, qapp, mem_db):
+        dlg = NewFileDialog(mem_db)
+        dlg._entry_box.setPlainText("text")
+        dlg._on_create()
+        assert dlg.series_title == ""
+        assert dlg.series_order == 0
+        assert dlg.chapter_title == ""
 
 
 # ---------------------------------------------------------------------------

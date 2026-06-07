@@ -345,7 +345,9 @@ class MainWindow(QMainWindow):
     # Content loading
     # ------------------------------------------------------------------
 
-    def load_content(self, text: str, *, title: str = "Untitled") -> None:
+    def load_content(self, text: str, *, title: str = "Untitled",
+                     series_title: str = "", series_order: int = 0,
+                     chapter_title: str = "") -> None:
         """Parse a SEPERATOR-format file and initialise the UI. (Public for tests.)"""
         from translation_assistant.core import parse_file_content
         raw_lines, translated_lines, raw_section = parse_file_content(text)
@@ -354,7 +356,12 @@ class MainWindow(QMainWindow):
         self._raw_section = raw_section
         self._array_pointer = 0
 
-        doc_id = self._db.create_document(title)
+        doc_id = self._db.create_document(
+            title,
+            series_title=series_title,
+            series_order=series_order,
+            chapter_title=chapter_title,
+        )
         self._db.save_lines(doc_id, self._lines_as_db_rows())
         self._doc_id = doc_id
         self._finish_load()
@@ -708,9 +715,16 @@ class MainWindow(QMainWindow):
     def _on_new(self) -> None:
         from translation_assistant.ui.dlg_new import NewFileDialog
         with self._topmost_suspended():
-            dlg = NewFileDialog(parent=self)
+            dlg = NewFileDialog(self._db, parent=self)
             if dlg.exec():
-                self.load_content(dlg.raw_output_text, title="New Document")
+                display = dlg.chapter_title or "New Document"
+                self.load_content(
+                    dlg.raw_output_text,
+                    title=display,
+                    series_title=dlg.series_title,
+                    series_order=dlg.series_order,
+                    chapter_title=dlg.chapter_title,
+                )
 
     def _on_open(self) -> None:
         from translation_assistant.ui.dlg_open import OpenDocumentDialog

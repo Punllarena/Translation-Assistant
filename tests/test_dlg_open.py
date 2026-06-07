@@ -1,5 +1,9 @@
 """
-Tests for OpenDocumentDialog (dlg_open.py) — Stage E.
+Tests for OpenDocumentDialog (dlg_open.py) — Stage J.
+
+The dialog now uses a QTreeWidget grouped by series. Ungrouped documents
+appear under a "(No Series)" group. Each leaf item represents a document;
+series group items are headers and cannot be opened.
 """
 import sqlite3
 import pytest
@@ -14,22 +18,92 @@ def mem_db():
     return Database(":memory:", _conn=conn)
 
 
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _root(dlg: OpenDocumentDialog):
+    return dlg._tree.invisibleRootItem()
+
+def _group_names(dlg: OpenDocumentDialog) -> list[str]:
+    r = _root(dlg)
+    return [r.child(i).text(0) for i in range(r.childCount())]
+
+def _all_leaf_titles(dlg: OpenDocumentDialog) -> list[str]:
+    r = _root(dlg)
+    titles = []
+    for i in range(r.childCount()):
+        group = r.child(i)
+        for j in range(group.childCount()):
+            titles.append(group.child(j).text(0))
+    return titles
+
+def _first_leaf(dlg: OpenDocumentDialog):
+    r = _root(dlg)
+    for i in range(r.childCount()):
+        group = r.child(i)
+        if group.childCount():
+            return group.child(0)
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Tests
+# ---------------------------------------------------------------------------
+
 class TestOpenDocumentDialog:
     def test_instantiates_with_empty_db(self, qapp, mem_db):
         dlg = OpenDocumentDialog(mem_db)
         assert dlg is not None
 
-    def test_shows_no_rows_when_db_empty(self, qapp, mem_db):
+    def test_shows_no_groups_when_db_empty(self, qapp, mem_db):
         dlg = OpenDocumentDialog(mem_db)
-        assert dlg._table.rowCount() == 0
+        assert _root(dlg).childCount() == 0
 
-    def test_shows_documents_in_table(self, qapp, mem_db):
+    def test_ungrouped_doc_appears_under_no_series(self, qapp, mem_db):
         mem_db.create_document("My Story")
-        mem_db.create_document("Another Doc")
         dlg = OpenDocumentDialog(mem_db)
-        titles = [dlg._table.item(r, 0).text() for r in range(dlg._table.rowCount())]
-        assert "My Story" in titles
-        assert "Another Doc" in titles
+        assert "(No Series)" in _group_names(dlg)
+        assert "My Story" in _all_leaf_titles(dlg)
+
+    def test_grouped_doc_appears_under_series(self, qapp, mem_db):
+        mem_db.create_document("Ch1", series_title="My Novel", series_order=1, chapter_title="Chapter 1")
+        dlg = OpenDocumentDialog(mem_db)
+        assert "My Novel" in _group_names(dlg)
+        assert "Chapter 1" in _all_leaf_titles(dlg)
+
+    def test_documents_grouped_correctly(self, qapp, mem_db):
+        mem_db.create_document("C1", series_title="Novel", series_order=1, chapter_title="Ch 1")
+        mem_db.create_document("C2", series_title="Novel", series_order=2, chapter_title="Ch 2")
+        mem_db.create_document("Standalone")
+        dlg = OpenDocumentDialog(mem_db)
+        groups = _group_names(dlg)
+        assert "Novel" in groups
+        assert "(No Series)" in groups
+        # Novel group has 2 children
+        r = _root(dlg)
+        novel_group = next(r.child(i) for i in range(r.childCount()) if r.child(i).text(0) == "Novel")
+        assert novel_group.childCount() == 2
+
+    def test_progress_shown_for_document(self, qapp, mem_db):
+        doc_id = mem_db.create_document("Story")
+        mem_db.save_lines(doc_id, [
+            {"line_number": 0, "prefix": "%", "raw_text": "A", "translated_text": "Translated"},
+            {"line_number": 1, "prefix": "%", "raw_text": "B", "translated_text": ""},
+        ])
+        dlg = OpenDocumentDialog(mem_db)
+        leaf = _first_leaf(dlg)
+        assert leaf is not None
+        assert "50%" in leaf.text(1)
+
+    def test_series_header_not_selectable(self, qapp, mem_db):
+        from PySide6.QtCore import Qt
+        mem_db.create_document("Doc", series_title="Series A", chapter_title="Ch")
+        dlg = OpenDocumentDialog(mem_db)
+        r = _root(dlg)
+        group = r.child(0)
+        flags = group.flags()
+        assert not (flags & Qt.ItemFlag.ItemIsSelectable)
 
     def test_selected_doc_id_none_initially(self, qapp, mem_db):
         mem_db.create_document("Doc")
@@ -41,36 +115,80 @@ class TestOpenDocumentDialog:
         dlg = OpenDocumentDialog(mem_db)
         assert not dlg._open_btn.isEnabled()
 
-    def test_open_btn_enabled_on_row_select(self, qapp, mem_db):
+    def test_open_btn_enabled_on_leaf_select(self, qapp, mem_db):
         mem_db.create_document("Doc")
         dlg = OpenDocumentDialog(mem_db)
-        dlg._table.selectRow(0)
+        leaf = _first_leaf(dlg)
+        dlg._tree.setCurrentItem(leaf)
         assert dlg._open_btn.isEnabled()
 
-    def test_selected_doc_id_set_on_accept(self, qapp, mem_db):
+    def test_selected_doc_id_set_on_open(self, qapp, mem_db):
         doc_id = mem_db.create_document("My Story")
         dlg = OpenDocumentDialog(mem_db)
-        dlg._table.selectRow(0)
+        leaf = _first_leaf(dlg)
+        dlg._tree.setCurrentItem(leaf)
         dlg._on_open()
         assert dlg.selected_doc_id == doc_id
 
     def test_delete_removes_document_from_db(self, qapp, mem_db):
         mem_db.create_document("To Delete")
         dlg = OpenDocumentDialog(mem_db)
-        dlg._table.selectRow(0)
+        leaf = _first_leaf(dlg)
+        dlg._tree.setCurrentItem(leaf)
         dlg._on_delete()
         assert mem_db.list_documents() == []
 
-    def test_delete_removes_row_from_table(self, qapp, mem_db):
+    def test_delete_removes_leaf_from_tree(self, qapp, mem_db):
         mem_db.create_document("To Delete")
         dlg = OpenDocumentDialog(mem_db)
-        dlg._table.selectRow(0)
+        leaf = _first_leaf(dlg)
+        dlg._tree.setCurrentItem(leaf)
         dlg._on_delete()
-        assert dlg._table.rowCount() == 0
+        assert _first_leaf(dlg) is None
 
-    def test_double_click_accepts_dialog(self, qapp, mem_db):
+    def test_delete_removes_empty_group(self, qapp, mem_db):
+        mem_db.create_document("Only Doc")
+        dlg = OpenDocumentDialog(mem_db)
+        leaf = _first_leaf(dlg)
+        dlg._tree.setCurrentItem(leaf)
+        dlg._on_delete()
+        assert _root(dlg).childCount() == 0
+
+    def test_double_click_opens_doc(self, qapp, mem_db):
         doc_id = mem_db.create_document("Quick Open")
         dlg = OpenDocumentDialog(mem_db)
-        # Simulate double-click by calling the handler directly
-        dlg._on_row_double_clicked(0, 0)
+        leaf = _first_leaf(dlg)
+        dlg._on_item_double_clicked(leaf, 0)
         assert dlg.selected_doc_id == doc_id
+
+    def test_filter_hides_non_matching_leaves(self, qapp, mem_db):
+        mem_db.create_document("Alpha", chapter_title="Alpha")
+        mem_db.create_document("Beta", chapter_title="Beta")
+        dlg = OpenDocumentDialog(mem_db)
+        dlg._filter_edit.setText("Alpha")
+        visible = [t for t in _all_leaf_titles(dlg)
+                   if not _first_leaf_is_hidden(dlg, t)]
+        assert "Alpha" in visible
+        assert "Beta" not in visible
+
+    def test_filter_shows_all_on_clear(self, qapp, mem_db):
+        mem_db.create_document("Alpha", chapter_title="Alpha")
+        mem_db.create_document("Beta", chapter_title="Beta")
+        dlg = OpenDocumentDialog(mem_db)
+        dlg._filter_edit.setText("Alpha")
+        dlg._filter_edit.setText("")
+        visible = [t for t in _all_leaf_titles(dlg)
+                   if not _first_leaf_is_hidden(dlg, t)]
+        assert "Alpha" in visible
+        assert "Beta" in visible
+
+
+def _first_leaf_is_hidden(dlg, title: str) -> bool:
+    r = _root(dlg)
+    for i in range(r.childCount()):
+        group = r.child(i)
+        for j in range(group.childCount()):
+            child = group.child(j)
+            if child.text(0) == title:
+                return child.isHidden()
+    return True

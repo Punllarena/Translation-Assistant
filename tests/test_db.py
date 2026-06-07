@@ -396,3 +396,113 @@ def test_migrate_skips_lex_if_absent(tmp_path):
     database = Database(":memory:", _conn=conn)
     migrate_files_to_db(profile_dir, database)  # must not raise
     assert "Default" in database.list_profiles()
+
+
+# ---------------------------------------------------------------------------
+# Stage H — document metadata (series_title, series_order, chapter_title)
+# ---------------------------------------------------------------------------
+
+def _doc_columns(db: Database) -> set[str]:
+    rows = db._conn.execute("PRAGMA table_info(documents)").fetchall()
+    return {r[1] for r in rows}
+
+
+def test_series_columns_exist(db):
+    cols = _doc_columns(db)
+    assert "series_title" in cols
+    assert "series_order" in cols
+    assert "chapter_title" in cols
+
+
+def test_create_document_with_metadata(db):
+    doc_id = db.create_document(
+        "Ch1", series_title="My Novel", series_order=1, chapter_title="The Beginning"
+    )
+    doc = db.get_document(doc_id)
+    assert doc["series_title"] == "My Novel"
+    assert doc["series_order"] == 1
+    assert doc["chapter_title"] == "The Beginning"
+
+
+def test_create_document_metadata_defaults_to_empty(db):
+    doc_id = db.create_document("Untitled")
+    doc = db.get_document(doc_id)
+    assert doc["series_title"] == ""
+    assert doc["series_order"] == 0
+    assert doc["chapter_title"] == ""
+
+
+def test_update_document_metadata(db):
+    doc_id = db.create_document("Old")
+    db.update_document_metadata(
+        doc_id, series_title="Series A", series_order=3, chapter_title="New Chapter"
+    )
+    doc = db.get_document(doc_id)
+    assert doc["series_title"] == "Series A"
+    assert doc["series_order"] == 3
+    assert doc["chapter_title"] == "New Chapter"
+
+
+def test_get_series_list_returns_distinct_sorted(db):
+    db.create_document("a", series_title="Zebra")
+    db.create_document("b", series_title="Alpha")
+    db.create_document("c", series_title="Zebra")  # duplicate
+    db.create_document("d", series_title="")        # empty — excluded
+    assert db.get_series_list() == ["Alpha", "Zebra"]
+
+
+def test_list_documents_includes_progress(db):
+    doc_id = db.create_document("Story")
+    db.save_lines(doc_id, [
+        {"line_number": 0, "prefix": "%", "raw_text": "A", "translated_text": "Translated"},
+        {"line_number": 1, "prefix": "%", "raw_text": "B", "translated_text": ""},
+    ])
+    docs = db.list_documents()
+    assert "progress" in docs[0]
+    assert docs[0]["progress"] == 50
+
+
+def test_list_documents_progress_zero_for_empty_doc(db):
+    db.create_document("Empty")
+    docs = db.list_documents()
+    assert docs[0]["progress"] == 0
+
+
+def test_list_documents_includes_metadata_fields(db):
+    db.create_document("Ch1", series_title="S", series_order=2, chapter_title="C")
+    doc = db.list_documents()[0]
+    assert doc["series_title"] == "S"
+    assert doc["series_order"] == 2
+    assert doc["chapter_title"] == "C"
+
+
+def test_migration_adds_columns_to_existing_db(tmp_path):
+    """A DB created without the new columns gets them added by _apply_schema."""
+    import sqlite3 as _sqlite3
+    db_path = tmp_path / "old.db"
+    # Create a minimal DB missing the new columns
+    old_conn = _sqlite3.connect(str(db_path))
+    old_conn.execute(
+        "CREATE TABLE documents "
+        "(id INTEGER PRIMARY KEY, title TEXT NOT NULL, "
+        "source_language TEXT NOT NULL DEFAULT 'ja', "
+        "created_at TEXT NOT NULL DEFAULT (datetime('now')), "
+        "updated_at TEXT NOT NULL DEFAULT (datetime('now')), "
+        "last_position INTEGER NOT NULL DEFAULT 0)"
+    )
+    old_conn.execute("INSERT INTO documents (title) VALUES ('old')")
+    old_conn.commit()
+    old_conn.close()
+
+    # Re-open with Database — should add the new columns without error
+    db2 = Database(db_path)
+    cols = _doc_columns(db2)
+    assert "series_title" in cols
+    assert "series_order" in cols
+    assert "chapter_title" in cols
+    # Existing row survived
+    docs = db2.list_documents()
+    assert len(docs) == 1
+    assert docs[0]["title"] == "old"
+    assert docs[0]["series_title"] == ""
+    db2.close()
