@@ -5,10 +5,12 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QCompleter, QDialog, QFormLayout, QHBoxLayout,
-    QLabel, QLineEdit, QPlainTextEdit, QPushButton, QSpinBox, QVBoxLayout,
+    QLabel, QLineEdit, QPlainTextEdit, QPushButton, QSpinBox, QTabWidget,
+    QVBoxLayout, QWidget,
 )
 
 from translation_assistant.core import build_new_file
+from translation_assistant.scraper import FetchWorker
 
 _CJK_FAMILIES = ["Microsoft YaHei", "Noto Sans CJK SC", "WenQuanYi Micro Hei", "sans-serif"]
 _USE_SERIES = "Use the Series Title"
@@ -32,6 +34,7 @@ class NewFileDialog(QDialog):
         self._series_order = 0
         self._chapter_title = ""
         self._linked_profile = ""
+        self._worker = None
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -85,11 +88,46 @@ class NewFileDialog(QDialog):
         link_row.addStretch()
         layout.addLayout(link_row)
 
-        layout.addWidget(QLabel("Source text:"))
+        self._tabs = QTabWidget()
+
+        # Tab 0: Paste Text
+        paste_widget = QVBoxLayout()
         self._entry_box = QPlainTextEdit()
         self._entry_box.setFont(cjk_font)
         self._entry_box.setMinimumHeight(380)
-        layout.addWidget(self._entry_box)
+        paste_widget.addWidget(self._entry_box)
+        paste_widget.setContentsMargins(0, 4, 0, 0)
+        paste_tab = QWidget()
+        paste_tab.setLayout(paste_widget)
+        self._tabs.addTab(paste_tab, "Paste Text")
+
+        # Tab 1: Fetch from URL
+        fetch_tab = QWidget()
+        fetch_layout = QVBoxLayout(fetch_tab)
+        fetch_layout.setContentsMargins(0, 4, 0, 0)
+        fetch_layout.setSpacing(4)
+
+        url_row = QHBoxLayout()
+        self._url_edit = QLineEdit()
+        self._url_edit.setPlaceholderText("e.g. https://ncode.syosetu.com/n7696mg/1/")
+        self._fetch_btn = QPushButton("Fetch")
+        self._fetch_btn.setFixedWidth(60)
+        self._fetch_btn.clicked.connect(self._on_fetch)
+        url_row.addWidget(self._url_edit)
+        url_row.addWidget(self._fetch_btn)
+        fetch_layout.addLayout(url_row)
+
+        self._fetch_status = QLabel("")
+        fetch_layout.addWidget(self._fetch_status)
+
+        self._fetch_box = QPlainTextEdit()
+        self._fetch_box.setFont(cjk_font)
+        self._fetch_box.setMinimumHeight(380)
+        fetch_layout.addWidget(self._fetch_box)
+
+        self._tabs.addTab(fetch_tab, "Fetch from URL")
+
+        layout.addWidget(self._tabs)
 
         self._create_btn = QPushButton("Create")
         self._create_btn.setFixedHeight(25)
@@ -112,8 +150,35 @@ class NewFileDialog(QDialog):
                     self._profile_combo.setCurrentIndex(idx)
                 self._link_profile_check.setChecked(True)
 
+    def _on_fetch(self) -> None:
+        url = self._url_edit.text().strip()
+        if not url:
+            return
+        self._fetch_btn.setEnabled(False)
+        self._fetch_status.setText("Fetching…")
+        self._worker = FetchWorker(url, parent=self)
+        self._worker.finished.connect(self._on_fetch_done)
+        self._worker.error.connect(self._on_fetch_error)
+        self._worker.start()
+
+    def _on_fetch_done(self, title: str, content: str) -> None:
+        combined = f"{title}\n\n{content}" if title else content
+        self._fetch_box.setPlainText(combined)
+        self._fetch_status.setText("Done")
+        self._fetch_btn.setEnabled(True)
+        self._worker = None
+
+    def _on_fetch_error(self, msg: str) -> None:
+        self._fetch_status.setText(f"Error: {msg}")
+        self._fetch_btn.setEnabled(True)
+        self._worker = None
+
     def _on_create(self) -> None:
-        self._raw_output_text = build_new_file(self._entry_box.toPlainText())
+        if self._tabs.currentIndex() == 0:
+            text = self._entry_box.toPlainText()
+        else:
+            text = self._fetch_box.toPlainText()
+        self._raw_output_text = build_new_file(text)
         self._series_title = self._series_edit.text().strip()
         self._series_order = self._order_spin.value()
         self._chapter_title = self._chapter_edit.text().strip()
