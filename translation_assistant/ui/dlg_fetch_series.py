@@ -22,6 +22,7 @@ class FetchSeriesDialog(QDialog):
         self._series_url = series_url
         self._chapters: list[dict] = []
         self._fetch_worker: SeriesFetchWorker | None = None
+        self._index_worker: IndexFetchWorker | None = None
         self._added = 0
         self._setup_ui()
         self._start_index_load()
@@ -90,9 +91,11 @@ class FetchSeriesDialog(QDialog):
             f"{len(chapters)} chapters found. Select chapters to fetch."
         )
         self._update_action_btn()
+        self._index_worker = None
 
     def _on_index_error(self, msg: str) -> None:
         self._status_label.setText(f"Error loading chapter list: {msg}")
+        self._index_worker = None
 
     def _on_check_changed(self, _item: QListWidgetItem) -> None:
         self._update_action_btn()
@@ -172,4 +175,6 @@ class FetchSeriesDialog(QDialog):
         if self._fetch_worker is not None:
             self._fetch_worker.requestInterruption()
             self._fetch_worker.wait(3000)
+        elif self._index_worker is not None and self._index_worker.isRunning():
+            self._index_worker.wait(3000)
         self.reject()
