@@ -171,6 +171,14 @@ class FetchSeriesDialog(QDialog):
         self._cancel_btn.setEnabled(True)
         self._fetch_worker = None
 
+    def closeEvent(self, event) -> None:
+        if self._fetch_worker is not None:
+            self._fetch_worker.requestInterruption()
+            self._fetch_worker.wait(3000)
+        elif self._index_worker is not None and self._index_worker.isRunning():
+            self._index_worker.wait(3000)
+        super().closeEvent(event)
+
     def _on_cancel(self) -> None:
         if self._fetch_worker is not None:
             self._fetch_worker.requestInterruption()
