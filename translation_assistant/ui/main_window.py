@@ -158,6 +158,10 @@ class MainWindow(QMainWindow):
         self._action_export.setEnabled(False)
 
         file_menu.addSeparator()
+        self._action_manage_series = file_menu.addAction("Manage Series…")
+        self._action_manage_series.triggered.connect(self._on_manage_series)
+
+        file_menu.addSeparator()
         self._action_db_export = file_menu.addAction("Export Database Backup…")
         self._action_db_export.triggered.connect(self._on_db_export)
         self._action_db_import = file_menu.addAction("Import Database Backup…")
@@ -859,6 +863,12 @@ class MainWindow(QMainWindow):
         self._load_glossary_for_profile()
         self._filesaved_label.setText("Database imported.")
         self._filesaved_timer.start()
+
+    def _on_manage_series(self) -> None:
+        from translation_assistant.ui.dlg_series import SeriesManagerDialog
+        with self._topmost_suspended():
+            dlg = SeriesManagerDialog(self._db, parent=self)
+            dlg.exec()
 
     # ------------------------------------------------------------------
     # Dialogs
