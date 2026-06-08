@@ -547,3 +547,72 @@ def test_get_next_series_order_returns_max_plus_one(db):
 def test_get_next_series_order_ignores_other_series(db):
     db.create_document("C1", series_title="Novel A", series_order=5)
     assert db.get_next_series_order("Novel B") == 1
+
+
+# ---------------------------------------------------------------------------
+# Series URL
+# ---------------------------------------------------------------------------
+
+def test_get_series_url_missing(db):
+    assert db.get_series_url("NoSeries") == ""
+
+
+def test_set_and_get_series_url(db):
+    db.set_series_url("My Series", "https://ncode.syosetu.com/n1234ab/")
+    assert db.get_series_url("My Series") == "https://ncode.syosetu.com/n1234ab/"
+
+
+def test_set_series_url_overwrites(db):
+    db.set_series_url("My Series", "https://ncode.syosetu.com/n1234ab/")
+    db.set_series_url("My Series", "https://ncode.syosetu.com/n9999zz/")
+    assert db.get_series_url("My Series") == "https://ncode.syosetu.com/n9999zz/"
+
+
+def test_set_series_url_empty_clears(db):
+    db.set_series_url("My Series", "https://ncode.syosetu.com/n1234ab/")
+    db.set_series_url("My Series", "")
+    assert db.get_series_url("My Series") == ""
+
+
+# ---------------------------------------------------------------------------
+# Series chapters (existing series_order values)
+# ---------------------------------------------------------------------------
+
+def test_get_series_chapters_empty(db):
+    assert db.get_series_chapters("Nonexistent") == []
+
+
+def test_get_series_chapters_returns_orders(db):
+    db.create_document("Doc A", series_title="S", series_order=1, chapter_title="")
+    db.create_document("Doc B", series_title="S", series_order=2, chapter_title="")
+    db.create_document("Doc C", series_title="S", series_order=5, chapter_title="")
+    assert db.get_series_chapters("S") == [1, 2, 5]
+
+
+# ---------------------------------------------------------------------------
+# get_series_list_full
+# ---------------------------------------------------------------------------
+
+def test_get_series_list_full_empty(db):
+    assert db.get_series_list_full() == []
+
+
+def test_get_series_list_full_basic(db):
+    db.create_document("D1", series_title="Alpha", series_order=1, chapter_title="")
+    db.create_document("D2", series_title="Alpha", series_order=2, chapter_title="")
+    db.create_document("D3", series_title="Beta",  series_order=1, chapter_title="")
+    db.set_series_url("Alpha", "https://ncode.syosetu.com/n0001aa/")
+    result = db.get_series_list_full()
+    titles = [r["title"] for r in result]
+    assert titles == ["Alpha", "Beta"]
+    alpha = next(r for r in result if r["title"] == "Alpha")
+    assert alpha["url"] == "https://ncode.syosetu.com/n0001aa/"
+    assert alpha["chapter_count"] == 2
+    beta = next(r for r in result if r["title"] == "Beta")
+    assert beta["url"] == ""
+    assert beta["chapter_count"] == 1
+
+
+def test_get_series_list_full_excludes_no_series(db):
+    db.create_document("Standalone", series_title="", series_order=0, chapter_title="")
+    assert db.get_series_list_full() == []

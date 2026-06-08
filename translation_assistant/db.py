@@ -98,6 +98,14 @@ class Database:
                 self._conn.execute(f"ALTER TABLE documents ADD COLUMN {col} {defn}")
         self._conn.commit()
 
+        # Idempotent column migration for series_profiles
+        sp_existing = {r[1] for r in self._conn.execute("PRAGMA table_info(series_profiles)").fetchall()}
+        if "syosetu_url" not in sp_existing:
+            self._conn.execute(
+                "ALTER TABLE series_profiles ADD COLUMN syosetu_url TEXT NOT NULL DEFAULT ''"
+            )
+        self._conn.commit()
+
     def close(self) -> None:
         self._conn.close()
 
@@ -273,6 +281,47 @@ class Database:
             (series_title,),
         ).fetchone()
         return (row[0] or 0) + 1
+
+    def get_series_url(self, series_title: str) -> str:
+        row = self._conn.execute(
+            "SELECT syosetu_url FROM series_profiles WHERE series_title = ?",
+            (series_title,),
+        ).fetchone()
+        return row[0] if row else ""
+
+    def set_series_url(self, series_title: str, url: str) -> None:
+        self._conn.execute(
+            "INSERT INTO series_profiles (series_title, syosetu_url) VALUES (?, ?) "
+            "ON CONFLICT(series_title) DO UPDATE SET syosetu_url = excluded.syosetu_url",
+            (series_title, url),
+        )
+        self._conn.commit()
+
+    def get_series_chapters(self, series_title: str) -> list[int]:
+        rows = self._conn.execute(
+            "SELECT series_order FROM documents WHERE series_title = ? ORDER BY series_order",
+            (series_title,),
+        ).fetchall()
+        return [r[0] for r in rows]
+
+    def get_series_list_full(self) -> list[dict]:
+        rows = self._conn.execute(
+            """
+            SELECT
+                d.series_title      AS title,
+                COALESCE(sp.syosetu_url, '')   AS url,
+                COUNT(d.id)         AS chapter_count,
+                COALESCE(sp.profile_name, '')  AS profile_name
+            FROM (
+                SELECT DISTINCT series_title FROM documents WHERE series_title != ''
+            ) dt
+            JOIN documents d ON d.series_title = dt.series_title
+            LEFT JOIN series_profiles sp ON sp.series_title = dt.series_title
+            GROUP BY d.series_title
+            ORDER BY d.series_title
+            """
+        ).fetchall()
+        return [dict(r) for r in rows]
 
     def delete_document(self, doc_id: int) -> None:
         self._conn.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
