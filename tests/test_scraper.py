@@ -4,7 +4,6 @@ Tests for scraper.py — fetch_series_index, IndexFetchWorker, SeriesFetchWorker
 from unittest.mock import MagicMock, patch
 
 import pytest
-from PySide6.QtWidgets import QApplication
 
 from translation_assistant.scraper import (
     fetch_series_index,
@@ -23,11 +22,6 @@ _TOC_HTML = """
 </div>
 </body></html>
 """
-
-
-@pytest.fixture(scope="session")
-def qapp():
-    return QApplication.instance() or QApplication([])
 
 
 # ---------------------------------------------------------------------------

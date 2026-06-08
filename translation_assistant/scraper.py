@@ -117,7 +117,7 @@ class SeriesFetchWorker(QThread):
     error = Signal(int, str)               # chapter_num, message
     finished = Signal()
 
-    def __init__(self, chapters_to_fetch: list, parent=None) -> None:
+    def __init__(self, chapters_to_fetch: list[dict], parent=None) -> None:
         super().__init__(parent)
         self._chapters_to_fetch = chapters_to_fetch
 
@@ -127,8 +127,8 @@ class SeriesFetchWorker(QThread):
             if self.isInterruptionRequested():
                 break
             try:
-                _title, content = fetch_syosetu(ch["url"])
-                self.chapter_done.emit(ch["num"], _title, content)
+                title, content = fetch_syosetu(ch["url"])
+                self.chapter_done.emit(ch["num"], title, content)
             except Exception as exc:
                 self.error.emit(ch["num"], str(exc))
             self.progress.emit(i + 1, total)
