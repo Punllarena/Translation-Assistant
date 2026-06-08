@@ -64,6 +64,13 @@ class NewFileDialog(QDialog):
         self._series_edit.textChanged.connect(self._on_series_changed)
         form.addRow("Series Title:", self._series_edit)
 
+        self._series_url_label = QLabel("Series URL:")
+        self._series_url_edit = QLineEdit()
+        self._series_url_edit.setPlaceholderText("e.g. https://novel18.syosetu.com/n7696mg/")
+        form.addRow(self._series_url_label, self._series_url_edit)
+        self._series_url_edit.setVisible(False)
+        self._series_url_label.setVisible(False)
+
         self._order_spin = QSpinBox()
         self._order_spin.setRange(0, 9999)
         self._order_spin.setValue(0)
@@ -138,6 +145,9 @@ class NewFileDialog(QDialog):
         self._series_edit.setFocus()
 
     def _on_series_changed(self, text: str) -> None:
+        has_series = bool(text.strip())
+        self._series_url_edit.setVisible(has_series)
+        self._series_url_label.setVisible(has_series)
         if not text.strip():
             return
         if self._db:
@@ -149,6 +159,8 @@ class NewFileDialog(QDialog):
                 if idx >= 0:
                     self._profile_combo.setCurrentIndex(idx)
                 self._link_profile_check.setChecked(True)
+            url = self._db.get_series_url(text.strip())
+            self._series_url_edit.setText(url)
 
     def _on_fetch(self) -> None:
         url = self._url_edit.text().strip()
@@ -194,6 +206,9 @@ class NewFileDialog(QDialog):
             self._db.set_series_profile(self._series_title, profile_name)
         else:
             self._linked_profile = ""
+        series_url = self._series_url_edit.text().strip()
+        if series_url and self._series_title and self._db:
+            self._db.set_series_url(self._series_title, series_url)
         self.accept()
 
     @property
