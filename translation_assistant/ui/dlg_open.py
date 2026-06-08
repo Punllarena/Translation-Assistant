@@ -54,6 +54,8 @@ class OpenDocumentDialog(QDialog):
         self._tree.setEditTriggers(QTreeWidget.EditTrigger.NoEditTriggers)
         self._tree.currentItemChanged.connect(self._on_selection_changed)
         self._tree.itemDoubleClicked.connect(self._on_item_double_clicked)
+        self._tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._tree.customContextMenuRequested.connect(self._on_context_menu)
         layout.addWidget(self._tree)
 
         btn_row = QHBoxLayout()
@@ -174,6 +176,25 @@ class OpenDocumentDialog(QDialog):
             return
         self._selected_doc_id = self._doc_ids[id(item)]
         self.accept()
+
+    def _on_context_menu(self, pos) -> None:
+        item = self._tree.itemAt(pos)
+        if item is None:
+            return
+        if item.childCount() == 0:
+            item = item.parent()
+        if item is None or item.text(0) == _NO_SERIES:
+            return
+        from PySide6.QtWidgets import QMenu
+        menu = QMenu(self)
+        action = menu.addAction("Manage Series…")
+        if menu.exec(self._tree.viewport().mapToGlobal(pos)) == action:
+            self._open_series_manager()
+
+    def _open_series_manager(self) -> None:
+        from translation_assistant.ui.dlg_series import SeriesManagerDialog
+        dlg = SeriesManagerDialog(self._db, parent=self)
+        dlg.exec()
 
     def _apply_filter(self, text: str) -> None:
         query = text.strip().lower()
