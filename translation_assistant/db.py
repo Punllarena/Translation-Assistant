@@ -255,8 +255,15 @@ class Database:
 
     def get_series_list(self) -> list[str]:
         rows = self._conn.execute(
-            "SELECT DISTINCT series_title FROM documents "
-            "WHERE series_title != '' ORDER BY series_title"
+            """
+            SELECT title FROM (
+                SELECT DISTINCT series_title AS title
+                  FROM documents WHERE series_title != ''
+                UNION
+                SELECT DISTINCT series_title AS title
+                  FROM series_profiles WHERE series_title != ''
+            ) ORDER BY title
+            """
         ).fetchall()
         return [r[0] for r in rows]
 
@@ -308,17 +315,21 @@ class Database:
         rows = self._conn.execute(
             """
             SELECT
-                d.series_title      AS title,
-                COALESCE(sp.syosetu_url, '')   AS url,
-                COUNT(d.id)         AS chapter_count,
-                COALESCE(sp.profile_name, '')  AS profile_name
+                all_series.title,
+                COALESCE(sp.syosetu_url, '')  AS url,
+                COUNT(d.id)                   AS chapter_count,
+                COALESCE(sp.profile_name, '') AS profile_name
             FROM (
-                SELECT DISTINCT series_title FROM documents WHERE series_title != ''
-            ) dt
-            JOIN documents d ON d.series_title = dt.series_title
-            LEFT JOIN series_profiles sp ON sp.series_title = dt.series_title
-            GROUP BY d.series_title
-            ORDER BY d.series_title
+                SELECT DISTINCT series_title AS title
+                  FROM documents WHERE series_title != ''
+                UNION
+                SELECT DISTINCT series_title AS title
+                  FROM series_profiles WHERE series_title != ''
+            ) all_series
+            LEFT JOIN documents d       ON d.series_title  = all_series.title
+            LEFT JOIN series_profiles sp ON sp.series_title = all_series.title
+            GROUP BY all_series.title
+            ORDER BY all_series.title
             """
         ).fetchall()
         return [dict(r) for r in rows]

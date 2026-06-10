@@ -627,3 +627,41 @@ def test_get_series_list_full_basic(db):
 def test_get_series_list_full_excludes_no_series(db):
     db.create_document("Standalone", series_title="", series_order=0, chapter_title="")
     assert db.get_series_list_full() == []
+
+
+def test_get_series_list_full_includes_profile_only_series(db):
+    """Series registered via set_series_url (no documents) must appear."""
+    db.set_series_url("Ghost Series", "https://ncode.syosetu.com/n0001aa/")
+    result = db.get_series_list_full()
+    assert len(result) == 1
+    assert result[0]["title"] == "Ghost Series"
+    assert result[0]["url"] == "https://ncode.syosetu.com/n0001aa/"
+    assert result[0]["chapter_count"] == 0
+
+
+def test_get_series_list_full_mixed_document_and_profile_only(db):
+    """Series with documents and profile-only series both appear, sorted."""
+    db.create_document("D1", series_title="Beta", series_order=1, chapter_title="")
+    db.set_series_url("Alpha", "https://ncode.syosetu.com/n0001aa/")
+    result = db.get_series_list_full()
+    titles = [r["title"] for r in result]
+    assert titles == ["Alpha", "Beta"]
+    alpha = next(r for r in result if r["title"] == "Alpha")
+    assert alpha["chapter_count"] == 0
+    beta = next(r for r in result if r["title"] == "Beta")
+    assert beta["chapter_count"] == 1
+
+
+def test_get_series_list_includes_profile_only_series(db):
+    """get_series_list() must include series from series_profiles with no documents."""
+    db.set_series_url("Ghost Series", "")
+    result = db.get_series_list()
+    assert "Ghost Series" in result
+
+
+def test_get_series_list_no_duplicates_when_both_exist(db):
+    """Series appearing in both documents and series_profiles shows once."""
+    db.create_document("D1", series_title="Alpha", series_order=1, chapter_title="")
+    db.set_series_url("Alpha", "https://ncode.syosetu.com/n0001aa/")
+    result = db.get_series_list()
+    assert result.count("Alpha") == 1
