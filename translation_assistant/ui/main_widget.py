@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QMessageBox, QSizePolicy, QSplitter, QStatusBar, QTextEdit, QVBoxLayout, QWidget,
 )
 
+from translation_assistant._version import BUILD_DATE
 from translation_assistant.settings import AppSettings
 from translation_assistant.spellcheck import SpellHighlighter
 
@@ -121,9 +122,12 @@ class TranslationAssistantWidget(QWidget):
     # ------------------------------------------------------------------
 
     def _build_actions(self) -> None:
-        self.action_new = QAction("New (CTRL+N)", self)
-        self.action_new.triggered.connect(self._on_new)
-        self.action_new.setShortcut("Ctrl+N")
+        self.action_new_doc = QAction("New Document (CTRL+N)", self)
+        self.action_new_doc.triggered.connect(self._on_new_doc)
+        self.action_new_doc.setShortcut("Ctrl+N")
+
+        self.action_new_series = QAction("New Series", self)
+        self.action_new_series.triggered.connect(self._on_new_series)
 
         self.action_open = QAction("Open (CTRL+O)", self)
         self.action_open.triggered.connect(self._on_open)
@@ -734,7 +738,7 @@ class TranslationAssistantWidget(QWidget):
         if self._doc_id is not None:
             self._save_to_db()
 
-    def _on_new(self) -> None:
+    def _on_new_doc(self) -> None:
         from translation_assistant.ui.dlg_new import NewFileDialog
         with self._topmost_suspended():
             dlg = NewFileDialog(self._db, parent=self)
@@ -747,6 +751,19 @@ class TranslationAssistantWidget(QWidget):
                     series_order=dlg.series_order,
                     chapter_title=dlg.chapter_title,
                 )
+
+    def _on_new_series(self) -> None:
+        if self._db is None:
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.warning(self, "New Series", "No database open.")
+            return
+        from translation_assistant.ui.dlg_new_series import NewSeriesDialog
+        from translation_assistant.ui.dlg_series import SeriesManagerDialog
+        with self._topmost_suspended():
+            dlg = NewSeriesDialog(self._db, parent=self)
+            if dlg.exec():
+                dlg2 = SeriesManagerDialog(self._db, parent=self)
+                dlg2.exec()
 
     def _on_open(self) -> None:
         from translation_assistant.ui.dlg_open import OpenDocumentDialog
@@ -929,12 +946,11 @@ class TranslationAssistantWidget(QWidget):
     def _on_about(self) -> None:
         QMessageBox.about(
             self, "About",
-            "Programmed by: joeglens\n"
-            "Python/PySide6 port\n"
-            "Copyright joeglens.wordpress.com 2015\n"
-            "File Version 1.0.0"
+            "Programmed by: Pun\n"
+            "Port of joeglens's Translation Assistant\n"
+            f"Version {BUILD_DATE}\n"
+            "https://github.com/Punllarena/TranslationAssistant-PySide6-Port"
         )
-
     # ------------------------------------------------------------------
     # Punctuation
     # ------------------------------------------------------------------

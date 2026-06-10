@@ -37,6 +37,7 @@ class CombinedMainWindow(QMainWindow):
         self.setCentralWidget(self._splitter)
 
         self._setup_menubar()
+        self._setup_toolbar()
         self._restore_splitter()
         self._connect_bridge()
 
@@ -64,7 +65,8 @@ class CombinedMainWindow(QMainWindow):
 
         # File
         file_menu = mb.addMenu("File")
-        file_menu.addAction(ta.action_new)
+        file_menu.addAction(ta.action_new_doc)
+        file_menu.addAction(ta.action_new_series)
         file_menu.addAction(ta.action_open)
         file_menu.addAction(ta.action_save)
         file_menu.addSeparator()
@@ -121,6 +123,13 @@ class CombinedMainWindow(QMainWindow):
         tools_menu.addAction(history_action)
         tools_menu.addSeparator()
         tools_menu.addAction(ta.action_about)
+
+    def _setup_toolbar(self) -> None:
+        tb = self.addToolBar("Main")
+        tb.setMovable(False)
+        ta = self._ta_widget
+        tb.addAction(ta.action_new_doc)
+        tb.addAction(ta.action_new_series)
 
     # ------------------------------------------------------------------
     # Window management
