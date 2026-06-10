@@ -6,16 +6,31 @@ from ta.translators.base import BaseTranslator
 _AVAILABLE = False
 _USE_FUGASHI = False
 
-try:
-    import fugashi
-    _AVAILABLE = True
-    _USE_FUGASHI = True
-except ImportError:
+import os as _os
+
+def _check_available() -> tuple[bool, bool]:
+    devnull = open(_os.devnull, "w")
+    old_fd = _os.dup(2)
+    _os.dup2(devnull.fileno(), 2)
     try:
-        import MeCab  # type: ignore
-        _AVAILABLE = True
-    except ImportError:
+        import fugashi as _f
+        _f.Tagger()
+        return True, True
+    except Exception:
         pass
+    finally:
+        _os.dup2(old_fd, 2)
+        _os.close(old_fd)
+        devnull.close()
+    try:
+        import MeCab as _m  # type: ignore
+        _m.Tagger()
+        return True, False
+    except Exception:
+        return False, False
+
+_AVAILABLE, _USE_FUGASHI = _check_available()
+del _os
 
 # Dracula palette
 _C_SURFACE = "#f8f8f2"   # white — surface/copied text
