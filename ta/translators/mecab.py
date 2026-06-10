@@ -81,9 +81,19 @@ class MeCabTranslator(BaseTranslator):
         return self._tagger
 
     def can_translate(self, src: Language, dst: Language) -> bool:
-        return _AVAILABLE
+        return True
 
     def _do_translate(self, text: str, src: Language, dst: Language) -> str:
+        if not _AVAILABLE:
+            return (
+                '<html><body style="background:#282a36;color:#ff5555;'
+                'font-family:monospace;font-size:11pt;margin:8px">'
+                '<b>MeCab unavailable.</b><br><br>'
+                'Install one of:<br>'
+                '&nbsp;&nbsp;<code>pip install fugashi unidic-lite</code><br>'
+                '&nbsp;&nbsp;<code>pip install MeCab-python3</code>'
+                '</body></html>'
+            )
         tagger = self._get_tagger()
         entries: list[str] = []
 

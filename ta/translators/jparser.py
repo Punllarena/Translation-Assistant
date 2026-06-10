@@ -389,12 +389,20 @@ class JParserTranslator(BaseTranslator):
         self._index = load_edict_index()
 
     def can_translate(self, src: Language, dst: Language) -> bool:
-        return _find_dict() is not None
+        return True
 
     def _do_translate(self, text: str, src: Language, dst: Language) -> str:
         self._load()
         if self._index is None:
-            return "(No dictionary loaded — place edict2 in dictionaries/)"
+            return (
+                '<html><body style="background:#282a36;color:#ff5555;'
+                'font-family:monospace;font-size:11pt;margin:8px">'
+                '<b>JParser: no dictionary found.</b><br><br>'
+                'Download <code>edict2</code> from '
+                '<a href="https://www.edrdg.org/jmdict/edict.html" style="color:#8be9fd">edrdg.org</a>'
+                ' and place it in <code>dictionaries/edict2</code>'
+                '</body></html>'
+            )
 
         output: list[str] = []
         i = 0
