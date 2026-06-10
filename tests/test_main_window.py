@@ -13,7 +13,7 @@ from PySide6.QtCore import QSettings
 
 from translation_assistant.db import Database
 from translation_assistant.settings import AppSettings
-from translation_assistant.ui.main_window import MainWindow
+from translation_assistant.ui.main_widget import TranslationAssistantWidget
 
 
 # ---------------------------------------------------------------------------
@@ -39,14 +39,14 @@ def _sep_file(raw: str, translated: str = "") -> str:
 
 @pytest.fixture
 def win(qapp, tmp_path):
-    """MainWindow backed by isolated QSettings and an in-memory DB."""
+    """TranslationAssistantWidget backed by isolated QSettings and an in-memory DB."""
     settings = _make_settings(tmp_path)
-    w = MainWindow(_settings=settings, _db=_make_db())
+    w = TranslationAssistantWidget(_settings=settings, _db=_make_db())
     yield w
     w.destroy()
 
 
-def _load(win: MainWindow, raw_content: str) -> None:
+def _load(win: TranslationAssistantWidget, raw_content: str) -> None:
     """Helper: load a SEPERATOR file string into the window."""
     win.load_content(_sep_file(raw_content))
 
@@ -60,22 +60,22 @@ class TestInstantiation:
         assert win is not None
 
     def test_has_import_action(self, win):
-        assert hasattr(win, "_action_import")
+        assert hasattr(win, "action_import")
 
     def test_has_export_action(self, win):
-        assert hasattr(win, "_action_export")
+        assert hasattr(win, "action_export")
 
     def test_export_disabled_initially(self, win):
-        assert not win._action_export.isEnabled()
+        assert not win.action_export.isEnabled()
 
     def test_title(self, win):
-        assert "Translation Assistant" in win.windowTitle()
+        assert win is not None  # widget has no window title; title lives in CombinedMainWindow
 
     def test_save_disabled_initially(self, win):
-        assert not win._action_save.isEnabled()
+        assert not win.action_save.isEnabled()
 
     def test_clipboard_action_disabled_initially(self, win):
-        assert not win._action_clipboard.isEnabled()
+        assert not win.action_clipboard.isEnabled()
 
     def test_help_text_shown_in_review_top(self, win):
         assert "HOW TO USE" in win._review_top.toPlainText()
@@ -107,11 +107,11 @@ class TestLoadContent:
 
     def test_load_enables_save(self, win):
         _load(win, "%A\n")
-        assert win._action_save.isEnabled()
+        assert win.action_save.isEnabled()
 
     def test_load_enables_clipboard_action(self, win):
         _load(win, "%A\n")
-        assert win._action_clipboard.isEnabled()
+        assert win.action_clipboard.isEnabled()
 
     def test_raw_line_widget_shows_display_text(self, win):
         _load(win, "%Hello\n")
@@ -478,14 +478,14 @@ class TestGlossaryAndParseChars:
 class TestImportExport:
     def test_export_enabled_after_load(self, win):
         _load(win, "%A\n")
-        assert win._action_export.isEnabled()
+        assert win.action_export.isEnabled()
 
     def test_on_export_writes_txt(self, win, tmp_path, monkeypatch):
         _load(win, "%A\n")
         win._translated_line.setPlainText("Alpha")
         out = tmp_path / "exported.txt"
         monkeypatch.setattr(
-            "translation_assistant.ui.main_window.QFileDialog.getSaveFileName",
+            "translation_assistant.ui.main_widget.QFileDialog.getSaveFileName",
             lambda *a, **kw: (str(out), ""),
         )
         win._on_export()
@@ -497,7 +497,7 @@ class TestImportExport:
     def test_on_export_cancel_no_write(self, win, tmp_path, monkeypatch):
         _load(win, "%A\n")
         monkeypatch.setattr(
-            "translation_assistant.ui.main_window.QFileDialog.getSaveFileName",
+            "translation_assistant.ui.main_widget.QFileDialog.getSaveFileName",
             lambda *a, **kw: ("", ""),
         )
         win._on_export()  # must not raise
@@ -505,7 +505,7 @@ class TestImportExport:
     def test_on_export_no_doc_does_nothing(self, win, tmp_path, monkeypatch):
         called = []
         monkeypatch.setattr(
-            "translation_assistant.ui.main_window.QFileDialog.getSaveFileName",
+            "translation_assistant.ui.main_widget.QFileDialog.getSaveFileName",
             lambda *a, **kw: called.append(1) or ("", ""),
         )
         win._on_export()
