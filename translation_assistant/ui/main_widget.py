@@ -754,7 +754,6 @@ class TranslationAssistantWidget(QWidget):
 
     def _on_new_series(self) -> None:
         if self._db is None:
-            from PySide6.QtWidgets import QMessageBox
             QMessageBox.warning(self, "New Series", "No database open.")
             return
         from translation_assistant.ui.dlg_new_series import NewSeriesDialog
