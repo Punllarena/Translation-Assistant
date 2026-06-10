@@ -13,6 +13,20 @@ from translation_assistant.scraper import (
 
 _TOC_HTML = """
 <html><body>
+<div class="p-eplist__sublist">
+  <a href="/n7696mg/1/">第一話　始まり</a>
+</div>
+<div class="p-eplist__sublist">
+  <a href="/n7696mg/2/">第二話　出会い</a>
+</div>
+<div class="p-eplist__sublist">
+  <a href="/n7696mg/3/">第三話　決意</a>
+</div>
+</body></html>
+"""
+
+_TOC_HTML_OLD = """
+<html><body>
 <div class="index_box">
   <dl class="novel_sublist2">
     <dd class="subtitle"><a href="/n7696mg/1/">第一話　始まり</a></dd>
@@ -54,6 +68,47 @@ def test_fetch_series_index_parses_chapters():
     }
     assert chapters[2]["num"] == 3
     assert chapters[2]["title"] == "第三話　決意"
+
+
+def test_fetch_series_index_parses_chapters_old_format():
+    mock_resp = MagicMock()
+    mock_resp.text = _TOC_HTML_OLD
+    mock_resp.raise_for_status = MagicMock()
+
+    with patch("translation_assistant.scraper.requests.get", return_value=mock_resp):
+        chapters = fetch_series_index("https://novel18.syosetu.com/n7696mg/")
+
+    assert len(chapters) == 3
+    assert chapters[0] == {
+        "num": 1,
+        "title": "第一話　始まり",
+        "url": "https://novel18.syosetu.com/n7696mg/1/",
+    }
+
+
+def test_fetch_series_index_follows_pagination():
+    page1_html = """
+<html><body>
+<div class="p-eplist__sublist"><a href="/n0280z/1/">第一話</a></div>
+<div class="p-eplist__sublist"><a href="/n0280z/2/">第二話</a></div>
+<a class="c-pager__item c-pager__item--next" href="/n0280z/?p=2">次へ</a>
+</body></html>
+"""
+    page2_html = """
+<html><body>
+<div class="p-eplist__sublist"><a href="/n0280z/3/">第三話</a></div>
+</body></html>
+"""
+    responses = [
+        MagicMock(text=page1_html, raise_for_status=MagicMock()),
+        MagicMock(text=page2_html, raise_for_status=MagicMock()),
+    ]
+
+    with patch("translation_assistant.scraper.requests.get", side_effect=responses):
+        chapters = fetch_series_index("https://novel18.syosetu.com/n0280z/")
+
+    assert len(chapters) == 3
+    assert [c["num"] for c in chapters] == [1, 2, 3]
 
 
 def test_fetch_series_index_empty_toc():

@@ -468,6 +468,17 @@ def test_list_documents_progress_zero_for_empty_doc(db):
     assert docs[0]["progress"] == 0
 
 
+def test_list_documents_progress_ignores_blank_lines(db):
+    doc_id = db.create_document("Story")
+    db.save_lines(doc_id, [
+        {"line_number": 0, "prefix": "%", "raw_text": "A", "translated_text": "Translated"},
+        {"line_number": 1, "prefix": "",  "raw_text": "",  "translated_text": ""},  # blank
+        {"line_number": 2, "prefix": "%", "raw_text": "B", "translated_text": "Translated"},
+    ])
+    docs = db.list_documents()
+    assert docs[0]["progress"] == 100
+
+
 def test_list_documents_includes_metadata_fields(db):
     db.create_document("Ch1", series_title="S", series_order=2, chapter_title="C")
     doc = db.list_documents()[0]

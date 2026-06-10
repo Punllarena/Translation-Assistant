@@ -66,16 +66,12 @@ def _validate_series_url(url: str) -> None:
         )
 
 
-def fetch_series_index(url: str) -> list[dict]:
-    _validate_series_url(url)
-    parsed = urlparse(url)
-    base = f"{parsed.scheme}://{parsed.netloc}"
-    resp = requests.get(url, timeout=10, headers={"User-Agent": _UA}, cookies={"over18": "yes"})
-    resp.raise_for_status()
-    soup = BeautifulSoup(resp.text, "html.parser")
+def _extract_chapters(soup: BeautifulSoup, base: str) -> list[dict]:
+    links = soup.select("div.p-eplist__sublist a") or [
+        dd.find("a") for dd in soup.select("dl.novel_sublist2 dd.subtitle")
+    ]
     chapters = []
-    for dd in soup.select("dl.novel_sublist2 dd.subtitle"):
-        a = dd.find("a")
+    for a in links:
         if not a:
             continue
         href = a.get("href", "")
@@ -87,6 +83,29 @@ def fetch_series_index(url: str) -> list[dict]:
         title = a.get_text(strip=True)
         chapter_url = urljoin(base, href)
         chapters.append({"num": num, "title": title, "url": chapter_url})
+    return chapters
+
+
+def _next_page_url(soup: BeautifulSoup, base: str) -> str | None:
+    next_el = soup.select_one("a.c-pager__item.c-pager__item--next")
+    if not next_el:
+        return None
+    href = next_el.get("href", "")
+    return urljoin(base, href) if href else None
+
+
+def fetch_series_index(url: str) -> list[dict]:
+    _validate_series_url(url)
+    parsed = urlparse(url)
+    base = f"{parsed.scheme}://{parsed.netloc}"
+    current_url: str | None = url
+    chapters = []
+    while current_url:
+        resp = requests.get(current_url, timeout=10, headers={"User-Agent": _UA}, cookies={"over18": "yes"})
+        resp.raise_for_status()
+        soup = BeautifulSoup(resp.text, "html.parser")
+        chapters.extend(_extract_chapters(soup, base))
+        current_url = _next_page_url(soup, base)
     chapters.sort(key=lambda c: c["num"])
     return chapters
 

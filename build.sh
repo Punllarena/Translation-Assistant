@@ -70,6 +70,11 @@ except Exception:
     echo "=== Backed up ta.db before build ==="
 fi
 
+echo "=== Stamping build date ==="
+BUILD_DATE="$(date +%Y.%m.%d)"
+sed -i "s/^BUILD_DATE = .*/BUILD_DATE = \"$BUILD_DATE\"/" translation_assistant/_version.py
+echo "  Version: $BUILD_DATE"
+
 echo "=== Building with PyInstaller ==="
 pyinstaller translation_assistant.spec --clean --noconfirm
 

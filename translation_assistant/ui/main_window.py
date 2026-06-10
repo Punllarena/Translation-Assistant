@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QMessageBox, QSizePolicy, QSplitter, QStatusBar, QTextEdit, QVBoxLayout, QWidget,
 )
 
+from translation_assistant._version import BUILD_DATE
 from translation_assistant.settings import AppSettings
 from translation_assistant.spellcheck import SpellHighlighter
 
@@ -946,10 +947,10 @@ class MainWindow(QMainWindow):
     def _on_about(self) -> None:
         QMessageBox.about(
             self, "About",
-            "Programmed by: joeglens\n"
-            "Python/PySide6 port\n"
-            "Copyright joeglens.wordpress.com 2015\n"
-            "File Version 1.0.0"
+            "Programmed by: Pun\n"
+            "Port of joeglens's Translation Assistant\n"
+            f"Version {BUILD_DATE}\n"
+            "https://github.com/Punllarena/TranslationAssistant-PySide6-Port"
         )
 
     # ------------------------------------------------------------------
