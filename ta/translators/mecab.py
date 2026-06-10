@@ -9,24 +9,23 @@ _USE_FUGASHI = False
 import os as _os
 
 def _check_available() -> tuple[bool, bool]:
+    """Check if fugashi or MeCab is importable. Suppress C-lib stderr noise."""
     devnull = open(_os.devnull, "w")
     old_fd = _os.dup(2)
     _os.dup2(devnull.fileno(), 2)
     try:
-        import fugashi as _f
-        _f.Tagger()
+        import fugashi  # noqa: F401
         return True, True
-    except Exception:
+    except ImportError:
         pass
     finally:
         _os.dup2(old_fd, 2)
         _os.close(old_fd)
         devnull.close()
     try:
-        import MeCab as _m  # type: ignore
-        _m.Tagger()
+        import MeCab  # type: ignore  # noqa: F401
         return True, False
-    except Exception:
+    except ImportError:
         return False, False
 
 _AVAILABLE, _USE_FUGASHI = _check_available()
@@ -80,36 +79,57 @@ class MeCabTranslator(BaseTranslator):
     def __init__(self, parent=None):
         super().__init__("MeCab", parent)
         self._tagger = None
+        self._tagger_error: str = ""
 
     @staticmethod
     def is_available() -> bool:
         return _AVAILABLE
 
     def _get_tagger(self):
-        if self._tagger is None:
-            if _USE_FUGASHI:
-                import fugashi
-                self._tagger = fugashi.Tagger()
-            else:
-                import MeCab  # type: ignore
-                self._tagger = MeCab.Tagger()
+        if self._tagger is None and not self._tagger_error:
+            try:
+                if _USE_FUGASHI:
+                    import fugashi
+                    try:
+                        self._tagger = fugashi.Tagger()
+                    except Exception:
+                        import unidic_lite
+                        dicdir = unidic_lite.DICDIR
+                        self._tagger = fugashi.Tagger(f"-r {dicdir}/mecabrc -d {dicdir}")
+                else:
+                    import MeCab  # type: ignore
+                    self._tagger = MeCab.Tagger()
+            except Exception as e:
+                self._tagger_error = str(e)
         return self._tagger
 
     def can_translate(self, src: Language, dst: Language) -> bool:
         return True
 
+    @staticmethod
+    def _err_html(detail: str) -> str:
+        return (
+            '<html><body style="background:#282a36;color:#ff5555;'
+            'font-family:monospace;font-size:11pt;margin:8px">'
+            f'<b>MeCab unavailable.</b><br><br>{detail}'
+            '</body></html>'
+        )
+
     def _do_translate(self, text: str, src: Language, dst: Language) -> str:
         if not _AVAILABLE:
-            return (
-                '<html><body style="background:#282a36;color:#ff5555;'
-                'font-family:monospace;font-size:11pt;margin:8px">'
-                '<b>MeCab unavailable.</b><br><br>'
+            return self._err_html(
                 'Install one of:<br>'
                 '&nbsp;&nbsp;<code>pip install fugashi unidic-lite</code><br>'
                 '&nbsp;&nbsp;<code>pip install MeCab-python3</code>'
-                '</body></html>'
             )
         tagger = self._get_tagger()
+        if tagger is None:
+            return self._err_html(
+                'MeCab is installed but failed to initialise.<br><br>'
+                f'<code>{_h(self._tagger_error)}</code><br><br>'
+                'Check <code>mecabrc</code> is readable, or set '
+                '<code>MECABRC=/path/to/mecabrc</code>.'
+            )
         entries: list[str] = []
 
         if _USE_FUGASHI:
