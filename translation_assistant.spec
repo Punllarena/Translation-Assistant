@@ -90,6 +90,13 @@ _dict_dir = HERE / "dictionaries"
 if _dict_dir.is_dir():
     _extra_datas.append((str(_dict_dir), "dictionaries"))
 
+# unidic-lite MeCab dictionary data (binary files not auto-collected)
+try:
+    from PyInstaller.utils.hooks import collect_data_files as _cdf
+    _extra_datas.extend(_cdf("unidic_lite"))
+except Exception:
+    pass
+
 a = Analysis(
     [str(HERE / "translation_assistant" / "main.py")],
     pathex=[str(HERE)],
@@ -115,6 +122,9 @@ a = Analysis(
         "enchant.checker",
         "enchant.tokenize",
         "enchant.tokenize.en",
+        # MeCab / Japanese morphology (optional, loaded conditionally)
+        "fugashi",
+        "unidic_lite",
     ],
     hookspath=[],
     hooksconfig={},
