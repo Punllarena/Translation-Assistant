@@ -41,6 +41,8 @@ class SeriesManagerDialog(QDialog):
 
         btn_row = QHBoxLayout()
         btn_row.addStretch()
+        self._new_series_btn = QPushButton("New Series…")
+        self._new_series_btn.clicked.connect(self._on_new_series)
         self._set_url_btn = QPushButton("Set URL…")
         self._set_url_btn.setEnabled(False)
         self._set_url_btn.clicked.connect(self._on_set_url)
@@ -49,6 +51,7 @@ class SeriesManagerDialog(QDialog):
         self._fetch_btn.clicked.connect(self._on_fetch)
         close_btn = QPushButton("Close")
         close_btn.clicked.connect(self.accept)
+        btn_row.addWidget(self._new_series_btn)
         btn_row.addWidget(self._set_url_btn)
         btn_row.addWidget(self._fetch_btn)
         btn_row.addWidget(close_btn)
@@ -101,3 +104,9 @@ class SeriesManagerDialog(QDialog):
         dlg = FetchSeriesDialog(self._db, s["title"], s["url"], parent=self)
         dlg.exec()
         self._load()
+
+    def _on_new_series(self) -> None:
+        from translation_assistant.ui.dlg_new_series import NewSeriesDialog
+        dlg = NewSeriesDialog(self._db, parent=self)
+        if dlg.exec():
+            self._load()
