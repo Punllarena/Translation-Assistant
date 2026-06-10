@@ -943,13 +943,15 @@ class TranslationAssistantWidget(QWidget):
         self._settings.save()
 
     def _on_about(self) -> None:
-        QMessageBox.about(
-            self, "About",
-            "Programmed by: Pun\n"
-            "Port of joeglens's Translation Assistant\n"
-            f"Version {BUILD_DATE}\n"
-            "https://github.com/Punllarena/TranslationAssistant-PySide6-Port"
-        )
+    msg = QMessageBox(self)
+    msg.setWindowTitle("About")
+    msg.setText(
+        "Programmed by: Pun<br>"
+        "Port of joeglens's Translation Assistant and Translation Aggregator<br>"
+        f"Version {BUILD_DATE}<br>"
+        '<a href="https://github.com/Punllarena/Translation-Assistant">Github Link</a>'
+    )
+    msg.exec()
     # ------------------------------------------------------------------
     # Punctuation
     # ------------------------------------------------------------------
