@@ -48,20 +48,36 @@ if [[ "${1:-}" != "--skip-tests" ]]; then
 fi
 
 # ── Build ─────────────────────────────────────────────────────────────────────
-# Preserve ta.db across the build — PyInstaller --noconfirm wipes the output dir
-DB_BACKUP=""
+# Preserve ta.db across the build — PyInstaller --noconfirm wipes the output dir.
+# Checkpoint WAL into the main file first so the backup is self-contained.
+DB_BACKUP_DIR=""
 if [[ -f "dist/TranslationAssistant/ta.db" ]]; then
-    DB_BACKUP="$(mktemp --suffix=.db)"
-    cp "dist/TranslationAssistant/ta.db" "$DB_BACKUP"
+    DB_BACKUP_DIR="$(mktemp -d)"
+    # Checkpoint WAL into main db (no-op if db is locked by the running app)
+    python -c "
+import sqlite3
+try:
+    con = sqlite3.connect('dist/TranslationAssistant/ta.db', timeout=2)
+    con.execute('PRAGMA wal_checkpoint(TRUNCATE)')
+    con.close()
+except Exception:
+    pass
+" 2>/dev/null || true
+    # Copy all WAL-related files so nothing is lost even if app is open
+    for f in ta.db ta.db-shm ta.db-wal; do
+        [[ -f "dist/TranslationAssistant/$f" ]] && cp "dist/TranslationAssistant/$f" "$DB_BACKUP_DIR/$f"
+    done
     echo "=== Backed up ta.db before build ==="
 fi
 
 echo "=== Building with PyInstaller ==="
 pyinstaller translation_assistant.spec --clean --noconfirm
 
-if [[ -n "$DB_BACKUP" ]]; then
-    cp "$DB_BACKUP" "dist/TranslationAssistant/ta.db"
-    rm "$DB_BACKUP"
+if [[ -n "$DB_BACKUP_DIR" ]]; then
+    for f in ta.db ta.db-shm ta.db-wal; do
+        [[ -f "$DB_BACKUP_DIR/$f" ]] && cp "$DB_BACKUP_DIR/$f" "dist/TranslationAssistant/$f"
+    done
+    rm -rf "$DB_BACKUP_DIR"
     echo "=== Restored ta.db after build ==="
 fi
 
