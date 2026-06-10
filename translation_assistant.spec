@@ -83,6 +83,13 @@ else:
 # Analysis
 # ---------------------------------------------------------------------------
 
+_extra_datas = []
+
+# Optional: JParser edict2 dictionary
+_dict_dir = HERE / "dictionaries"
+if _dict_dir.is_dir():
+    _extra_datas.append((str(_dict_dir), "dictionaries"))
+
 a = Analysis(
     [str(HERE / "translation_assistant" / "main.py")],
     pathex=[str(HERE)],
@@ -94,6 +101,7 @@ a = Analysis(
         # Default profiles shipped with the app
         (str(HERE / "Profile"), "Profile"),
         *_enchant_datas,
+        *_extra_datas,
     ],
     hiddenimports=[
         # pyttsx3 discovers its drivers at runtime

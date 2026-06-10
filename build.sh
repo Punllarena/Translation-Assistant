@@ -21,6 +21,25 @@ else
     exit 1
 fi
 
+# ── Optional dependency checks ────────────────────────────────────────────────
+echo "=== Checking optional dependencies ==="
+
+if python -c "import fugashi" 2>/dev/null; then
+    echo "  MeCab (fugashi): OK"
+else
+    echo "  MeCab (fugashi): NOT INSTALLED — MeCab panel will show setup prompt"
+    echo "    To enable: pip install fugashi unidic-lite"
+fi
+
+if [[ -f "dictionaries/edict2" ]]; then
+    echo "  JParser (edict2): OK"
+else
+    echo "  JParser (edict2): NOT FOUND — JParser panel will show setup prompt"
+    echo "    To enable: download edict2 from https://www.edrdg.org/jmdict/edict.html"
+    echo "                place it at dictionaries/edict2"
+fi
+echo ""
+
 # ── Test ──────────────────────────────────────────────────────────────────────
 if [[ "${1:-}" != "--skip-tests" ]]; then
     echo "=== Running test suite ==="

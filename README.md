@@ -40,6 +40,15 @@ sudo apt install libenchant-2-dev hunspell-en-us
 On macOS: `brew install enchant`  
 On Windows: install the `pyenchant` wheel — enchant is bundled.
 
+**Optional: Translation Aggregator panels**
+
+| Panel | What to install |
+|---|---|
+| MeCab | `pip install fugashi unidic-lite` |
+| JParser | Download `edict2` from [edrdg.org](https://www.edrdg.org/jmdict/edict.html) → place at `dictionaries/edict2` |
+
+Without these, the panels display setup instructions instead of output.
+
 **Dev / build**
 
 ```
