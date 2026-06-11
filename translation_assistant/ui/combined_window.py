@@ -94,6 +94,7 @@ class CombinedMainWindow(QMainWindow):
         settings_menu.addAction(subs_action)
         settings_menu.addSeparator()
         settings_menu.addAction(ta.action_progress)
+        settings_menu.addAction(ta.action_tm)
         tts_menu = QMenu("Text-To-Speech", self)
         tts_menu.addAction(ta.action_tts_jp)
         tts_menu.addAction(ta.action_tts_cn)

@@ -8,7 +8,7 @@ from PySide6.QtCore import QEvent, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QFont, QKeyEvent, QTextCursor
 from PySide6.QtWidgets import (
     QApplication, QFileDialog, QInputDialog, QLabel, QMenu,
-    QMessageBox, QSizePolicy, QSplitter, QStatusBar, QTextEdit, QVBoxLayout, QWidget,
+    QMessageBox, QPushButton, QSizePolicy, QSplitter, QStatusBar, QTextEdit, QVBoxLayout, QWidget,
 )
 
 from translation_assistant._version import BUILD_DATE
@@ -167,6 +167,11 @@ class TranslationAssistantWidget(QWidget):
         self.action_progress.setChecked(self._settings.show_progress)
         self.action_progress.triggered.connect(self._on_toggle_progress)
 
+        self.action_tm = QAction("Show Translation Memory", self)
+        self.action_tm.setCheckable(True)
+        self.action_tm.setChecked(self._settings.tm_visible)
+        self.action_tm.triggered.connect(self._on_toggle_tm)
+
         self.action_go_to_line = QAction("Go to Line… (Ctrl+G)", self)
         self.action_go_to_line.setShortcut("Ctrl+G")
         self.action_go_to_line.triggered.connect(self._on_go_to_line)
@@ -248,6 +253,14 @@ class TranslationAssistantWidget(QWidget):
         self._raw_line.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         self._splitter.addWidget(self._raw_line)
 
+        self._tm_panel = QWidget()
+        self._tm_panel.setMinimumHeight(0)
+        self._tm_layout = QVBoxLayout(self._tm_panel)
+        self._tm_layout.setContentsMargins(2, 2, 2, 2)
+        self._tm_layout.setSpacing(2)
+        self._tm_panel.setVisible(False)
+        self._splitter.addWidget(self._tm_panel)
+
         self._translated_line = QTextEdit()
         self._translated_line.setFont(font)
         self._translated_line.setMinimumHeight(40)
@@ -271,12 +284,13 @@ class TranslationAssistantWidget(QWidget):
         self._splitter.setStretchFactor(1, 0)
         self._splitter.setStretchFactor(2, 0)
         self._splitter.setStretchFactor(3, 0)
+        self._splitter.setStretchFactor(4, 0)
 
         saved = self._settings.splitter_state
         if not saved.isEmpty():
             self._splitter.restoreState(saved)
         else:
-            self._splitter.setSizes([300, 52, 52, 137])
+            self._splitter.setSizes([300, 52, 0, 52, 137])
 
         layout.addWidget(self._splitter)
 
@@ -522,6 +536,39 @@ class TranslationAssistantWidget(QWidget):
 
         raw = self._raw_lines[p]
         self.source_sentence_changed.emit(raw.lstrip("%$").strip())
+        self._update_tm_panel()
+
+    def _update_tm_panel(self) -> None:
+        while self._tm_layout.count():
+            item = self._tm_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        if not self._raw_lines or not self._settings.tm_visible:
+            self._tm_panel.setVisible(False)
+            return
+
+        p = self._array_pointer
+        raw = self._raw_lines[p]
+        raw_text = raw[1:] if raw and raw[0] in ('%', '$') else raw
+        matches = self._db.find_tm_matches(raw_text, self._doc_id)
+
+        if not matches:
+            self._tm_panel.setVisible(False)
+            return
+
+        self._tm_panel.setVisible(True)
+        for m in matches:
+            date_str = m["updated_at"][:10] if m.get("updated_at") else ""
+            label = f"{m['translated_text']}  —  {m['doc_title']}, {date_str}"
+            btn = QPushButton(label)
+            btn.setFlat(True)
+            btn.setStyleSheet("text-align: left; padding: 2px 4px;")
+            translation = m["translated_text"]
+            btn.clicked.connect(
+                lambda checked, t=translation: self._translated_line.setPlainText(t)
+            )
+            self._tm_layout.addWidget(btn)
 
     def _update_progress_visibility(self) -> None:
         visible = self._settings.show_progress
@@ -920,6 +967,11 @@ class TranslationAssistantWidget(QWidget):
         self._settings.show_progress = self.action_progress.isChecked()
         self._settings.save()
         self._update_progress_visibility()
+
+    def _on_toggle_tm(self) -> None:
+        self._settings.tm_visible = self.action_tm.isChecked()
+        self._settings.save()
+        self._update_tm_panel()
 
     def _on_go_to_line(self) -> None:
         if not self._raw_lines:
