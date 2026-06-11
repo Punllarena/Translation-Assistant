@@ -394,6 +394,21 @@ class Database:
         )
         self._conn.commit()
 
+    def find_tm_matches(
+        self, raw_text: str, current_doc_id: int | None, limit: int = 5
+    ) -> list[dict]:
+        rows = self._conn.execute(
+            "SELECT l.translated_text, d.title AS doc_title, d.updated_at "
+            "FROM lines l "
+            "JOIN documents d ON d.id = l.document_id "
+            "WHERE l.raw_text = ? AND l.translated_text != '' "
+            "AND (? IS NULL OR l.document_id != ?) "
+            "ORDER BY d.updated_at DESC "
+            "LIMIT ?",
+            (raw_text, current_doc_id, current_doc_id, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
 
 # ── Migration helper ──────────────────────────────────────────────────────────
 

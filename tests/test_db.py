@@ -665,3 +665,53 @@ def test_get_series_list_no_duplicates_when_both_exist(db):
     db.set_series_url("Alpha", "https://ncode.syosetu.com/n0001aa/")
     result = db.get_series_list()
     assert result.count("Alpha") == 1
+
+
+# ---------------------------------------------------------------------------
+# Translation Memory
+# ---------------------------------------------------------------------------
+
+def _make_doc_with_line(db: Database, title: str, raw: str, translation: str) -> int:
+    doc_id = db.create_document(title)
+    db.save_lines(doc_id, [{"line_number": 0, "prefix": "%", "raw_text": raw, "translated_text": translation}])
+    return doc_id
+
+
+def test_find_tm_matches_exact(db):
+    _make_doc_with_line(db, "Doc A", "猫が鳴いた", "The cat meowed")
+    matches = db.find_tm_matches("猫が鳴いた", current_doc_id=None)
+    assert len(matches) == 1
+    assert matches[0]["translated_text"] == "The cat meowed"
+    assert matches[0]["doc_title"] == "Doc A"
+
+
+def test_find_tm_matches_excludes_current_doc(db):
+    doc_id = _make_doc_with_line(db, "Current", "猫が鳴いた", "The cat meowed")
+    matches = db.find_tm_matches("猫が鳴いた", current_doc_id=doc_id)
+    assert matches == []
+
+
+def test_find_tm_matches_excludes_empty_translation(db):
+    _make_doc_with_line(db, "Doc A", "猫が鳴いた", "")
+    matches = db.find_tm_matches("猫が鳴いた", current_doc_id=None)
+    assert matches == []
+
+
+def test_find_tm_matches_no_match(db):
+    _make_doc_with_line(db, "Doc A", "犬が吠えた", "The dog barked")
+    matches = db.find_tm_matches("猫が鳴いた", current_doc_id=None)
+    assert matches == []
+
+
+def test_find_tm_matches_limit(db):
+    for i in range(7):
+        _make_doc_with_line(db, f"Doc {i}", "猫が鳴いた", f"Translation {i}")
+    matches = db.find_tm_matches("猫が鳴いた", current_doc_id=None, limit=5)
+    assert len(matches) == 5
+
+
+def test_find_tm_matches_returns_doc_title_and_updated_at(db):
+    _make_doc_with_line(db, "My Novel Ch1", "猫が鳴いた", "The cat meowed")
+    matches = db.find_tm_matches("猫が鳴いた", current_doc_id=None)
+    assert "doc_title" in matches[0]
+    assert "updated_at" in matches[0]
