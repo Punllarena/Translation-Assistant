@@ -125,6 +125,35 @@ class AppSettings:
     def splitter_state(self, value: QByteArray) -> None:
         self._qs.setValue("SplitterState", value)
 
+    # --- translation memory visible ---
+
+    @property
+    def tm_visible(self) -> bool:
+        return self._qs.value("TMVisible", True, type=bool)
+
+    @tm_visible.setter
+    def tm_visible(self, value: bool) -> None:
+        self._qs.setValue("TMVisible", value)
+
+    # --- last opened document id ---
+
+    @property
+    def last_doc_id(self) -> int | None:
+        val = self._qs.value("LastDocId", None)
+        if val is None:
+            return None
+        try:
+            return int(val)
+        except (ValueError, TypeError):
+            return None
+
+    @last_doc_id.setter
+    def last_doc_id(self, value: int | None) -> None:
+        if value is None:
+            self._qs.remove("LastDocId")
+        else:
+            self._qs.setValue("LastDocId", value)
+
     def save(self) -> None:
         """Flush settings to disk immediately."""
         self._qs.sync()

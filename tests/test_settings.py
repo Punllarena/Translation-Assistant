@@ -111,3 +111,47 @@ def test_db_path_returns_path_ending_in_ta_db(tmp_settings):
 def test_db_path_is_next_to_app_root(tmp_settings):
     """db_path must sit directly inside _get_app_root() (next to the executable)."""
     assert tmp_settings.db_path == _get_app_root() / "ta.db"
+
+
+# ---------------------------------------------------------------------------
+# tm_visible
+# ---------------------------------------------------------------------------
+
+def test_default_tm_visible(tmp_settings):
+    assert tmp_settings.tm_visible is True
+
+
+def test_tm_visible_roundtrip(qapp, tmp_path):
+    ini = str(tmp_path / "settings.ini")
+    s1 = AppSettings(_qs=QSettings(ini, QSettings.Format.IniFormat))
+    s1.tm_visible = False
+    s1.save()
+    s2 = AppSettings(_qs=QSettings(ini, QSettings.Format.IniFormat))
+    assert s2.tm_visible is False
+
+
+# ---------------------------------------------------------------------------
+# last_doc_id
+# ---------------------------------------------------------------------------
+
+def test_default_last_doc_id(tmp_settings):
+    assert tmp_settings.last_doc_id is None
+
+
+def test_last_doc_id_roundtrip(qapp, tmp_path):
+    ini = str(tmp_path / "settings.ini")
+    s1 = AppSettings(_qs=QSettings(ini, QSettings.Format.IniFormat))
+    s1.last_doc_id = 42
+    s1.save()
+    s2 = AppSettings(_qs=QSettings(ini, QSettings.Format.IniFormat))
+    assert s2.last_doc_id == 42
+
+
+def test_last_doc_id_none_clears(qapp, tmp_path):
+    ini = str(tmp_path / "settings.ini")
+    s1 = AppSettings(_qs=QSettings(ini, QSettings.Format.IniFormat))
+    s1.last_doc_id = 7
+    s1.last_doc_id = None
+    s1.save()
+    s2 = AppSettings(_qs=QSettings(ini, QSettings.Format.IniFormat))
+    assert s2.last_doc_id is None
