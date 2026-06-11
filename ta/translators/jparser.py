@@ -401,6 +401,7 @@ class JParserTranslator(BaseTranslator):
                 'Download <code>edict2</code> from '
                 '<a href="https://www.edrdg.org/jmdict/edict.html" style="color:#8be9fd">edrdg.org</a>'
                 ' and place it in <code>dictionaries/edict2</code>'
+                '<br><br><span style="color:#6272a4">See <b>Help → Setup Guide</b> for instructions.</span>'
                 '</body></html>'
             )
 

@@ -112,6 +112,7 @@ class MeCabTranslator(BaseTranslator):
             '<html><body style="background:#282a36;color:#ff5555;'
             'font-family:monospace;font-size:11pt;margin:8px">'
             f'<b>MeCab unavailable.</b><br><br>{detail}'
+            '<br><br><span style="color:#6272a4">See <b>Help → Setup Guide</b> for instructions.</span>'
             '</body></html>'
         )
 
