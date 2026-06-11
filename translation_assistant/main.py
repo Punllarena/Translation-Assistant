@@ -22,6 +22,12 @@ def main() -> None:
 
     window = CombinedMainWindow(_settings=settings, _db=db)
     window.show()
+
+    if not settings.setup_wizard_shown:
+        from translation_assistant.ui.dlg_setup import SetupGuideDialog
+        settings.setup_wizard_shown = True
+        SetupGuideDialog(window).exec()
+
     sys.exit(app.exec())
 
 
