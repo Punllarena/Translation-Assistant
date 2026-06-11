@@ -318,6 +318,12 @@ class TranslationAssistantWidget(QWidget):
         self._load_glossary_for_profile()
         self._load_spell_dict()
         self._try_init_tts()
+        last = self._settings.last_doc_id
+        if last is not None:
+            try:
+                self.open_document(last)
+            except (ValueError, Exception):
+                pass
 
     # ------------------------------------------------------------------
     # Settings helpers
@@ -1152,4 +1158,5 @@ class TranslationAssistantWidget(QWidget):
         """Called by CombinedMainWindow.closeEvent."""
         self._settings.splitter_state = self._splitter.saveState()
         self._save_current_translation()
+        self._settings.last_doc_id = self._doc_id
         self._settings.save()
