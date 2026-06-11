@@ -131,6 +131,25 @@ def test_tm_visible_roundtrip(qapp, tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# setup_wizard_shown
+# ---------------------------------------------------------------------------
+
+def test_default_setup_wizard_shown(tmp_settings):
+    assert tmp_settings.setup_wizard_shown is False
+
+
+def test_setup_wizard_shown_roundtrip(tmp_settings):
+    tmp_settings.setup_wizard_shown = True
+    assert tmp_settings.setup_wizard_shown is True
+
+
+def test_setup_wizard_shown_reset(tmp_settings):
+    tmp_settings.setup_wizard_shown = True
+    tmp_settings.setup_wizard_shown = False
+    assert tmp_settings.setup_wizard_shown is False
+
+
+# ---------------------------------------------------------------------------
 # last_doc_id
 # ---------------------------------------------------------------------------
 

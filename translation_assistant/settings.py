@@ -135,6 +135,16 @@ class AppSettings:
     def tm_visible(self, value: bool) -> None:
         self._qs.setValue("TMVisible", value)
 
+    # --- setup wizard shown ---
+
+    @property
+    def setup_wizard_shown(self) -> bool:
+        return self._qs.value("SetupWizardShown", False, type=bool)
+
+    @setup_wizard_shown.setter
+    def setup_wizard_shown(self, value: bool) -> None:
+        self._qs.setValue("SetupWizardShown", value)
+
     # --- last opened document id ---
 
     @property
