@@ -1,0 +1,103 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install system dependencies
+        run: sudo apt-get install -y libenchant-2-dev hunspell-en-us imagemagick
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt fugashi unidic-lite
+
+      - name: Build with PyInstaller
+        run: ./build.sh --skip-tests
+
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+
+      - name: Assemble AppDir
+        run: |
+          mkdir -p AppDir/usr/bin
+          cp -r dist/TranslationAssistant AppDir/usr/bin/TranslationAssistant
+          cp appimage/AppRun AppDir/AppRun
+          chmod +x AppDir/AppRun
+          cp appimage/TranslationAssistant.desktop AppDir/TranslationAssistant.desktop
+          convert translation_assistant/resources/TA.ico AppDir/TranslationAssistant.png \
+            || cp appimage/TranslationAssistant.png AppDir/TranslationAssistant.png
+
+      - name: Download appimagetool
+        run: |
+          wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool-x86_64.AppImage
+
+      - name: Build AppImage
+        run: |
+          ARCH=x86_64 ./appimagetool-x86_64.AppImage AppDir \
+            TranslationAssistant-${{ steps.version.outputs.VERSION }}-x86_64.AppImage
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: TranslationAssistant-${{ steps.version.outputs.VERSION }}-x86_64.AppImage
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt fugashi unidic-lite
+
+      - name: Extract version from tag
+        id: version
+        shell: bash
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+
+      - name: Stamp version
+        shell: bash
+        run: |
+          sed -i "s/^BUILD_DATE = .*/BUILD_DATE = \"${{ steps.version.outputs.VERSION }}\"/" \
+            translation_assistant/_version.py
+
+      - name: Build with PyInstaller
+        run: pyinstaller translation_assistant.spec --noconfirm
+
+      - name: Install NSIS
+        run: choco install nsis --no-progress -y
+
+      - name: Build installer
+        run: makensis installer.nsi
+
+      - name: Rename installer with version
+        shell: bash
+        run: |
+          mv TranslationAssistant-Setup.exe \
+            TranslationAssistant-${{ steps.version.outputs.VERSION }}-Setup.exe
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: TranslationAssistant-${{ steps.version.outputs.VERSION }}-Setup.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
