@@ -22,13 +22,15 @@ class OpenDocumentDialog(QDialog):
     User selects a leaf item and clicks Open (or double-clicks).
     """
 
-    def __init__(self, db: Database, parent=None) -> None:
+    def __init__(self, db: Database, parent=None, *, current_doc_id: int | None = None) -> None:
         super().__init__(parent)
         self._db = db
         self._selected_doc_id: int | None = None
         self._doc_ids: dict[int, int] = {}  # id(QTreeWidgetItem) → doc_id
         self._setup_ui()
         self._load_documents()
+        if current_doc_id is not None:
+            self._select_doc(current_doc_id)
 
     def _setup_ui(self) -> None:
         self.setWindowTitle("Open Document")
@@ -105,6 +107,17 @@ class OpenDocumentDialog(QDialog):
             self._doc_ids[id(leaf)] = doc["id"]
 
         self._tree.expandAll()
+
+    def _select_doc(self, doc_id: int) -> None:
+        root = self._tree.invisibleRootItem()
+        for i in range(root.childCount()):
+            group = root.child(i)
+            for j in range(group.childCount()):
+                leaf = group.child(j)
+                if self._doc_ids.get(id(leaf)) == doc_id:
+                    self._tree.setCurrentItem(leaf)
+                    self._tree.scrollToItem(leaf)
+                    return
 
     def _current_leaf(self) -> QTreeWidgetItem | None:
         item = self._tree.currentItem()

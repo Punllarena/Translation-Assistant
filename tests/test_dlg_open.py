@@ -251,6 +251,20 @@ class TestOpenDocumentDialog:
         assert "New Chapter" in _all_leaf_titles(dlg)
         assert "Old Chapter" not in _all_leaf_titles(dlg)
 
+    def test_current_doc_preselected(self, qapp, mem_db):
+        doc_id = mem_db.create_document("My Doc")
+        dlg = OpenDocumentDialog(mem_db, current_doc_id=doc_id)
+        current = dlg._tree.currentItem()
+        assert current is not None
+        assert current.childCount() == 0  # it's a leaf
+        assert current.text(0) == "My Doc"
+
+    def test_no_crash_when_current_doc_not_in_db(self, qapp, mem_db):
+        mem_db.create_document("My Doc")
+        dlg = OpenDocumentDialog(mem_db, current_doc_id=9999)
+        # Should not raise; just no pre-selection
+        assert dlg is not None
+
 
 def _first_leaf_is_hidden(dlg, title: str) -> bool:
     r = _root(dlg)
