@@ -167,6 +167,11 @@ class TranslationAssistantWidget(QWidget):
         self.action_progress.setChecked(self._settings.show_progress)
         self.action_progress.triggered.connect(self._on_toggle_progress)
 
+        self.action_go_to_line = QAction("Go to Line… (Ctrl+G)", self)
+        self.action_go_to_line.setShortcut("Ctrl+G")
+        self.action_go_to_line.triggered.connect(self._on_go_to_line)
+        self.action_go_to_line.setEnabled(False)
+
         self.action_on_top = QAction("Always On Top", self)
         self.action_on_top.setCheckable(True)
         self.action_on_top.setChecked(self._settings.on_top)
@@ -445,6 +450,7 @@ class TranslationAssistantWidget(QWidget):
         self.action_save.setEnabled(True)
         self.action_export.setEnabled(True)
         self.action_clipboard.setEnabled(True)
+        self.action_go_to_line.setEnabled(True)
         self._translated_line.setFocus()
         self._start_clipboard_timer()
         self._restart_autosave_timer()
@@ -909,6 +915,27 @@ class TranslationAssistantWidget(QWidget):
         self._settings.save()
         self._update_progress_visibility()
 
+    def _on_go_to_line(self) -> None:
+        if not self._raw_lines:
+            return
+        n = len(self._raw_lines)
+        from PySide6.QtWidgets import QInputDialog
+        line_num, ok = QInputDialog.getInt(
+            self,
+            "Go to Line",
+            f"Line number (1–{n}):",
+            value=self._array_pointer + 1,
+            min=1,
+            max=n,
+        )
+        if not ok:
+            return
+        self._clipboard_timer.stop()
+        self._save_current_translation()
+        self._array_pointer = line_num - 1
+        self._update_ui_for_pointer()
+        self._translated_line.setFocus()
+
     def _on_toggle_on_top(self) -> None:
         enabled = self.action_on_top.isChecked()
         self._settings.on_top = enabled
@@ -947,7 +974,7 @@ class TranslationAssistantWidget(QWidget):
         msg.setWindowTitle("About")
         msg.setText(
             "Programmed by: Pun<br>"
-            "Port of joeglens's Translation Assistant and Translation Aggregator<br>"
+            "Port of joeglens's Translation Assistant<br> and Translation Aggregator<br>"
             f"Version {BUILD_DATE}<br>"
             '<a href="https://github.com/Punllarena/Translation-Assistant">Github Link</a>'
         )

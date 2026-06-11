@@ -111,6 +111,7 @@ class CombinedMainWindow(QMainWindow):
             self._action_on_top.setChecked(ta._settings.on_top)
         self._action_on_top.triggered.connect(self._toggle_topmost)
         view_menu.addAction(self._action_on_top)
+        view_menu.addAction(ta.action_go_to_line)
 
         # Clipboard
         mb.addAction(ta.action_clipboard)
