@@ -40,6 +40,39 @@ def mem_db():
 
 
 # ---------------------------------------------------------------------------
+# SetupGuideDialog
+# ---------------------------------------------------------------------------
+
+class TestSetupGuideDialog:
+    def test_instantiates(self, qapp):
+        from translation_assistant.ui.dlg_setup import SetupGuideDialog
+        dlg = SetupGuideDialog()
+        assert dlg.windowTitle() == "Setup Guide — Optional Tools"
+
+    def test_has_close_button(self, qapp):
+        from translation_assistant.ui.dlg_setup import SetupGuideDialog
+        from PySide6.QtWidgets import QDialogButtonBox
+        dlg = SetupGuideDialog()
+        bb = dlg.findChild(QDialogButtonBox)
+        assert bb is not None
+        assert bb.button(QDialogButtonBox.StandardButton.Close) is not None
+
+    def test_has_mecab_group(self, qapp):
+        from translation_assistant.ui.dlg_setup import SetupGuideDialog
+        from PySide6.QtWidgets import QGroupBox
+        dlg = SetupGuideDialog()
+        titles = [g.title() for g in dlg.findChildren(QGroupBox)]
+        assert any("MeCab" in t for t in titles)
+
+    def test_has_jparser_group(self, qapp):
+        from translation_assistant.ui.dlg_setup import SetupGuideDialog
+        from PySide6.QtWidgets import QGroupBox
+        dlg = SetupGuideDialog()
+        titles = [g.title() for g in dlg.findChildren(QGroupBox)]
+        assert any("JParser" in t for t in titles)
+
+
+# ---------------------------------------------------------------------------
 # ProfileNameDialog
 # ---------------------------------------------------------------------------
 
