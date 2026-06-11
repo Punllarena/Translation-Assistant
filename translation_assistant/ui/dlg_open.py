@@ -27,6 +27,8 @@ class OpenDocumentDialog(QDialog):
         self._db = db
         self._selected_doc_id: int | None = None
         self._doc_ids: dict[int, int] = {}  # id(QTreeWidgetItem) → doc_id
+        self._source_urls: dict[int, str] = {}
+        self._refetch_worker = None
         self._setup_ui()
         self._load_documents()
         if current_doc_id is not None:
@@ -70,18 +72,23 @@ class OpenDocumentDialog(QDialog):
         self._delete_btn = QPushButton("Delete")
         self._delete_btn.setEnabled(False)
         self._delete_btn.clicked.connect(self._on_delete)
+        self._refetch_btn = QPushButton("Re-fetch")
+        self._refetch_btn.setEnabled(False)
+        self._refetch_btn.clicked.connect(self._on_refetch)
         cancel_btn = QPushButton("Cancel")
         cancel_btn.clicked.connect(self.reject)
         btn_row.addStretch()
         btn_row.addWidget(self._open_btn)
         btn_row.addWidget(self._edit_btn)
         btn_row.addWidget(self._delete_btn)
+        btn_row.addWidget(self._refetch_btn)
         btn_row.addWidget(cancel_btn)
         layout.addLayout(btn_row)
 
     def _load_documents(self) -> None:
         self._tree.clear()
         self._doc_ids.clear()
+        self._source_urls.clear()
 
         docs = self._db.list_documents()
         if not docs:
@@ -105,6 +112,7 @@ class OpenDocumentDialog(QDialog):
             leaf = QTreeWidgetItem(groups[series], [display, progress, last_edited])
             leaf.setTextAlignment(1, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             self._doc_ids[id(leaf)] = doc["id"]
+            self._source_urls[id(leaf)] = doc.get("source_url", "")
 
         self._tree.expandAll()
 
@@ -126,10 +134,13 @@ class OpenDocumentDialog(QDialog):
         return item
 
     def _on_selection_changed(self) -> None:
-        is_leaf = self._current_leaf() is not None
+        leaf = self._current_leaf()
+        is_leaf = leaf is not None
         self._open_btn.setEnabled(is_leaf)
         self._edit_btn.setEnabled(is_leaf)
         self._delete_btn.setEnabled(is_leaf)
+        has_url = is_leaf and bool(self._source_urls.get(id(leaf), ""))
+        self._refetch_btn.setEnabled(has_url)
 
     def _on_open(self) -> None:
         leaf = self._current_leaf()
@@ -174,6 +185,56 @@ class OpenDocumentDialog(QDialog):
         )
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self._do_edit(doc_id, dlg.series_title, dlg.series_order, dlg.chapter_title)
+
+    def _on_refetch(self) -> None:
+        from PySide6.QtWidgets import QMessageBox
+        from translation_assistant.scraper import FetchWorker
+
+        leaf = self._current_leaf()
+        if leaf is None:
+            return
+        doc_id = self._doc_ids[id(leaf)]
+        url = self._source_urls.get(id(leaf), "")
+        if not url:
+            return
+        answer = QMessageBox.question(
+            self,
+            "Re-fetch",
+            f"Re-fetch content from:\n{url}\n\nExisting translations will be preserved by line position.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        self._refetch_btn.setEnabled(False)
+        self._refetch_worker = FetchWorker(url, parent=self)
+        self._refetch_worker.finished.connect(
+            lambda title, content: self._on_refetch_done(doc_id, title, content)
+        )
+        self._refetch_worker.error.connect(self._on_refetch_error)
+        self._refetch_worker.start()
+
+    def _on_refetch_done(self, doc_id: int, title: str, content: str) -> None:
+        from PySide6.QtWidgets import QMessageBox
+        from translation_assistant.core import build_new_file, parse_file_content
+
+        formatted = build_new_file(f"{title}\n\n{content}" if title else content)
+        raw_lines, _, _ = parse_file_content(formatted)
+        self._db.replace_raw_content(doc_id, raw_lines)
+        self._refetch_worker = None
+        self._load_documents()
+        QMessageBox.information(self, "Re-fetch", "Content re-fetched successfully.")
+
+    def _on_refetch_error(self, msg: str) -> None:
+        from PySide6.QtWidgets import QMessageBox
+        self._refetch_worker = None
+        self._on_selection_changed()
+        QMessageBox.warning(self, "Re-fetch Failed", f"Error: {msg}")
+
+    def closeEvent(self, event) -> None:
+        if self._refetch_worker is not None:
+            self._refetch_worker.wait(3000)
+        super().closeEvent(event)
 
     def _do_edit(self, doc_id: int, series_title: str, series_order: int, chapter_title: str) -> None:
         self._db.update_document_metadata(
