@@ -73,6 +73,24 @@ class TestSetupGuideDialog:
 
 
 # ---------------------------------------------------------------------------
+# CombinedMainWindow — Help menu
+# ---------------------------------------------------------------------------
+
+class TestCombinedWindowHelpMenu:
+    def test_has_help_menu(self, qapp, tmp_path):
+        import sqlite3
+        from translation_assistant.ui.combined_window import CombinedMainWindow
+        from translation_assistant.db import Database
+        conn = sqlite3.connect(":memory:")
+        db = Database(":memory:", _conn=conn)
+        db.create_profile("Default", is_default=True)
+        settings = make_settings(tmp_path)
+        window = CombinedMainWindow(_settings=settings, _db=db)
+        menu_titles = [a.text() for a in window.menuBar().actions()]
+        assert "Help" in menu_titles
+
+
+# ---------------------------------------------------------------------------
 # ProfileNameDialog
 # ---------------------------------------------------------------------------
 

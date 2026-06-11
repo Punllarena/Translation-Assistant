@@ -125,9 +125,19 @@ class CombinedMainWindow(QMainWindow):
         tools_menu.addSeparator()
         tools_menu.addAction(ta.action_about)
 
+        # Help
+        help_menu = mb.addMenu("Help")
+        setup_guide_action = QAction("Setup Guide…", self)
+        setup_guide_action.triggered.connect(self._open_setup_guide)
+        help_menu.addAction(setup_guide_action)
+
     # ------------------------------------------------------------------
     # Window management
     # ------------------------------------------------------------------
+
+    def _open_setup_guide(self) -> None:
+        from translation_assistant.ui.dlg_setup import SetupGuideDialog
+        SetupGuideDialog(self).exec()
 
     def _toggle_topmost(self) -> None:
         flags = self.windowFlags()
