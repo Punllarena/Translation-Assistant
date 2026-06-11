@@ -7,7 +7,7 @@ from pathlib import Path
 from PySide6.QtCore import QEvent, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QFont, QKeyEvent, QTextCursor
 from PySide6.QtWidgets import (
-    QApplication, QFileDialog, QLabel, QMenu,
+    QApplication, QFileDialog, QInputDialog, QLabel, QMenu,
     QMessageBox, QSizePolicy, QSplitter, QStatusBar, QTextEdit, QVBoxLayout, QWidget,
 )
 
@@ -919,7 +919,6 @@ class TranslationAssistantWidget(QWidget):
         if not self._raw_lines:
             return
         n = len(self._raw_lines)
-        from PySide6.QtWidgets import QInputDialog
         line_num, ok = QInputDialog.getInt(
             self,
             "Go to Line",
