@@ -380,6 +380,18 @@ class TestSaveToDB:
         assert lines[0]["raw_text"] == "Hello"
         assert lines[0]["prefix"] == "%"
 
+    def test_load_content_stores_source_url_in_db(self, win):
+        content = _sep_file("%A\n")
+        win.load_content(content, source_url="https://ncode.syosetu.com/n1234ab/1/")
+        doc = win._db.get_document(win._doc_id)
+        assert doc["source_url"] == "https://ncode.syosetu.com/n1234ab/1/"
+
+    def test_load_content_source_url_defaults_empty(self, win):
+        content = _sep_file("%A\n")
+        win.load_content(content)
+        doc = win._db.get_document(win._doc_id)
+        assert doc["source_url"] == ""
+
 
 class TestOpenDocument:
     def test_open_document_sets_doc_id(self, win):

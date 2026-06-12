@@ -382,7 +382,7 @@ class TranslationAssistantWidget(QWidget):
 
     def load_content(self, text: str, *, title: str = "Untitled",
                      series_title: str = "", series_order: int = 0,
-                     chapter_title: str = "") -> None:
+                     chapter_title: str = "", source_url: str = "") -> None:
         from translation_assistant.core import parse_file_content
         raw_lines, translated_lines, raw_section = parse_file_content(text)
         self._raw_lines = raw_lines
@@ -395,6 +395,7 @@ class TranslationAssistantWidget(QWidget):
             series_title=series_title,
             series_order=series_order,
             chapter_title=chapter_title,
+            source_url=source_url,
         )
         self._db.save_lines(doc_id, self._lines_as_db_rows())
         self._doc_id = doc_id
@@ -809,6 +810,7 @@ class TranslationAssistantWidget(QWidget):
                     series_title=dlg.series_title,
                     series_order=dlg.series_order,
                     chapter_title=dlg.chapter_title,
+                    source_url=dlg.source_url,
                 )
 
     def _on_new_series(self) -> None:

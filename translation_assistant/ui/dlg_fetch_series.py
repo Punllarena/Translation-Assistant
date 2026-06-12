@@ -139,8 +139,8 @@ class FetchSeriesDialog(QDialog):
         self._fetch_worker.finished.connect(self._on_fetch_finished)
         self._fetch_worker.start()
 
-    def _on_chapter_done(self, num: int, title: str, content: str) -> None:
-        formatted = build_new_file(content)
+    def _on_chapter_done(self, num: int, title: str, content: str, url: str) -> None:
+        formatted = build_new_file(f"{title}\n\n{content}" if title else content)
         raw_lines, translated_lines, _ = parse_file_content(formatted)
         rows = lines_to_db_rows(raw_lines, translated_lines)
         doc_id = self._db.create_document(
@@ -148,6 +148,7 @@ class FetchSeriesDialog(QDialog):
             series_title=self._series_title,
             series_order=num,
             chapter_title=title,
+            source_url=url,
         )
         self._db.save_lines(doc_id, rows)
         self._added += 1

@@ -432,6 +432,92 @@ def test_create_document_metadata_defaults_to_empty(db):
     assert doc["chapter_title"] == ""
 
 
+# ---------------------------------------------------------------------------
+# source_url column and replace_raw_content
+# ---------------------------------------------------------------------------
+
+def test_source_url_column_exists(db):
+    cols = _doc_columns(db)
+    assert "source_url" in cols
+
+
+def test_create_document_stores_source_url(db):
+    doc_id = db.create_document("Story", source_url="https://ncode.syosetu.com/n1234ab/1/")
+    doc = db.get_document(doc_id)
+    assert doc["source_url"] == "https://ncode.syosetu.com/n1234ab/1/"
+
+
+def test_create_document_source_url_defaults_empty(db):
+    doc_id = db.create_document("Story")
+    doc = db.get_document(doc_id)
+    assert doc["source_url"] == ""
+
+
+def test_list_documents_includes_source_url(db):
+    db.create_document("Story", source_url="https://ncode.syosetu.com/n1234ab/1/")
+    docs = db.list_documents()
+    assert "source_url" in docs[0]
+    assert docs[0]["source_url"] == "https://ncode.syosetu.com/n1234ab/1/"
+
+
+def test_replace_raw_content_replaces_lines(db):
+    doc_id = db.create_document("Story")
+    db.save_lines(doc_id, [
+        {"line_number": 0, "prefix": "%", "raw_text": "Old A", "translated_text": ""},
+        {"line_number": 1, "prefix": "%", "raw_text": "Old B", "translated_text": ""},
+    ])
+    db.replace_raw_content(doc_id, ["%New A", "%New B"])
+    lines = db.get_lines(doc_id)
+    assert lines[0]["raw_text"] == "New A"
+    assert lines[1]["raw_text"] == "New B"
+
+
+def test_replace_raw_content_preserves_translations_by_index(db):
+    doc_id = db.create_document("Story")
+    db.save_lines(doc_id, [
+        {"line_number": 0, "prefix": "%", "raw_text": "Old A", "translated_text": "Trans A"},
+        {"line_number": 1, "prefix": "%", "raw_text": "Old B", "translated_text": "Trans B"},
+    ])
+    db.replace_raw_content(doc_id, ["%New A", "%New B"])
+    lines = db.get_lines(doc_id)
+    assert lines[0]["translated_text"] == "Trans A"
+    assert lines[1]["translated_text"] == "Trans B"
+
+
+def test_replace_raw_content_extra_new_lines_get_empty_translation(db):
+    doc_id = db.create_document("Story")
+    db.save_lines(doc_id, [
+        {"line_number": 0, "prefix": "%", "raw_text": "Old", "translated_text": "Trans"},
+    ])
+    db.replace_raw_content(doc_id, ["%Old", "%Brand New Line"])
+    lines = db.get_lines(doc_id)
+    assert lines[0]["translated_text"] == "Trans"
+    assert lines[1]["translated_text"] == ""
+
+
+def test_replace_raw_content_fewer_new_lines_drops_excess_translations(db):
+    doc_id = db.create_document("Story")
+    db.save_lines(doc_id, [
+        {"line_number": 0, "prefix": "%", "raw_text": "A", "translated_text": "Trans A"},
+        {"line_number": 1, "prefix": "%", "raw_text": "B", "translated_text": "Trans B"},
+    ])
+    db.replace_raw_content(doc_id, ["%A"])
+    lines = db.get_lines(doc_id)
+    assert len(lines) == 1
+    assert lines[0]["translated_text"] == "Trans A"
+
+
+def test_replace_raw_content_handles_prefix_variants(db):
+    doc_id = db.create_document("Story")
+    db.save_lines(doc_id, [
+        {"line_number": 0, "prefix": "%", "raw_text": "Old", "translated_text": "T"},
+    ])
+    db.replace_raw_content(doc_id, ["$Continuation line"])
+    lines = db.get_lines(doc_id)
+    assert lines[0]["prefix"] == "$"
+    assert lines[0]["raw_text"] == "Continuation line"
+
+
 def test_update_document_metadata(db):
     doc_id = db.create_document("Old")
     db.update_document_metadata(

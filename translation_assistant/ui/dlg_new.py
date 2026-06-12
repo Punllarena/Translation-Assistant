@@ -176,6 +176,8 @@ class NewFileDialog(QDialog):
     def _on_fetch_done(self, title: str, content: str) -> None:
         combined = f"{title}\n\n{content}" if title else content
         self._fetch_box.setPlainText(combined)
+        if title:
+            self._chapter_edit.setText(title)
         self._fetch_status.setText("Done")
         self._fetch_btn.setEnabled(True)
         self._worker = None
@@ -230,3 +232,9 @@ class NewFileDialog(QDialog):
     @property
     def linked_profile(self) -> str:
         return self._linked_profile
+
+    @property
+    def source_url(self) -> str:
+        if self._tabs.currentIndex() == 1:
+            return self._url_edit.text().strip()
+        return ""

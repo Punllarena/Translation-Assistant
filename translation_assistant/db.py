@@ -106,6 +106,14 @@ class Database:
             )
         self._conn.commit()
 
+        # Idempotent column migration for source_url on documents
+        doc_existing = {r[1] for r in self._conn.execute("PRAGMA table_info(documents)").fetchall()}
+        if "source_url" not in doc_existing:
+            self._conn.execute(
+                "ALTER TABLE documents ADD COLUMN source_url TEXT NOT NULL DEFAULT ''"
+            )
+        self._conn.commit()
+
     def close(self) -> None:
         self._conn.close()
 
@@ -218,7 +226,7 @@ class Database:
         rows = self._conn.execute(
             """
             SELECT d.id, d.title, d.series_title, d.series_order, d.chapter_title,
-                   d.updated_at, d.last_position,
+                   d.updated_at, d.last_position, d.source_url,
                    CAST(COALESCE(
                        SUM(CASE WHEN TRIM(l.raw_text) != '' AND l.translated_text != '' THEN 1 ELSE 0 END) * 100
                        / NULLIF(SUM(CASE WHEN TRIM(l.raw_text) != '' THEN 1 ELSE 0 END), 0), 0
@@ -234,11 +242,12 @@ class Database:
     def create_document(self, title: str, *,
                         series_title: str = "",
                         series_order: int = 0,
-                        chapter_title: str = "") -> int:
+                        chapter_title: str = "",
+                        source_url: str = "") -> int:
         cur = self._conn.execute(
-            "INSERT INTO documents (title, series_title, series_order, chapter_title) "
-            "VALUES (?, ?, ?, ?)",
-            (title, series_title, series_order, chapter_title),
+            "INSERT INTO documents (title, series_title, series_order, chapter_title, source_url) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (title, series_title, series_order, chapter_title, source_url),
         )
         self._conn.commit()
         return cur.lastrowid
@@ -341,7 +350,7 @@ class Database:
     def get_document(self, doc_id: int) -> dict:
         row = self._conn.execute(
             "SELECT id, title, series_title, series_order, chapter_title, "
-            "source_language, created_at, updated_at, last_position "
+            "source_language, created_at, updated_at, last_position, source_url "
             "FROM documents WHERE id = ?",
             (doc_id,),
         ).fetchone()
@@ -385,6 +394,26 @@ class Database:
             self._conn.execute(
                 "UPDATE documents SET updated_at = datetime('now') WHERE id = ?", (doc_id,)
             )
+
+    def replace_raw_content(self, doc_id: int, new_raw_lines: list[str]) -> None:
+        """Replace raw lines, preserving translated_text by line index."""
+        existing = self.get_lines(doc_id)
+        old_translations = [r["translated_text"] for r in existing]
+        rows = []
+        for i, ln in enumerate(new_raw_lines):
+            if not ln:
+                prefix, raw_text = "", ""
+            elif ln[0] in ("%", "$"):
+                prefix, raw_text = ln[0], ln[1:]
+            else:
+                prefix, raw_text = "%", ln
+            rows.append({
+                "line_number": i,
+                "prefix": prefix,
+                "raw_text": raw_text,
+                "translated_text": old_translations[i] if i < len(old_translations) else "",
+            })
+        self.save_lines(doc_id, rows)
 
     def save_translation(self, doc_id: int, line_number: int, text: str) -> None:
         self._conn.execute(

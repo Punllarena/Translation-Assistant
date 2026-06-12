@@ -404,6 +404,64 @@ class TestNewFileDialog:
         # Only one profile named "My Novel"
         assert mem_db.list_profiles().count("My Novel") == 1
 
+    def test_on_fetch_done_fills_chapter_title_field(self, qapp, mem_db):
+        dlg = NewFileDialog(mem_db)
+        dlg._on_fetch_done("第一話　始まり", "Some content here.")
+        assert dlg._chapter_edit.text() == "第一話　始まり"
+
+    def test_on_fetch_done_does_not_overwrite_when_title_empty(self, qapp, mem_db):
+        dlg = NewFileDialog(mem_db)
+        dlg._chapter_edit.setText("Already Set")
+        dlg._on_fetch_done("", "Content only.")
+        assert dlg._chapter_edit.text() == "Already Set"
+
+    def test_on_fetch_done_puts_title_in_fetch_box(self, qapp, mem_db):
+        dlg = NewFileDialog(mem_db)
+        dlg._on_fetch_done("Chapter Title", "Body text.")
+        assert "Chapter Title" in dlg._fetch_box.toPlainText()
+        assert "Body text." in dlg._fetch_box.toPlainText()
+
+    def test_source_url_property_returns_url_on_fetch_tab(self, qapp, mem_db):
+        dlg = NewFileDialog(mem_db)
+        dlg._tabs.setCurrentIndex(1)
+        dlg._url_edit.setText("https://ncode.syosetu.com/n1234ab/1/")
+        assert dlg.source_url == "https://ncode.syosetu.com/n1234ab/1/"
+
+    def test_source_url_property_returns_empty_on_paste_tab(self, qapp, mem_db):
+        dlg = NewFileDialog(mem_db)
+        dlg._tabs.setCurrentIndex(0)
+        assert dlg.source_url == ""
+
+
+# ---------------------------------------------------------------------------
+# FetchSeriesDialog
+# ---------------------------------------------------------------------------
+
+class TestFetchSeriesDialog:
+    def test_on_chapter_done_prepends_title_to_raw_content(self, qapp, mem_db):
+        from unittest.mock import patch
+        from translation_assistant.ui.dlg_fetch_series import FetchSeriesDialog
+
+        with patch("translation_assistant.ui.dlg_fetch_series.IndexFetchWorker"):
+            dlg = FetchSeriesDialog(mem_db, "My Novel", "https://ncode.syosetu.com/n1234ab/")
+
+        dlg._on_chapter_done(1, "第一話　始まり", "本文です。", "https://ncode.syosetu.com/n1234ab/1/")
+
+        lines = mem_db.get_lines(mem_db.list_documents()[0]["id"])
+        assert lines[0]["raw_text"] == "第一話　始まり"
+
+    def test_on_chapter_done_no_title_does_not_prepend_blank(self, qapp, mem_db):
+        from unittest.mock import patch
+        from translation_assistant.ui.dlg_fetch_series import FetchSeriesDialog
+
+        with patch("translation_assistant.ui.dlg_fetch_series.IndexFetchWorker"):
+            dlg = FetchSeriesDialog(mem_db, "My Novel", "https://ncode.syosetu.com/n1234ab/")
+
+        dlg._on_chapter_done(1, "", "本文だけです。", "https://ncode.syosetu.com/n1234ab/1/")
+
+        lines = mem_db.get_lines(mem_db.list_documents()[0]["id"])
+        assert lines[0]["raw_text"].strip() != ""
+
 
 # ---------------------------------------------------------------------------
 # ProfileDialog — DB-backed

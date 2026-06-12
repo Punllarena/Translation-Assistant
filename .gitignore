@@ -20,6 +20,9 @@ env/
 # Database (user data — not committed)
 ta.db
 
+# Large dictionary files (downloaded separately)
+dictionaries/
+
 # Test / coverage artifacts
 .pytest_cache/
 .coverage

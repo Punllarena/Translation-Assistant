@@ -265,6 +265,66 @@ class TestOpenDocumentDialog:
         # Should not raise; just no pre-selection
         assert dlg is not None
 
+    def test_refetch_btn_exists(self, qapp, mem_db):
+        dlg = OpenDocumentDialog(mem_db)
+        assert hasattr(dlg, "_refetch_btn")
+
+    def test_refetch_btn_disabled_with_no_selection(self, qapp, mem_db):
+        mem_db.create_document("Doc", source_url="https://ncode.syosetu.com/n1234ab/1/")
+        dlg = OpenDocumentDialog(mem_db)
+        assert not dlg._refetch_btn.isEnabled()
+
+    def test_refetch_btn_disabled_when_doc_has_no_url(self, qapp, mem_db):
+        mem_db.create_document("Doc")  # no source_url
+        dlg = OpenDocumentDialog(mem_db)
+        leaf = _first_leaf(dlg)
+        dlg._tree.setCurrentItem(leaf)
+        assert not dlg._refetch_btn.isEnabled()
+
+    def test_refetch_btn_enabled_when_doc_has_url_and_selected(self, qapp, mem_db):
+        mem_db.create_document("Doc", source_url="https://ncode.syosetu.com/n1234ab/1/")
+        dlg = OpenDocumentDialog(mem_db)
+        leaf = _first_leaf(dlg)
+        dlg._tree.setCurrentItem(leaf)
+        assert dlg._refetch_btn.isEnabled()
+
+    def test_on_refetch_done_replaces_raw_content_in_db(self, qapp, mem_db):
+        from unittest.mock import patch
+        from PySide6.QtWidgets import QMessageBox
+
+        doc_id = mem_db.create_document(
+            "Ch1", source_url="https://ncode.syosetu.com/n1234ab/1/"
+        )
+        mem_db.save_lines(doc_id, [
+            {"line_number": 0, "prefix": "%", "raw_text": "Old line", "translated_text": "Trans"},
+        ])
+
+        dlg = OpenDocumentDialog(mem_db)
+        with patch.object(QMessageBox, "information"):
+            dlg._on_refetch_done(doc_id, "New Title", "New body text.")
+
+        lines = mem_db.get_lines(doc_id)
+        # First line should be the new title
+        assert lines[0]["raw_text"] == "New Title"
+
+    def test_on_refetch_done_preserves_translations(self, qapp, mem_db):
+        from unittest.mock import patch
+        from PySide6.QtWidgets import QMessageBox
+
+        doc_id = mem_db.create_document(
+            "Ch1", source_url="https://ncode.syosetu.com/n1234ab/1/"
+        )
+        mem_db.save_lines(doc_id, [
+            {"line_number": 0, "prefix": "%", "raw_text": "Old Title", "translated_text": "MyTrans"},
+        ])
+
+        dlg = OpenDocumentDialog(mem_db)
+        with patch.object(QMessageBox, "information"):
+            dlg._on_refetch_done(doc_id, "Old Title", "Same body.")
+
+        lines = mem_db.get_lines(doc_id)
+        assert lines[0]["translated_text"] == "MyTrans"
+
 
 def _first_leaf_is_hidden(dlg, title: str) -> bool:
     r = _root(dlg)

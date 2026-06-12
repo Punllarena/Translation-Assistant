@@ -20,6 +20,30 @@ def validate_url(url: str) -> None:
         raise ValueError("Only syosetu.com URLs are supported")
 
 
+def _para_text(p) -> str:
+    """Extract text from a <p> tag, rendering <ruby> as base(reading)."""
+    parts = []
+    for node in p.children:
+        if hasattr(node, "name"):
+            if node.name == "ruby":
+                rb = node.find("rb")
+                if rb is not None:
+                    base = rb.get_text()
+                else:
+                    base = "".join(
+                        str(c) for c in node.children
+                        if not (hasattr(c, "name") and c.name in ("rt", "rp"))
+                    )
+                rt = node.find("rt")
+                reading = rt.get_text() if rt else ""
+                parts.append(f"{base}({reading})" if reading else base)
+            else:
+                parts.append(node.get_text())
+        else:
+            parts.append(str(node))
+    return "".join(parts).strip()
+
+
 def fetch_syosetu(url: str) -> tuple[str, str]:
     validate_url(url)
     resp = requests.get(url, timeout=10, headers={"User-Agent": _UA}, cookies={"over18": "yes"})
@@ -34,7 +58,7 @@ def fetch_syosetu(url: str) -> tuple[str, str]:
     )
     if not content_el:
         raise ValueError("Could not find novel text on page")
-    content = "\n".join(p.get_text(strip=True) for p in content_el.find_all("p"))
+    content = "\n".join(_para_text(p) for p in content_el.find_all("p"))
 
     return title, content
 
@@ -131,9 +155,9 @@ class IndexFetchWorker(QThread):
 
 
 class SeriesFetchWorker(QThread):
-    chapter_done = Signal(int, str, str)   # num, title, content
-    progress = Signal(int, int)             # current, total
-    error = Signal(int, str)               # chapter_num, message
+    chapter_done = Signal(int, str, str, str)  # num, title, content, url
+    progress = Signal(int, int)                # current, total
+    error = Signal(int, str)                   # chapter_num, message
     finished = Signal()
 
     def __init__(self, chapters_to_fetch: list[dict], parent=None) -> None:
@@ -147,7 +171,7 @@ class SeriesFetchWorker(QThread):
                 break
             try:
                 title, content = fetch_syosetu(ch["url"])
-                self.chapter_done.emit(ch["num"], title, content)
+                self.chapter_done.emit(ch["num"], title, content, ch["url"])
             except Exception as exc:
                 self.error.emit(ch["num"], str(exc))
             self.progress.emit(i + 1, total)
