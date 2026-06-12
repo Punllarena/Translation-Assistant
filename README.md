@@ -9,7 +9,10 @@ A desktop tool for Japanese/Chinese → English translation work. Port of the or
 - Documents stored in a SQLite database (`ta.db`) next to the executable — no loose files to manage
 - Organise documents into **series** with per-chapter titles and ordering
 - **Open Document** dialog groups chapters by series, shows translation progress %, last-edited timestamp, live filter, delete with confirmation, and in-place metadata editing
+- **Syosetu batch importer** — paste a series URL, pick chapters, fetch them all at once with rate limiting
+- **Translation memory** panel — suggests matching translations from previously translated lines
 - Displays one source line at a time; auto-copies raw text to clipboard (400 ms debounce)
+- Restores the last opened document on startup
 - Glossary phrase-substitution from per-profile entries applied before display
 - Sentence-level parse navigation (Ctrl+Left / Ctrl+Right) using configurable split characters
 - Real-time spellcheck with red underlines via `pyenchant`; per-profile custom word lists
@@ -17,6 +20,9 @@ A desktop tool for Japanese/Chinese → English translation work. Port of the or
 - Progress tracking (% complete, word count, line counter) — blank paragraph markers excluded
 - Auto-save every N minutes while a document is open
 - Always-on-top toggle; settings persist across restarts
+- Import / export individual documents to the original TXT format
+- Database backup and restore (full `ta.db` copy)
+- **Setup Guide** dialog walks through MeCab and JParser installation on first launch
 
 ---
 
@@ -30,6 +36,8 @@ A desktop tool for Japanese/Chinese → English translation work. Port of the or
 | PySide6 | ≥ 6.6 | Qt6 GUI |
 | pyttsx3 | ≥ 2.90 | TTS stub (deferred) |
 | pyenchant | ≥ 3.2 | Spellcheck |
+| requests | ≥ 2.31 | Syosetu scraper |
+| beautifulsoup4 | ≥ 4.12 | Syosetu scraper |
 
 **System libraries (Linux)**
 
@@ -81,7 +89,7 @@ python -m translation_assistant.main
 ## Testing
 
 ```bash
-pytest            # run all 361 tests
+pytest            # run all 487 tests
 pytest -q         # quiet output
 ```
 
@@ -98,11 +106,22 @@ Tests use an in-memory SQLite database and isolated `QSettings` — they never t
 
 Output: `dist/TranslationAssistant/` — copy this folder to the target machine. No Python installation required. `ta.db` is created next to the executable on first launch.
 
+Pre-built releases (AppImage for Linux, NSIS installer for Windows) are produced by the GitHub Actions release workflow on tagged commits.
+
 ---
 
-## Document format (internal)
+## Importing from Syosetu
 
-Documents are stored in SQLite. The underlying text format (used during import/export) is:
+1. **File → Manage Series** — create or select a series, then click **Fetch from Syosetu**
+2. Paste the series index URL (e.g. `https://ncode.syosetu.com/n…/`)
+3. The dialog loads the chapter list; tick the chapters to import
+4. Click **Fetch Selected** — chapters are fetched with rate limiting and saved to the database
+
+---
+
+## Document format (import/export)
+
+The TXT format used by **File → Import / Export** is:
 
 ```
 %First sentence of paragraph。
@@ -118,7 +137,7 @@ Another paragraph translation
 - `$` marks continuation sentences (displayed grouped in the review panels)
 - Blank lines between paragraphs are stored as bare `%` markers and are skipped during navigation and excluded from progress calculation
 
-Create a new document via **File → New** (Ctrl+N). Specify Series Title, Series Order, and Chapter Title to group related chapters together.
+Create a new document via **File → New Document** (Ctrl+N). Specify Series Title, Series Order, and Chapter Title to group related chapters together. Create a standalone series entry via **File → New Series**.
 
 ---
 
@@ -139,6 +158,7 @@ Add a phrase via **Settings → Phrase** (Ctrl+L) or Ctrl+J to add the selected 
 | PgUp | Save translation, go to previous line |
 | Ctrl+Home | Jump to line 0 |
 | Ctrl+End | Jump to next untranslated line |
+| Ctrl+G | Go to specific line number |
 | Ctrl+Right | Advance parse sentence |
 | Ctrl+Left | Retreat parse sentence |
 | Ctrl+S | Save |
@@ -175,24 +195,35 @@ translation_assistant/
 ├── main.py            # entry point
 ├── core.py            # pure text-processing logic (no Qt)
 ├── db.py              # Database class — all SQLite CRUD
+├── migration.py       # DB schema migrations
+├── scraper.py         # Syosetu HTTP scraper + worker threads
 ├── settings.py        # QSettings wrapper (typed getters/setters)
 ├── spellcheck.py      # QSyntaxHighlighter + pyenchant
 ├── tts.py             # TTS stub
 └── ui/
-    ├── main_window.py       # QMainWindow
+    ├── combined_window.py   # QMainWindow shell (menu bar + central widget)
+    ├── main_widget.py       # Main application widget (state, navigation, actions)
     ├── dlg_new.py           # New document dialog
+    ├── dlg_new_series.py    # New series dialog
     ├── dlg_open.py          # Open document dialog (grouped tree view)
+    ├── dlg_fetch_series.py  # Syosetu batch import dialog
+    ├── dlg_series.py        # Series manager dialog
+    ├── dlg_setup.py         # Setup guide dialog (MeCab / JParser)
     ├── dlg_phrase.py        # Add phrase dialog
     ├── dlg_profile.py       # Profile manager dialog
     └── dlg_profile_name.py  # Profile name input dialog
 tests/
 ├── conftest.py
-├── test_core.py         # pure logic
-├── test_db.py           # database CRUD
-├── test_settings.py     # settings persistence
-├── test_dialogs.py      # dialog behaviour
-├── test_dlg_open.py     # open document dialog
-├── test_main_window.py  # main window
-├── test_spellcheck.py   # spellcheck
-└── test_integration.py  # end-to-end
+├── test_core.py              # pure logic
+├── test_db.py                # database CRUD
+├── test_migration.py         # schema migration
+├── test_settings.py          # settings persistence
+├── test_dialogs.py           # dialog behaviour
+├── test_dlg_open.py          # open document dialog
+├── test_dlg_new_series.py    # new series dialog
+├── test_combined_window.py   # main window shell
+├── test_main_window.py       # main widget
+├── test_scraper.py           # scraper
+├── test_spellcheck.py        # spellcheck
+└── test_integration.py       # end-to-end
 ```
