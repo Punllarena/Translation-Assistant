@@ -3,3 +3,4 @@ pyttsx3>=2.90
 pyenchant>=3.2
 requests>=2.28
 beautifulsoup4>=4.12
+mecab-python3>=1.0

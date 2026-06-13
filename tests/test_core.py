@@ -661,3 +661,84 @@ class TestExportTxt:
         assert SEPARATOR in content
         assert "Hi" in content
         assert "Earth" in content
+
+
+# ---------------------------------------------------------------------------
+# extract_frequent_nouns
+# ---------------------------------------------------------------------------
+
+from translation_assistant.core import extract_frequent_nouns
+
+
+class _FakeTagger:
+    """Replays pre-baked MeCab output strings, round-robining through the list."""
+    def __init__(self, outputs: list[str]) -> None:
+        self._outputs = outputs
+        self._idx = 0
+
+    def parse(self, text: str) -> str:
+        out = self._outputs[self._idx % len(self._outputs)]
+        self._idx += 1
+        return out
+
+
+# Minimal MeCab output fragments (surface TAB POS-csv NEWLINE EOS NEWLINE)
+_OUT_TARO    = "太郎\t名詞,固有名詞,人名,名,*,*,太郎,タロウ,タロウ\nEOS\n"
+_OUT_HANAKO  = "花子\t名詞,固有名詞,人名,名,*,*,花子,ハナコ,ハナコ\nEOS\n"
+_OUT_BOTH    = (
+    "太郎\t名詞,固有名詞,人名,名,*,*,太郎,タロウ,タロウ\n"
+    "花子\t名詞,固有名詞,人名,名,*,*,花子,ハナコ,ハナコ\n"
+    "EOS\n"
+)
+_OUT_NUMBER  = "100\t名詞,数,*,*,*,*,*\nEOS\n"
+_OUT_SINGLE  = "私\t名詞,代名詞,一般,*,*,*,私,ワタシ,ワタシ\nEOS\n"
+_OUT_VERB    = "走る\t動詞,自立,*,*,五段・ラ行,基本形,走る,ハシル,ハシル\nEOS\n"
+
+
+def test_extract_returns_noun_with_count():
+    tagger = _FakeTagger([_OUT_TARO, _OUT_TARO])
+    result = extract_frequent_nouns(["太郎", "太郎"], set(), min_freq=2, _tagger=tagger)
+    assert result == [("太郎", 2)]
+
+
+def test_extract_skips_verb():
+    tagger = _FakeTagger([_OUT_VERB, _OUT_VERB])
+    result = extract_frequent_nouns(["走る", "走る"], set(), min_freq=1, _tagger=tagger)
+    assert result == []
+
+
+def test_extract_skips_number_noun():
+    tagger = _FakeTagger([_OUT_NUMBER, _OUT_NUMBER])
+    result = extract_frequent_nouns(["100", "100"], set(), min_freq=1, _tagger=tagger)
+    assert result == []
+
+
+def test_extract_skips_single_char_noun():
+    tagger = _FakeTagger([_OUT_SINGLE, _OUT_SINGLE])
+    result = extract_frequent_nouns(["私", "私"], set(), min_freq=1, _tagger=tagger)
+    assert result == []
+
+
+def test_extract_filters_glossary_terms():
+    tagger = _FakeTagger([_OUT_TARO, _OUT_TARO])
+    result = extract_frequent_nouns(["太郎", "太郎"], {"太郎"}, min_freq=1, _tagger=tagger)
+    assert result == []
+
+
+def test_extract_sorted_by_count_descending():
+    tagger = _FakeTagger([_OUT_BOTH, _OUT_TARO])
+    result = extract_frequent_nouns(["太郎花子", "太郎"], set(), min_freq=1, _tagger=tagger)
+    assert result[0] == ("太郎", 2)
+    assert ("花子", 1) in result
+
+
+def test_extract_min_freq_filters_low_count():
+    tagger = _FakeTagger([_OUT_BOTH])
+    result = extract_frequent_nouns(["太郎花子"], set(), min_freq=2, _tagger=tagger)
+    assert result == []
+
+
+def test_extract_skips_blank_lines():
+    tagger = _FakeTagger(["EOS\n"])
+    result = extract_frequent_nouns(["", "  "], set(), min_freq=1, _tagger=tagger)
+    assert result == []
