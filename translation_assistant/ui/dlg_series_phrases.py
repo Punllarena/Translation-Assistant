@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from PySide6.QtWidgets import (
     QComboBox, QDialog, QDialogButtonBox, QFormLayout,
-    QHBoxLayout, QLabel, QLineEdit, QMessageBox,
+    QHeaderView, QHBoxLayout, QLabel, QLineEdit, QMessageBox,
     QPushButton, QSpinBox, QTableWidget, QTableWidgetItem,
     QVBoxLayout,
 )
@@ -64,7 +64,9 @@ class SeriesPhrasesDialog(QDialog):
 
         self._table = QTableWidget(0, 2)
         self._table.setHorizontalHeaderLabels(["Term", "Count"])
-        self._table.horizontalHeader().setStretchLastSection(True)
+        self._table.horizontalHeader().setStretchLastSection(False)
+        self._table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self._table.setColumnWidth(1, 60)
         self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self._table.itemSelectionChanged.connect(self._on_selection_changed)
@@ -92,13 +94,16 @@ class SeriesPhrasesDialog(QDialog):
 
     def _populate_series(self, current_series: str) -> None:
         series = self._db.get_series_list()
+        self._series_combo.blockSignals(True)
         self._series_combo.clear()
         if not series:
+            self._series_combo.blockSignals(False)
             self._analyze_btn.setEnabled(False)
             self._status_label.setText("No series found")
             return
         for s in series:
             self._series_combo.addItem(s)
+        self._series_combo.blockSignals(False)
         idx = self._series_combo.findText(current_series)
         self._series_combo.setCurrentIndex(idx if idx >= 0 else 0)
 
@@ -126,6 +131,7 @@ class SeriesPhrasesDialog(QDialog):
 
     def _on_series_changed(self, _: str) -> None:
         self._raw_results = []
+        self._refresh_table()
         series = self._series_combo.currentText()
         default = self._db.get_series_profile(series) or self._settings.profile_used
         idx = self._profile_combo.findText(default)
