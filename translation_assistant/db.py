@@ -320,6 +320,13 @@ class Database:
         ).fetchall()
         return [r[0] for r in rows]
 
+    def get_document_ids_by_series(self, series_title: str) -> list[int]:
+        rows = self._conn.execute(
+            "SELECT id FROM documents WHERE series_title = ? ORDER BY series_order",
+            (series_title,),
+        ).fetchall()
+        return [r[0] for r in rows]
+
     def get_series_list_full(self) -> list[dict]:
         rows = self._conn.execute(
             """

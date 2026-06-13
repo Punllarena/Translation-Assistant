@@ -801,3 +801,23 @@ def test_find_tm_matches_returns_doc_title_and_updated_at(db):
     matches = db.find_tm_matches("猫が鳴いた", current_doc_id=None)
     assert "doc_title" in matches[0]
     assert "updated_at" in matches[0]
+
+
+# ---------------------------------------------------------------------------
+# get_document_ids_by_series
+# ---------------------------------------------------------------------------
+
+def test_get_document_ids_by_series_returns_matching_ids(db):
+    db.create_profile("Default", is_default=True)
+    id1 = db.create_document("Ch1", series_title="Isekai")
+    id2 = db.create_document("Ch2", series_title="Isekai")
+    _other = db.create_document("Other", series_title="Romance")
+    result = db.get_document_ids_by_series("Isekai")
+    assert set(result) == {id1, id2}
+
+
+def test_get_document_ids_by_series_empty_when_no_match(db):
+    db.create_profile("Default", is_default=True)
+    db.create_document("Ch1", series_title="Isekai")
+    result = db.get_document_ids_by_series("Nonexistent")
+    assert result == []
