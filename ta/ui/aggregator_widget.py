@@ -49,6 +49,7 @@ class AggregatorWidget(QWidget):
         self._subs = SubstitutionStore.load()
         self._history_current_id: int | None = None
         self._pending_translations: dict[str, str] = {}
+        self._current_source: str = ""
 
         self._setup_ui()
         self._setup_clipboard()
@@ -110,6 +111,7 @@ class AggregatorWidget(QWidget):
         text = self._preprocess(text)
         if not text:
             return
+        self._current_source = text
         self._pending_translations = {}
         self._panels.translate_all(
             text,
@@ -135,8 +137,7 @@ class AggregatorWidget(QWidget):
 
     def _on_translation_received(self, name: str, text: str) -> None:
         self._pending_translations[name] = text
-        source = self._source_panel.get_text()
-        self._history.append(source, dict(self._pending_translations))
+        self._history.append(self._current_source, dict(self._pending_translations))
 
     # ------------------------------------------------------------------
     # History navigation
