@@ -394,7 +394,7 @@ def extract_frequent_nouns(
             continue
         parsed = _tagger.parse(line)
         for token_line in parsed.split("\n"):
-            if not token_line or token_line.startswith("EOS"):
+            if not token_line or token_line == "EOS":
                 continue
             parts = token_line.split("\t")
             if len(parts) < 2:

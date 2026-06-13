@@ -18,6 +18,7 @@ from translation_assistant.core import (
     db_rows_to_arrays,
     import_txt,
     export_txt,
+    extract_frequent_nouns,
 )
 
 
@@ -666,8 +667,6 @@ class TestExportTxt:
 # ---------------------------------------------------------------------------
 # extract_frequent_nouns
 # ---------------------------------------------------------------------------
-
-from translation_assistant.core import extract_frequent_nouns
 
 
 class _FakeTagger:
