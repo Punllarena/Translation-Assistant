@@ -118,13 +118,14 @@ class SeriesPhrasesDialog(QDialog):
 
     def _reload_glossary(self) -> None:
         profile = self._profile_combo.currentText()
-        self._current_glossary = {p for p, _ in self._db.get_glossary(profile)}
+        self._current_glossary = {phrase for phrase, _ in self._db.get_glossary(profile)}
 
     # ------------------------------------------------------------------
     # Slots
     # ------------------------------------------------------------------
 
     def _on_series_changed(self, _: str) -> None:
+        self._raw_results = []
         series = self._series_combo.currentText()
         default = self._db.get_series_profile(series) or self._settings.profile_used
         idx = self._profile_combo.findText(default)
@@ -209,7 +210,7 @@ class SeriesPhrasesDialog(QDialog):
         if row < 0:
             return
         term = self._table.item(row, 0).text()
-        translation = self._translation_edit.text().strip()
+        translation = self._translation_edit.text().strip().replace(" ", "_")
         if not translation:
             return
         profile = self._profile_combo.currentText()
