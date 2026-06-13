@@ -195,6 +195,14 @@ class MainWindow(QMainWindow):
         self._action_tts_cn.triggered.connect(self._on_toggle_tts_cn)
         settings_menu.addMenu(tts_menu)
 
+        # Tools
+        tools_menu = mb.addMenu("Tools")
+        self._action_series_phrases = tools_menu.addAction(
+            "Series Phrase Suggestions… (Ctrl+Shift+P)"
+        )
+        self._action_series_phrases.triggered.connect(self._on_series_phrases)
+        self._action_series_phrases.setShortcut("Ctrl+Shift+P")
+
         # Special punctuations
         punct_menu = mb.addMenu("Special Punctuations")
         _punct_labels = [
@@ -869,6 +877,21 @@ class MainWindow(QMainWindow):
         from translation_assistant.ui.dlg_series import SeriesManagerDialog
         with self._topmost_suspended():
             dlg = SeriesManagerDialog(self._db, parent=self)
+            dlg.exec()
+
+    def _on_series_phrases(self) -> None:
+        from translation_assistant.ui.dlg_series_phrases import SeriesPhrasesDialog
+        series = ""
+        if self._doc_id is not None:
+            try:
+                doc = self._db.get_document(self._doc_id)
+                series = doc.get("series_title", "")
+            except Exception:
+                pass
+        with self._topmost_suspended():
+            dlg = SeriesPhrasesDialog(
+                self._db, self._settings, current_series=series, parent=self
+            )
             dlg.exec()
 
     # ------------------------------------------------------------------
