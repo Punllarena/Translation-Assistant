@@ -378,15 +378,15 @@ def extract_frequent_nouns(
     _tagger=None,
 ) -> list[tuple[str, int]]:
     """
-    Tokenize raw_lines with MeCab, return (noun, count) pairs sorted by count desc.
+    Tokenize raw_lines with MeCab via fugashi, return (noun, count) pairs sorted by count desc.
 
-    Skips: verbs, numbers (名詞,数), single-char tokens, terms in already_in_glossary.
-    _tagger: injection seam — any object with .parse(str) -> str; defaults to MeCab.Tagger().
-    Raises ImportError if mecab-python3 is not installed and _tagger is None.
+    Skips: verbs, numbers (名詞-数詞), single-char tokens, terms in already_in_glossary.
+    _tagger: injection seam — any object with .parse(str) -> str; defaults to fugashi.Tagger().
+    Raises ImportError if fugashi is not installed and _tagger is None.
     """
     if _tagger is None:
-        import MeCab as _MeCab
-        _tagger = _MeCab.Tagger()
+        import fugashi as _fugashi
+        _tagger = _fugashi.Tagger()
 
     counts: dict[str, int] = {}
     for line in raw_lines:
@@ -397,13 +397,13 @@ def extract_frequent_nouns(
             if not token_line or token_line == "EOS":
                 continue
             parts = token_line.split("\t")
-            if len(parts) < 2:
+            if len(parts) < 5:
                 continue
             surface = parts[0]
-            features = parts[1].split(",")
+            features = parts[4].split("-")
             if not features or features[0] != "名詞":
                 continue
-            if len(features) > 1 and features[1] == "数":
+            if len(features) > 1 and features[1] == "数詞":
                 continue
             if len(surface) < 2:
                 continue

@@ -880,17 +880,12 @@ class MainWindow(QMainWindow):
             dlg.exec()
 
     def _on_series_phrases(self) -> None:
-        from translation_assistant.ui.dlg_series_phrases import SeriesPhrasesDialog
-        series = ""
-        if self._doc_id is not None:
-            try:
-                doc = self._db.get_document(self._doc_id)
-                series = doc.get("series_title", "")
-            except Exception:
-                pass
+        from translation_assistant.ui.dlg_series_phrases import SeriesPhrasesDialog, _get_series_for_doc
         with self._topmost_suspended():
             dlg = SeriesPhrasesDialog(
-                self._db, self._settings, current_series=series, parent=self
+                self._db, self._settings,
+                current_series=_get_series_for_doc(self._db, self._doc_id),
+                parent=self,
             )
             dlg.exec()
 

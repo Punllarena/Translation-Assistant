@@ -13,6 +13,16 @@ from translation_assistant.db import Database
 from translation_assistant.settings import AppSettings
 
 
+def _get_series_for_doc(db: Database, doc_id: int | None) -> str:
+    """Return series_title for doc_id, or empty string on any failure."""
+    if doc_id is None:
+        return ""
+    try:
+        return db.get_document(doc_id).get("series_title", "") or ""
+    except Exception:
+        return ""
+
+
 class SeriesPhrasesDialog(QDialog):
     def __init__(
         self,
@@ -92,34 +102,33 @@ class SeriesPhrasesDialog(QDialog):
     # Population
     # ------------------------------------------------------------------
 
+    def _fill_combo(self, combo: QComboBox, items: list[str]) -> None:
+        combo.blockSignals(True)
+        combo.clear()
+        for item in items:
+            combo.addItem(item)
+        combo.blockSignals(False)
+
     def _populate_series(self, current_series: str) -> None:
         series = self._db.get_series_list()
-        self._series_combo.blockSignals(True)
-        self._series_combo.clear()
+        self._fill_combo(self._series_combo, series)
         if not series:
-            self._series_combo.blockSignals(False)
             self._analyze_btn.setEnabled(False)
             self._status_label.setText("No series found")
             return
-        for s in series:
-            self._series_combo.addItem(s)
-        self._series_combo.blockSignals(False)
         idx = self._series_combo.findText(current_series)
         self._series_combo.setCurrentIndex(idx if idx >= 0 else 0)
 
     def _populate_profiles(self) -> None:
-        profiles = self._db.list_profiles()
-        self._profile_combo.blockSignals(True)
-        self._profile_combo.clear()
-        for p in profiles:
-            self._profile_combo.addItem(p)
-        self._profile_combo.blockSignals(False)
-        series = self._series_combo.currentText()
+        self._fill_combo(self._profile_combo, self._db.list_profiles())
+        self._update_profile_for_series(self._series_combo.currentText())
+        self._reload_glossary()
+
+    def _update_profile_for_series(self, series: str) -> None:
         default = self._db.get_series_profile(series) or self._settings.profile_used
         idx = self._profile_combo.findText(default)
         if idx >= 0:
             self._profile_combo.setCurrentIndex(idx)
-        self._reload_glossary()
 
     def _reload_glossary(self) -> None:
         profile = self._profile_combo.currentText()
@@ -132,11 +141,7 @@ class SeriesPhrasesDialog(QDialog):
     def _on_series_changed(self, _: str) -> None:
         self._raw_results = []
         self._refresh_table()
-        series = self._series_combo.currentText()
-        default = self._db.get_series_profile(series) or self._settings.profile_used
-        idx = self._profile_combo.findText(default)
-        if idx >= 0:
-            self._profile_combo.setCurrentIndex(idx)
+        self._update_profile_for_series(self._series_combo.currentText())
 
     def _on_profile_changed(self, _: str) -> None:
         self._reload_glossary()
@@ -168,8 +173,8 @@ class SeriesPhrasesDialog(QDialog):
             QMessageBox.warning(
                 self,
                 "MeCab Not Available",
-                "MeCab is required for phrase analysis.\n"
-                "Install it with: pip install mecab-python3\n\n"
+                "MeCab (fugashi) is required for phrase analysis.\n"
+                "Install it with: pip install fugashi\n\n"
                 f"Error: {exc}",
             )
             self._table.setRowCount(0)
@@ -192,6 +197,9 @@ class SeriesPhrasesDialog(QDialog):
             self._status_label.setText(
                 f"No new candidates ({n} terms already in glossary)"
             )
+        self._clear_translation_controls()
+
+    def _clear_translation_controls(self) -> None:
         self._translation_edit.setEnabled(False)
         self._translation_edit.clear()
         self._add_btn.setEnabled(False)
@@ -223,6 +231,4 @@ class SeriesPhrasesDialog(QDialog):
         self._db.add_phrase(profile, term, translation)
         self._current_glossary.add(term)
         self._table.removeRow(row)
-        self._translation_edit.clear()
-        self._translation_edit.setEnabled(False)
-        self._add_btn.setEnabled(False)
+        self._clear_translation_controls()

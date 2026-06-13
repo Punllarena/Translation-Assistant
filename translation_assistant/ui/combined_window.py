@@ -141,16 +141,13 @@ class CombinedMainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def _on_series_phrases(self) -> None:
-        from translation_assistant.ui.dlg_series_phrases import SeriesPhrasesDialog
+        from translation_assistant.ui.dlg_series_phrases import SeriesPhrasesDialog, _get_series_for_doc
         ta = self._ta_widget
-        series = ""
-        if ta._doc_id is not None:
-            try:
-                doc = ta._db.get_document(ta._doc_id)
-                series = doc.get("series_title", "")
-            except Exception:
-                pass
-        dlg = SeriesPhrasesDialog(ta._db, ta._settings, current_series=series, parent=self)
+        dlg = SeriesPhrasesDialog(
+            ta._db, ta._settings,
+            current_series=_get_series_for_doc(ta._db, ta._doc_id),
+            parent=self,
+        )
         dlg.exec()
 
     def _open_setup_guide(self) -> None:

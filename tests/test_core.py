@@ -682,16 +682,16 @@ class _FakeTagger:
 
 
 # Minimal MeCab output fragments (surface TAB POS-csv NEWLINE EOS NEWLINE)
-_OUT_TARO    = "太郎\t名詞,固有名詞,人名,名,*,*,太郎,タロウ,タロウ\nEOS\n"
-_OUT_HANAKO  = "花子\t名詞,固有名詞,人名,名,*,*,花子,ハナコ,ハナコ\nEOS\n"
+_OUT_TARO    = "太郎\tタロウ\tタロウ\t太郎\t名詞-固有名詞-人名-名\t\t\t1\nEOS\n"
+_OUT_HANAKO  = "花子\tハナコ\tハナコ\t花子\t名詞-固有名詞-人名-名\t\t\t1\nEOS\n"
 _OUT_BOTH    = (
-    "太郎\t名詞,固有名詞,人名,名,*,*,太郎,タロウ,タロウ\n"
-    "花子\t名詞,固有名詞,人名,名,*,*,花子,ハナコ,ハナコ\n"
+    "太郎\tタロウ\tタロウ\t太郎\t名詞-固有名詞-人名-名\t\t\t1\n"
+    "花子\tハナコ\tハナコ\t花子\t名詞-固有名詞-人名-名\t\t\t1\n"
     "EOS\n"
 )
-_OUT_NUMBER  = "100\t名詞,数,*,*,*,*,*\nEOS\n"
-_OUT_SINGLE  = "私\t名詞,代名詞,一般,*,*,*,私,ワタシ,ワタシ\nEOS\n"
-_OUT_VERB    = "走る\t動詞,自立,*,*,五段・ラ行,基本形,走る,ハシル,ハシル\nEOS\n"
+_OUT_NUMBER  = "100\t100\t100\t100\t名詞-数詞\t\t\t0\nEOS\n"
+_OUT_SINGLE  = "私\tワタシ\tワタシ\t私\t名詞-代名詞\t\t\t1\nEOS\n"
+_OUT_VERB    = "走る\tハシル\tハシル\t走る\t動詞-一般\t\t\t1\nEOS\n"
 
 
 def test_extract_returns_noun_with_count():
