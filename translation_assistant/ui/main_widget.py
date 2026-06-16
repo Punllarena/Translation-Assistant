@@ -853,8 +853,9 @@ class TranslationAssistantWidget(QWidget):
 
     def _on_batch_import(self) -> None:
         from translation_assistant.ui.dlg_batch_import import BatchImportDialog
-        dlg = BatchImportDialog(self._db, self._settings, parent=self)
-        dlg.exec()
+        with self._topmost_suspended():
+            dlg = BatchImportDialog(self._db, self._settings, parent=self)
+            dlg.exec()
 
     def _on_export(self) -> None:
         if not self._raw_lines:
