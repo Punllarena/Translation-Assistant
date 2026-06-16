@@ -6,7 +6,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog, QFileDialog, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QStackedWidget, QVBoxLayout, QWidget,
+    QPushButton, QScrollArea, QStackedWidget, QVBoxLayout, QWidget,
 )
 
 from translation_assistant.db import Database
@@ -18,7 +18,7 @@ class BatchImportDialog(QDialog):
     def __init__(self, db: Database, settings: AppSettings, parent=None) -> None:
         super().__init__(parent)
         self._db = db
-        self._settings = settings
+        self._settings = settings  # reserved: last-used folder path
         self._folder: Path | None = None
         self._setup_ui()
 
@@ -71,11 +71,18 @@ class BatchImportDialog(QDialog):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
 
-        layout.addWidget(QLabel("<b>Import complete.</b>"))
+        self._summary_header = QLabel()
+        layout.addWidget(self._summary_header)
+
         self._summary_label = QLabel()
         self._summary_label.setWordWrap(True)
-        layout.addWidget(self._summary_label)
-        layout.addStretch()
+        self._summary_label.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(self._summary_label)
+        scroll.setMinimumHeight(120)
+        layout.addWidget(scroll, 1)
 
         close_btn = QPushButton("Close")
         close_btn.clicked.connect(self.accept)
@@ -94,14 +101,23 @@ class BatchImportDialog(QDialog):
 
     def _on_import(self) -> None:
         from translation_assistant.core import batch_import_folder
+        if self._folder is None:
+            return
         series_title = self._series_edit.text().strip()
-        assert self._folder is not None
         result = batch_import_folder(self._folder, self._db, series_title=series_title)
 
+        n_imported = len(result["imported"])
+        n_skipped = len(result["skipped"])
+        n_errors = len(result["errors"])
+        if n_imported > 0:
+            self._summary_header.setText("<b>Import complete.</b>")
+        else:
+            self._summary_header.setText("<b>Import finished — nothing new imported.</b>")
+
         lines = [
-            f"Imported:  {len(result['imported'])}",
-            f"Skipped:   {len(result['skipped'])}  (already exist)",
-            f"Errors:    {len(result['errors'])}",
+            f"Imported:  {n_imported}",
+            f"Skipped:   {n_skipped}  (already exist)",
+            f"Errors:    {n_errors}",
         ]
         if result["warnings"]:
             lines.append("")
