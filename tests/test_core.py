@@ -741,3 +741,40 @@ def test_extract_skips_blank_lines():
     tagger = _FakeTagger(["EOS\n"])
     result = extract_frequent_nouns(["", "  "], set(), min_freq=1, _tagger=tagger)
     assert result == []
+
+
+# ---------------------------------------------------------------------------
+# import_txt with series params — Task 1
+# ---------------------------------------------------------------------------
+
+class TestImportTxtSeries:
+    def _db(self):
+        import sqlite3
+        from translation_assistant.db import Database
+        conn = sqlite3.connect(":memory:")
+        return Database(":memory:", _conn=conn)
+
+    def test_series_title_stored(self, tmp_path):
+        db = self._db()
+        txt = tmp_path / "ch01.txt"
+        txt.write_text("%A\n---SEPERATOR---\n\n", encoding="utf-8")
+        doc_id = import_txt(txt, db, series_title="My Series", series_order=0)
+        docs = db.list_documents()
+        assert docs[0]["series_title"] == "My Series"
+
+    def test_series_order_stored(self, tmp_path):
+        db = self._db()
+        txt = tmp_path / "ch02.txt"
+        txt.write_text("%B\n---SEPERATOR---\n\n", encoding="utf-8")
+        doc_id = import_txt(txt, db, series_title="S", series_order=7)
+        docs = db.list_documents()
+        assert docs[0]["series_order"] == 7
+
+    def test_defaults_to_no_series(self, tmp_path):
+        db = self._db()
+        txt = tmp_path / "ch03.txt"
+        txt.write_text("%C\n---SEPERATOR---\n\n", encoding="utf-8")
+        import_txt(txt, db)
+        docs = db.list_documents()
+        assert docs[0]["series_title"] == ""
+        assert docs[0]["series_order"] == 0

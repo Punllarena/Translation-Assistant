@@ -151,7 +151,8 @@ def db_rows_to_arrays(rows: list[dict]) -> tuple[list[str], list[str]]:
     return raw_lines, translated_lines
 
 
-def import_txt(path: Path, db, title: str | None = None) -> int:
+def import_txt(path: Path, db, title: str | None = None, *,
+               series_title: str = "", series_order: int = 0) -> int:
     """Read a ---SEPERATOR--- file and create a new document in the DB.
 
     Returns the new document id.
@@ -160,7 +161,9 @@ def import_txt(path: Path, db, title: str | None = None) -> int:
     text = path.read_text(encoding="utf-8")
     raw_lines, translated_lines, _ = parse_file_content(text)
     doc_title = title if title is not None else path.stem
-    doc_id = db.create_document(doc_title)
+    doc_id = db.create_document(
+        doc_title, series_title=series_title, series_order=series_order
+    )
     db.save_lines(doc_id, lines_to_db_rows(raw_lines, translated_lines))
     return doc_id
 
