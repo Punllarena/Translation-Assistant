@@ -70,6 +70,7 @@ class CombinedMainWindow(QMainWindow):
         file_menu.addAction(ta.action_save)
         file_menu.addSeparator()
         file_menu.addAction(ta.action_import)
+        file_menu.addAction(ta.action_batch_import)
         file_menu.addAction(ta.action_export)
         file_menu.addAction(ta.action_manage_series)
         file_menu.addSeparator()

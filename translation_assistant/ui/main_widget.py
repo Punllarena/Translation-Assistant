@@ -136,6 +136,9 @@ class TranslationAssistantWidget(QWidget):
         self.action_import = QAction("Import from file…", self)
         self.action_import.triggered.connect(self._on_import)
 
+        self.action_batch_import = QAction("Import Folder…", self)
+        self.action_batch_import.triggered.connect(self._on_batch_import)
+
         self.action_save = QAction("Save (CTRL+S)", self)
         self.action_save.triggered.connect(self._on_save)
         self.action_save.setShortcut("Ctrl+S")
@@ -847,6 +850,11 @@ class TranslationAssistantWidget(QWidget):
             )
             return
         self.load_content(text, title=Path(filepath).stem)
+
+    def _on_batch_import(self) -> None:
+        from translation_assistant.ui.dlg_batch_import import BatchImportDialog
+        dlg = BatchImportDialog(self._db, self._settings, parent=self)
+        dlg.exec()
 
     def _on_export(self) -> None:
         if not self._raw_lines:
