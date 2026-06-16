@@ -3,6 +3,7 @@ Batch Import Dialog — imports a folder of TXT files into the DB.
 """
 from pathlib import Path
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog, QFileDialog, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QStackedWidget, QVBoxLayout, QWidget,
@@ -24,6 +25,7 @@ class BatchImportDialog(QDialog):
     def _setup_ui(self) -> None:
         self.setWindowTitle("Import Folder")
         self.setMinimumWidth(480)
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 12, 12, 12)
@@ -93,6 +95,7 @@ class BatchImportDialog(QDialog):
     def _on_import(self) -> None:
         from translation_assistant.core import batch_import_folder
         series_title = self._series_edit.text().strip()
+        assert self._folder is not None
         result = batch_import_folder(self._folder, self._db, series_title=series_title)
 
         lines = [
