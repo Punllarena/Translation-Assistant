@@ -201,6 +201,56 @@ def load_glossary(path: Path) -> list[tuple[str, str]]:
     return result
 
 
+def batch_import_folder(
+    folder: Path,
+    db,
+    *,
+    series_title: str = "",
+) -> dict:
+    """Import all ---SEPERATOR--- TXT files from folder into the DB.
+
+    Returns {"imported": [str], "skipped": [str], "errors": [(str, str)], "warnings": [str]}.
+    Skips files whose title already exists. Alphabetical order = series_order.
+    If exactly one CSV found, imports it as a glossary profile.
+    """
+    imported: list[str] = []
+    skipped: list[str] = []
+    errors: list[tuple[str, str]] = []
+    warnings: list[str] = []
+
+    txt_files = sorted(folder.glob("*.txt"))
+    csv_files = list(folder.glob("*.csv"))
+
+    if len(csv_files) > 1:
+        warnings.append(
+            f"Multiple CSV files found ({len(csv_files)}); glossary import skipped."
+        )
+    elif len(csv_files) == 1:
+        csv_path = csv_files[0]
+        profile_name = csv_path.stem
+        pairs = load_glossary(csv_path)
+        if db.get_profile_id(profile_name) is None:
+            db.create_profile(profile_name)
+        db.set_glossary(profile_name, pairs)
+        if series_title:
+            db.set_series_profile(series_title, profile_name)
+
+    existing = {d["title"] for d in db.list_documents()}
+
+    for i, path in enumerate(txt_files):
+        stem = path.stem
+        if stem in existing:
+            skipped.append(stem)
+            continue
+        try:
+            import_txt(path, db, title=stem, series_title=series_title, series_order=i)
+            imported.append(stem)
+        except Exception as exc:
+            errors.append((stem, str(exc)))
+
+    return {"imported": imported, "skipped": skipped, "errors": errors, "warnings": warnings}
+
+
 # ---------------------------------------------------------------------------
 # Text processing
 # ---------------------------------------------------------------------------

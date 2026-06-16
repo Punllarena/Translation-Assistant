@@ -19,6 +19,7 @@ from translation_assistant.core import (
     import_txt,
     export_txt,
     extract_frequent_nouns,
+    batch_import_folder,
 )
 
 
@@ -778,3 +779,94 @@ class TestImportTxtSeries:
         docs = db.list_documents()
         assert docs[0]["series_title"] == ""
         assert docs[0]["series_order"] == 0
+
+
+class TestBatchImportFolder:
+    def _db(self):
+        import sqlite3
+        from translation_assistant.db import Database
+        conn = sqlite3.connect(":memory:")
+        return Database(":memory:", _conn=conn)
+
+    def _txt(self, folder, name, raw="%A", translation=""):
+        p = folder / name
+        p.write_text(f"{raw}\n---SEPERATOR---\n{translation}\n", encoding="utf-8")
+        return p
+
+    def test_imports_all_txt_files(self, tmp_path):
+        db = self._db()
+        self._txt(tmp_path, "ch01.txt")
+        self._txt(tmp_path, "ch02.txt")
+        result = batch_import_folder(tmp_path, db)
+        assert len(result["imported"]) == 2
+        assert len(db.list_documents()) == 2
+
+    def test_skips_existing_title(self, tmp_path):
+        db = self._db()
+        self._txt(tmp_path, "ch01.txt")
+        self._txt(tmp_path, "ch02.txt")
+        # Pre-import ch01 so it already exists
+        import_txt(tmp_path / "ch01.txt", db, title="ch01")
+        result = batch_import_folder(tmp_path, db)
+        assert "ch01" in result["skipped"]
+        assert "ch02" in result["imported"]
+        assert len(db.list_documents()) == 2  # not 3
+
+    def test_records_error_on_bad_file(self, tmp_path):
+        db = self._db()
+        bad = tmp_path / "bad.txt"
+        bad.write_text("No separator here", encoding="utf-8")
+        result = batch_import_folder(tmp_path, db)
+        assert len(result["errors"]) == 1
+        assert result["errors"][0][0] == "bad"
+        assert len(result["imported"]) == 0
+
+    def test_empty_folder_returns_zeros(self, tmp_path):
+        db = self._db()
+        result = batch_import_folder(tmp_path, db)
+        assert result == {"imported": [], "skipped": [], "errors": [], "warnings": []}
+
+    def test_assigns_series_title_and_order(self, tmp_path):
+        db = self._db()
+        self._txt(tmp_path, "ch01.txt")
+        self._txt(tmp_path, "ch02.txt")
+        batch_import_folder(tmp_path, db, series_title="My Novel")
+        docs = sorted(db.list_documents(), key=lambda d: d["series_order"])
+        assert docs[0]["series_title"] == "My Novel"
+        assert docs[0]["series_order"] == 0
+        assert docs[1]["series_order"] == 1
+
+    def test_csv_creates_profile_and_glossary(self, tmp_path):
+        from translation_assistant.db import Database
+        import sqlite3
+        db = Database(":memory:", _conn=sqlite3.connect(":memory:"))
+        self._txt(tmp_path, "ch01.txt")
+        csv = tmp_path / "MyProfile.csv"
+        csv.write_text("hello,こんにちは\nworld,世界\n", encoding="utf-8")
+        batch_import_folder(tmp_path, db, series_title="S")
+        assert db.get_profile_id("MyProfile") is not None
+        glossary = db.get_glossary("MyProfile")
+        assert ("hello", "こんにちは") in glossary
+        assert db.get_series_profile("S") == "MyProfile"
+
+    def test_csv_without_series_no_series_profile_row(self, tmp_path):
+        from translation_assistant.db import Database
+        import sqlite3
+        db = Database(":memory:", _conn=sqlite3.connect(":memory:"))
+        self._txt(tmp_path, "ch01.txt")
+        csv = tmp_path / "Glossary.csv"
+        csv.write_text("hi,やあ\n", encoding="utf-8")
+        batch_import_folder(tmp_path, db, series_title="")
+        assert db.get_profile_id("Glossary") is not None
+        assert db.get_series_profile("Glossary") == ""  # no link
+
+    def test_multiple_csvs_warns_skips_glossary(self, tmp_path):
+        db = self._db()
+        self._txt(tmp_path, "ch01.txt")
+        (tmp_path / "A.csv").write_text("a,b\n", encoding="utf-8")
+        (tmp_path / "B.csv").write_text("c,d\n", encoding="utf-8")
+        result = batch_import_folder(tmp_path, db)
+        assert len(result["warnings"]) == 1
+        assert "Multiple CSV" in result["warnings"][0]
+        assert db.get_profile_id("A") is None
+        assert db.get_profile_id("B") is None
