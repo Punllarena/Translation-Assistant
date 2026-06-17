@@ -935,11 +935,13 @@ class TranslationAssistantWidget(QWidget):
         if not series_title:
             return
         with self._topmost_suspended():
-            folder = QFileDialog.getExistingDirectory(
-                self, f"Export Series: {series_title}"
+            parent = QFileDialog.getExistingDirectory(
+                self, f"Export Series: {series_title} — select parent folder"
             )
-        if not folder:
+        if not parent:
             return
+        folder = Path(parent) / (_sanitize_filename(series_title) or "series")
+        folder.mkdir(exist_ok=True)
         from translation_assistant.core import db_rows_to_arrays, calculate_progress
         doc_ids = self._db.get_document_ids_by_series(series_title)
         written = 0
