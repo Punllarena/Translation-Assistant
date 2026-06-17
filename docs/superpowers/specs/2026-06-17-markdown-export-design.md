@@ -99,7 +99,7 @@ self.action_export_md_ruby_series = QAction("Export Series Markdown (Ruby)…", 
 3. Get `doc` metadata via `self._db.get_document(self._doc_id)` for title (`chapter_title or title`).
 4. Call `build_markdown_translation` or `build_markdown_ruby` with `self._raw_lines`, `self._translated_lines`, title.
 5. `Path(filepath).write_text(result, encoding="utf-8")`.
-6. Flash `_filesaved_label` ("Markdown exported.").
+6. `QMessageBox.information(self, "Export Complete", f"Markdown saved to:\n{filepath}")`
 
 *Series handlers* (`_on_export_md_tl_series`, `_on_export_md_ruby_series`):
 1. Get current doc metadata → `series_title`.
@@ -114,7 +114,7 @@ self.action_export_md_ruby_series = QAction("Export Series Markdown (Ruby)…", 
    - `dest = Path(folder) / filename`
    - **Skip if `dest.exists()`**
    - Call builder → `dest.write_text(result, encoding="utf-8")`
-5. Show summary: `QMessageBox.information` with count written / count skipped.
+5. `QMessageBox.information(self, "Export Complete", f"Exported {written} file(s) to:\n{folder}\n\n{skipped} file(s) skipped (already exist).")`
 
 ### `translation_assistant/ui/combined_window.py`
 
@@ -144,6 +144,7 @@ file_menu.addMenu(md_menu)
 - Filename = `f"{series_order:03d} - {title}.md"` using `title` (not `chapter_title`) for a stable, filesystem-safe name.
 - Folder = chosen by user; typically named after the series.
 - Existing files skipped, not overwritten.
+- Clean file and folder names to avoid errors
 
 ---
 
