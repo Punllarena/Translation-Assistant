@@ -904,6 +904,16 @@ class TranslationAssistantWidget(QWidget):
         if not self._raw_lines:
             return
         self._save_current_translation()
+        from translation_assistant.core import calculate_progress
+        pct, _ = calculate_progress(self._raw_lines, self._translated_lines)
+        if pct < 100:
+            reply = QMessageBox.question(
+                self, "Incomplete Translation",
+                f"Translation is {pct}% complete. Export anyway?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
         with self._topmost_suspended():
             filepath, _ = QFileDialog.getSaveFileName(
                 self, "Export Markdown", "", "Markdown (*.md)"
@@ -930,29 +940,35 @@ class TranslationAssistantWidget(QWidget):
             )
         if not folder:
             return
-        from translation_assistant.core import db_rows_to_arrays
+        from translation_assistant.core import db_rows_to_arrays, calculate_progress
         doc_ids = self._db.get_document_ids_by_series(series_title)
         written = 0
-        skipped = 0
+        skipped_exists = 0
+        skipped_incomplete = 0
         for doc_id in doc_ids:
             doc_meta = self._db.get_document(doc_id)
             rows = self._db.get_lines(doc_id)
             raw_lines, translated_lines = db_rows_to_arrays(rows)
+            pct, _ = calculate_progress(raw_lines, translated_lines)
+            if pct < 100:
+                skipped_incomplete += 1
+                continue
             heading = doc_meta.get("chapter_title") or doc_meta.get("title", "")
             stem = _sanitize_filename(doc_meta.get("title") or f"doc_{doc_id}") or f"doc_{doc_id}"
             filename = f"{doc_meta['series_order']:03d} - {stem}.md"
             dest = Path(folder) / filename
             if dest.exists():
-                skipped += 1
+                skipped_exists += 1
                 continue
             result = builder(raw_lines, translated_lines, heading)
             dest.write_text(result, encoding="utf-8")
             written += 1
-        QMessageBox.information(
-            self, "Export Complete",
-            f"Exported {written} file(s) to:\n{folder}\n\n"
-            f"{skipped} file(s) skipped (already exist).",
-        )
+        lines = [f"Exported {written} file(s) to:\n{folder}"]
+        if skipped_exists:
+            lines.append(f"{skipped_exists} file(s) skipped (already exist)")
+        if skipped_incomplete:
+            lines.append(f"{skipped_incomplete} file(s) skipped (incomplete translation)")
+        QMessageBox.information(self, "Export Complete", "\n\n".join(lines))
 
     def _on_export_md_tl_doc(self) -> None:
         from translation_assistant.core import build_markdown_translation
