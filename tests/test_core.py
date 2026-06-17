@@ -20,6 +20,8 @@ from translation_assistant.core import (
     export_txt,
     extract_frequent_nouns,
     batch_import_folder,
+    build_markdown_translation,
+    build_markdown_ruby,
 )
 
 
@@ -471,6 +473,83 @@ class TestBuildClipboardOutput:
 
     def test_no_raw_lines_returns_empty(self):
         assert build_clipboard_output([], []) == ""
+
+
+# ---------------------------------------------------------------------------
+# build_markdown_translation
+# ---------------------------------------------------------------------------
+
+class TestBuildMarkdownTranslation:
+    def test_title_heading(self):
+        result = build_markdown_translation(["%A"], ["hello"], title="My Chapter")
+        assert result.startswith("# My Chapter\n\n")
+
+    def test_no_title_no_heading(self):
+        result = build_markdown_translation(["%A"], ["hello"])
+        assert not result.startswith("#")
+
+    def test_single_group(self):
+        result = build_markdown_translation(["%A"], ["hello"])
+        assert result == "hello\n\n"
+
+    def test_continuation_joined(self):
+        raw = ["%A。", "$B"]
+        tl = ["first", "second"]
+        result = build_markdown_translation(raw, tl)
+        assert "first second\n\n" in result
+
+    def test_empty_raw_line_preserved(self):
+        raw = ["%A", "", "%B"]
+        tl = ["alpha", "", "beta"]
+        result = build_markdown_translation(raw, tl)
+        assert "alpha\n\n" in result
+        assert "beta\n\n" in result
+
+    def test_untranslated_group_omitted(self):
+        raw = ["%A", "%B"]
+        tl = ["", "beta"]
+        result = build_markdown_translation(raw, tl)
+        assert "beta\n\n" in result
+        non_blank = [l for l in result.split("\n") if l.strip()]
+        assert len(non_blank) == 1
+
+    def test_empty_inputs(self):
+        assert build_markdown_translation([], []) == ""
+
+
+# ---------------------------------------------------------------------------
+# build_markdown_ruby
+# ---------------------------------------------------------------------------
+
+class TestBuildMarkdownRuby:
+    def test_ruby_wrapper(self):
+        result = build_markdown_ruby(["%原文"], ["original text"])
+        assert "<ruby>原文<rt>original text</rt></ruby>\n\n" in result
+
+    def test_title_heading(self):
+        result = build_markdown_ruby(["%A"], ["b"], title="Chapter 1")
+        assert result.startswith("# Chapter 1\n\n")
+
+    def test_continuation_concatenated(self):
+        raw = ["%第一。", "$第二"]
+        tl = ["first", "second"]
+        result = build_markdown_ruby(raw, tl)
+        assert "<ruby>第一。第二<rt>first second</rt></ruby>" in result
+
+    def test_missing_translation_no_ruby(self):
+        result = build_markdown_ruby(["%原文"], [""])
+        assert "<ruby>" not in result
+        assert "原文\n\n" in result
+
+    def test_empty_raw_line_preserved(self):
+        raw = ["%A", "", "%B"]
+        tl = ["alpha", "", "beta"]
+        result = build_markdown_ruby(raw, tl)
+        assert "<ruby>A<rt>alpha</rt></ruby>" in result
+        assert "<ruby>B<rt>beta</rt></ruby>" in result
+
+    def test_empty_inputs(self):
+        assert build_markdown_ruby([], []) == ""
 
 
 # ---------------------------------------------------------------------------

@@ -206,12 +206,13 @@ def batch_import_folder(
     db,
     *,
     series_title: str = "",
+    csv_path: Path | None = None,
 ) -> dict:
     """Import all ---SEPERATOR--- TXT files from folder into the DB.
 
     Returns {"imported": [str], "skipped": [str], "errors": [(str, str)], "warnings": [str]}.
     Skips files whose title already exists. Alphabetical order = series_order.
-    If exactly one CSV found, imports it as a glossary profile.
+    If csv_path is given, uses it as the glossary profile; otherwise auto-detects a single CSV in folder.
     """
     imported: list[str] = []
     skipped: list[str] = []
@@ -219,14 +220,8 @@ def batch_import_folder(
     warnings: list[str] = []
 
     txt_files = sorted(folder.glob("*.txt"))
-    csv_files = list(folder.glob("*.csv"))
 
-    if len(csv_files) > 1:
-        warnings.append(
-            f"Multiple CSV files found ({len(csv_files)}); glossary import skipped."
-        )
-    elif len(csv_files) == 1:
-        csv_path = csv_files[0]
+    if csv_path is not None:
         profile_name = csv_path.stem
         pairs = load_glossary(csv_path)
         if db.get_profile_id(profile_name) is None:
@@ -234,6 +229,21 @@ def batch_import_folder(
         db.set_glossary(profile_name, pairs)
         if series_title:
             db.set_series_profile(series_title, profile_name)
+    else:
+        csv_files = list(folder.glob("*.csv"))
+        if len(csv_files) > 1:
+            warnings.append(
+                f"Multiple CSV files found ({len(csv_files)}); glossary import skipped."
+            )
+        elif len(csv_files) == 1:
+            csv_path = csv_files[0]
+            profile_name = csv_path.stem
+            pairs = load_glossary(csv_path)
+            if db.get_profile_id(profile_name) is None:
+                db.create_profile(profile_name)
+            db.set_glossary(profile_name, pairs)
+            if series_title:
+                db.set_series_profile(series_title, profile_name)
 
     existing = {d["title"] for d in db.list_documents()}
 
@@ -415,6 +425,93 @@ def build_clipboard_output(
             parts.append("\n")
             count += 1
 
+    return "".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# build_markdown_translation
+# ---------------------------------------------------------------------------
+
+
+def build_markdown_translation(
+    raw_lines: list[str],
+    translated_lines: list[str],
+    title: str = "",
+) -> str:
+    """
+    Render translated lines as a plain Markdown document.
+
+    Follows the same %/$ grouping as build_clipboard_output:
+    consecutive $-prefixed lines merge with their % head.
+    Untranslated groups are omitted. Empty raw lines become blank lines.
+    """
+    parts: list[str] = []
+    if title:
+        parts.append(f"# {title}\n\n")
+    count = 0
+    n = len(raw_lines)
+    while count < n:
+        line = raw_lines[count]
+        if line:
+            group_size = 1
+            while (count + group_size < n
+                   and raw_lines[count + group_size].startswith("$")):
+                group_size += 1
+            translations = [translated_lines[count + x] for x in range(group_size)]
+            text = " ".join(t for t in translations if t).strip()
+            if text:
+                parts.append(text + "\n\n")
+            count += group_size
+        else:
+            parts.append("\n")
+            count += 1
+    return "".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# build_markdown_ruby
+# ---------------------------------------------------------------------------
+
+
+def build_markdown_ruby(
+    raw_lines: list[str],
+    translated_lines: list[str],
+    title: str = "",
+) -> str:
+    """
+    Render an HTML ruby-annotated Markdown document.
+
+    Each %/$ group becomes <ruby>original<rt>translation</rt></ruby>.
+    Groups with no translation emit the raw text without a ruby wrapper.
+    """
+    parts: list[str] = []
+    if title:
+        parts.append(f"# {title}\n\n")
+    count = 0
+    n = len(raw_lines)
+    while count < n:
+        line = raw_lines[count]
+        if line:
+            group_size = 1
+            while (count + group_size < n
+                   and raw_lines[count + group_size].startswith("$")):
+                group_size += 1
+            raw_text = "".join(
+                raw_lines[count + x].lstrip("%$") for x in range(group_size)
+            )
+            translations = [translated_lines[count + x] for x in range(group_size)]
+            translation = " ".join(t for t in translations if t).strip()
+            if raw_text:
+                if translation:
+                    parts.append(
+                        f"<ruby>{raw_text}<rt>{translation}</rt></ruby>\n\n"
+                    )
+                else:
+                    parts.append(f"{raw_text}\n\n")
+            count += group_size
+        else:
+            parts.append("\n")
+            count += 1
     return "".join(parts)
 
 
