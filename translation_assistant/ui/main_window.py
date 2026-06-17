@@ -16,7 +16,7 @@ from translation_assistant.settings import AppSettings
 from translation_assistant.spellcheck import SpellHighlighter
 
 _CJK_FAMILIES = ["Microsoft YaHei", "Noto Sans CJK SC", "WenQuanYi Micro Hei", "sans-serif"]
-_PUNCTUATIONS = ["「」", "『』", "【】", "…", "〜", "〈〉", "《》", "ー"]
+_PUNCTUATIONS = ["「」", "『』", "【】", "…", "〜", "〈〉", "《》", "ー", "♡"]
 _RESOURCES = Path(__file__).parent.parent / "resources"
 
 _HELP_TOP = (
@@ -57,7 +57,7 @@ _HELP_TOP = (
     "1.)Highlight word to add to custom dictionary\n"
     "2.)Press CTRL+J\n\n"
     "Special Punctuations\n"
-    "1.) Click the Special Punctuations menu or press F1-F8"
+    "1.) Click the Special Punctuations menu or press F1-F9"
 )
 
 _HELP_BOTTOM = (
@@ -214,6 +214,7 @@ class MainWindow(QMainWindow):
             "Single Title Bracket : 〈 〉  (F6)",
             "Double Title Bracket : 《 》  (F7)",
             "Long Dash : ー  (F8)",
+            "Heart : ♡  (F9)",
         ]
         for i, label in enumerate(_punct_labels):
             act = punct_menu.addAction(label)
