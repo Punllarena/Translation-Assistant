@@ -524,7 +524,7 @@ class TestBuildMarkdownTranslation:
 class TestBuildMarkdownRuby:
     def test_ruby_wrapper(self):
         result = build_markdown_ruby(["%原文"], ["original text"])
-        assert "<ruby>原文<rt>original text</rt></ruby>\n\n" in result
+        assert "<ruby>original text<rt>原文</rt></ruby>\n\n" in result
 
     def test_title_heading(self):
         result = build_markdown_ruby(["%A"], ["b"], title="Chapter 1")
@@ -534,7 +534,7 @@ class TestBuildMarkdownRuby:
         raw = ["%第一。", "$第二"]
         tl = ["first", "second"]
         result = build_markdown_ruby(raw, tl)
-        assert "<ruby>第一。第二<rt>first second</rt></ruby>" in result
+        assert "<ruby>first second<rt>第一。第二</rt></ruby>" in result
 
     def test_missing_translation_no_ruby(self):
         result = build_markdown_ruby(["%原文"], [""])
@@ -545,8 +545,8 @@ class TestBuildMarkdownRuby:
         raw = ["%A", "", "%B"]
         tl = ["alpha", "", "beta"]
         result = build_markdown_ruby(raw, tl)
-        assert "<ruby>A<rt>alpha</rt></ruby>" in result
-        assert "<ruby>B<rt>beta</rt></ruby>" in result
+        assert "<ruby>alpha<rt>A</rt></ruby>" in result
+        assert "<ruby>beta<rt>B</rt></ruby>" in result
 
     def test_empty_inputs(self):
         assert build_markdown_ruby([], []) == ""

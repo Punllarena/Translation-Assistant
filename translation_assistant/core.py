@@ -481,7 +481,7 @@ def build_markdown_ruby(
     """
     Render an HTML ruby-annotated Markdown document.
 
-    Each %/$ group becomes <ruby>original<rt>translation</rt></ruby>.
+    Each %/$ group becomes <ruby>translation<rt>original</rt></ruby>.
     Groups with no translation emit the raw text without a ruby wrapper.
     """
     parts: list[str] = []
@@ -504,7 +504,7 @@ def build_markdown_ruby(
             if raw_text:
                 if translation:
                     parts.append(
-                        f"<ruby>{raw_text}<rt>{translation}</rt></ruby>\n\n"
+                        f"<ruby>{translation}<rt>{raw_text}</rt></ruby>\n\n"
                     )
                 else:
                     parts.append(f"{raw_text}\n\n")
