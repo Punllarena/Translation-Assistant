@@ -20,6 +20,7 @@ class BatchImportDialog(QDialog):
         self._db = db
         self._settings = settings  # reserved: last-used folder path
         self._folder: Path | None = None
+        self._profile_csv: Path | None = None
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -50,6 +51,16 @@ class BatchImportDialog(QDialog):
         browse_btn.clicked.connect(self._on_browse)
         folder_row.addWidget(browse_btn)
         layout.addLayout(folder_row)
+
+        profile_row = QHBoxLayout()
+        profile_row.addWidget(QLabel("Profile CSV:"))
+        self._profile_label = QLabel("(auto-detect from folder)")
+        self._profile_label.setWordWrap(True)
+        profile_row.addWidget(self._profile_label, 1)
+        profile_browse_btn = QPushButton("Browse…")
+        profile_browse_btn.clicked.connect(self._on_browse_profile)
+        profile_row.addWidget(profile_browse_btn)
+        layout.addLayout(profile_row)
 
         series_row = QHBoxLayout()
         series_row.addWidget(QLabel("Series name:"))
@@ -90,6 +101,15 @@ class BatchImportDialog(QDialog):
 
         return page
 
+    def _on_browse_profile(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Select Profile CSV", "", "CSV files (*.csv)"
+        )
+        if not path:
+            return
+        self._profile_csv = Path(path)
+        self._profile_label.setText(str(self._profile_csv))
+
     def _on_browse(self) -> None:
         folder = QFileDialog.getExistingDirectory(self, "Select Folder to Import")
         if not folder:
@@ -104,7 +124,11 @@ class BatchImportDialog(QDialog):
         if self._folder is None:
             return
         series_title = self._series_edit.text().strip()
-        result = batch_import_folder(self._folder, self._db, series_title=series_title)
+        result = batch_import_folder(
+            self._folder, self._db,
+            series_title=series_title,
+            csv_path=self._profile_csv,
+        )
 
         n_imported = len(result["imported"])
         n_skipped = len(result["skipped"])
