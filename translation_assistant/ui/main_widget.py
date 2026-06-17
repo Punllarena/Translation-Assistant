@@ -917,6 +917,7 @@ class TranslationAssistantWidget(QWidget):
         QMessageBox.information(self, "Export Complete", f"Markdown saved to:\n{filepath}")
 
     def _export_md_series(self, builder) -> None:
+        self._save_current_translation()
         if self._doc_id is None:
             return
         meta = self._db.get_document(self._doc_id)
@@ -938,7 +939,7 @@ class TranslationAssistantWidget(QWidget):
             rows = self._db.get_lines(doc_id)
             raw_lines, translated_lines = db_rows_to_arrays(rows)
             heading = doc_meta.get("chapter_title") or doc_meta.get("title", "")
-            stem = _sanitize_filename(doc_meta.get("title") or f"doc_{doc_id}")
+            stem = _sanitize_filename(doc_meta.get("title") or f"doc_{doc_id}") or f"doc_{doc_id}"
             filename = f"{doc_meta['series_order']:03d} - {stem}.md"
             dest = Path(folder) / filename
             if dest.exists():
