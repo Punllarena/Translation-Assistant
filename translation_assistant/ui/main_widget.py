@@ -2,6 +2,7 @@
 TranslationAssistantWidget — all TA logic as a QWidget for embedding in CombinedMainWindow.
 """
 from contextlib import contextmanager
+import re
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, Qt, QTimer, Signal
@@ -68,6 +69,10 @@ _HELP_BOTTOM = (
     "CTRL+Home Key = Go to the first line\n"
     "CTRL+End Key = Go to the most recent un-translated sentence"
 )
+
+
+def _sanitize_filename(name: str) -> str:
+    return re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', name).strip(". ")
 
 
 class ReviewTextEdit(QTextEdit):
@@ -202,6 +207,22 @@ class TranslationAssistantWidget(QWidget):
 
         self.action_about = QAction("About", self)
         self.action_about.triggered.connect(self._on_about)
+
+        self.action_export_md_tl_doc = QAction("Export Markdown (Translation)…", self)
+        self.action_export_md_tl_doc.triggered.connect(self._on_export_md_tl_doc)
+        self.action_export_md_tl_doc.setEnabled(False)
+
+        self.action_export_md_ruby_doc = QAction("Export Markdown (Ruby)…", self)
+        self.action_export_md_ruby_doc.triggered.connect(self._on_export_md_ruby_doc)
+        self.action_export_md_ruby_doc.setEnabled(False)
+
+        self.action_export_md_tl_series = QAction("Export Series Markdown (Translation)…", self)
+        self.action_export_md_tl_series.triggered.connect(self._on_export_md_tl_series)
+        self.action_export_md_tl_series.setEnabled(False)
+
+        self.action_export_md_ruby_series = QAction("Export Series Markdown (Ruby)…", self)
+        self.action_export_md_ruby_series.triggered.connect(self._on_export_md_ruby_series)
+        self.action_export_md_ruby_series.setEnabled(False)
 
         # Build punctuation actions list (CombinedMainWindow puts these in a submenu)
         _punct_labels = [
@@ -475,6 +496,12 @@ class TranslationAssistantWidget(QWidget):
         self.action_export.setEnabled(True)
         self.action_clipboard.setEnabled(True)
         self.action_go_to_line.setEnabled(True)
+        self.action_export_md_tl_doc.setEnabled(True)
+        self.action_export_md_ruby_doc.setEnabled(True)
+        _doc_meta = self._db.get_document(self._doc_id)
+        _has_series = bool(_doc_meta.get("series_title", ""))
+        self.action_export_md_tl_series.setEnabled(_has_series)
+        self.action_export_md_ruby_series.setEnabled(_has_series)
         self._translated_line.setFocus()
         self._start_clipboard_timer()
         self._restart_autosave_timer()
@@ -872,6 +899,75 @@ class TranslationAssistantWidget(QWidget):
         export_txt(self._doc_id, Path(filepath), self._db)
         self._filesaved_label.setText("File exported....")
         self._filesaved_timer.start()
+
+    def _export_md_doc(self, builder) -> None:
+        if not self._raw_lines:
+            return
+        self._save_current_translation()
+        with self._topmost_suspended():
+            filepath, _ = QFileDialog.getSaveFileName(
+                self, "Export Markdown", "", "Markdown (*.md)"
+            )
+        if not filepath:
+            return
+        meta = self._db.get_document(self._doc_id)
+        title = meta.get("chapter_title") or meta.get("title", "")
+        result = builder(self._raw_lines, self._translated_lines, title)
+        Path(filepath).write_text(result, encoding="utf-8")
+        QMessageBox.information(self, "Export Complete", f"Markdown saved to:\n{filepath}")
+
+    def _export_md_series(self, builder) -> None:
+        if self._doc_id is None:
+            return
+        meta = self._db.get_document(self._doc_id)
+        series_title = meta.get("series_title", "")
+        if not series_title:
+            return
+        with self._topmost_suspended():
+            folder = QFileDialog.getExistingDirectory(
+                self, f"Export Series: {series_title}"
+            )
+        if not folder:
+            return
+        from translation_assistant.core import db_rows_to_arrays
+        doc_ids = self._db.get_document_ids_by_series(series_title)
+        written = 0
+        skipped = 0
+        for doc_id in doc_ids:
+            doc_meta = self._db.get_document(doc_id)
+            rows = self._db.get_lines(doc_id)
+            raw_lines, translated_lines = db_rows_to_arrays(rows)
+            heading = doc_meta.get("chapter_title") or doc_meta.get("title", "")
+            stem = _sanitize_filename(doc_meta.get("title") or f"doc_{doc_id}")
+            filename = f"{doc_meta['series_order']:03d} - {stem}.md"
+            dest = Path(folder) / filename
+            if dest.exists():
+                skipped += 1
+                continue
+            result = builder(raw_lines, translated_lines, heading)
+            dest.write_text(result, encoding="utf-8")
+            written += 1
+        QMessageBox.information(
+            self, "Export Complete",
+            f"Exported {written} file(s) to:\n{folder}\n\n"
+            f"{skipped} file(s) skipped (already exist).",
+        )
+
+    def _on_export_md_tl_doc(self) -> None:
+        from translation_assistant.core import build_markdown_translation
+        self._export_md_doc(build_markdown_translation)
+
+    def _on_export_md_ruby_doc(self) -> None:
+        from translation_assistant.core import build_markdown_ruby
+        self._export_md_doc(build_markdown_ruby)
+
+    def _on_export_md_tl_series(self) -> None:
+        from translation_assistant.core import build_markdown_translation
+        self._export_md_series(build_markdown_translation)
+
+    def _on_export_md_ruby_series(self) -> None:
+        from translation_assistant.core import build_markdown_ruby
+        self._export_md_series(build_markdown_ruby)
 
     def _on_db_export(self) -> None:
         import shutil
