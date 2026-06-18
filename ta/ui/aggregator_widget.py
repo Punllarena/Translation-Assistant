@@ -143,6 +143,8 @@ class AggregatorWidget(QWidget):
         self._panels.set_languages(src, dst)
 
     def _on_translation_received(self, name: str, text: str) -> None:
+        if not text:
+            return
         self._pending_translations[name] = text
         self._history.append(self._current_source, dict(self._pending_translations))
 

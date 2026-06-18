@@ -199,7 +199,8 @@ class Settings:
             if cfg.model:
                 lines.append(f'model = "{cfg.model}"')
             if cfg.system_prompt:
-                lines.append(f'system_prompt = """\n{cfg.system_prompt}"""')
+                escaped = cfg.system_prompt.replace('\\', '\\\\').replace('"""', '\\"\\"\\"')
+                lines.append(f'system_prompt = """\n{escaped}"""')
             lines.append("")
 
         panels_str = ", ".join(f'"{p}"' for p in self.layout_panels)

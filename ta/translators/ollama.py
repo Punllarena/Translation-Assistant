@@ -20,6 +20,13 @@ class OllamaTranslator(BaseTranslator):
         self._url = url.rstrip("/")
         self._model = model
         self._system_prompt = system_prompt
+        self._active_response: "httpx.Response | None" = None
+
+    def halt(self) -> None:
+        super().halt()
+        resp = self._active_response
+        if resp is not None:
+            resp.close()
 
     def _worker(self) -> None:
         while True:
@@ -59,10 +66,11 @@ class OllamaTranslator(BaseTranslator):
             ],
         }
         with httpx.stream("POST", f"{self._url}/api/chat", json=payload, timeout=60) as resp:
+            self._active_response = resp
             resp.raise_for_status()
             for line in resp.iter_lines():
                 if self._cancel:
-                    return
+                    break
                 if not line.strip():
                     continue
                 obj = json.loads(line)
@@ -71,6 +79,7 @@ class OllamaTranslator(BaseTranslator):
                 token = obj.get("message", {}).get("content", "")
                 if token:
                     self.translation_chunk.emit(token)
+            self._active_response = None
 
         if not self._cancel:
             self.translation_ready.emit("")

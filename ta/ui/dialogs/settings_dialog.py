@@ -197,6 +197,8 @@ class SettingsDialog(QDialog):
 
     def _on_ollama_test(self) -> None:
         import httpx
+        self._ollama_test_btn.setEnabled(False)
+        self._ollama_status_lbl.setText("Testing…")
         url = self._translator_url_widgets["ollama"].text().rstrip("/")
         prev_model = self._ollama_model_combo.currentText()
         try:
@@ -219,6 +221,8 @@ class SettingsDialog(QDialog):
             self._ollama_status_lbl.setText(f"Error: {exc}")
             self._ollama_model_combo.clear()
             self._ollama_model_combo.setEnabled(False)
+        finally:
+            self._ollama_test_btn.setEnabled(True)
 
     # ------------------------------------------------------------------
     # Load / apply
