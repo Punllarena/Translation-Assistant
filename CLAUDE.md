@@ -29,53 +29,75 @@ System dependency for spellcheck on Linux: `sudo apt install libenchant-2-dev hu
 
 ## Architecture
 
+### Entry point and window hierarchy
+
+```
+main.py
+  └── CombinedMainWindow          # ui/combined_window.py — the actual QMainWindow
+        ├── TranslationAssistantWidget   # ui/main_widget.py — all TA logic as QWidget
+        └── AggregatorWidget             # ta/ui/aggregator_widget.py — machine translation panel
+```
+
+**`main.py` creates `CombinedMainWindow`, not `MainWindow`.** `ui/main_window.py` is an older standalone window that is no longer launched. Do not add features to `main_window.py` — use `main_widget.py` and `combined_window.py` instead.
+
+**Menu bar pattern.** `CombinedMainWindow._setup_menubar()` builds the entire menu bar. It pulls actions from `TranslationAssistantWidget` (e.g. `ta.action_save`, `ta.action_stats`) — actions are constructed in `TranslationAssistantWidget._build_actions()`. To add a new menu item: add a `QAction` in `_build_actions`, then reference it in `_setup_menubar`.
+
+**Status bar.** `TranslationAssistantWidget` owns a `QStatusBar` embedded in its layout (not the QMainWindow status bar). Add status bar widgets in `TranslationAssistantWidget._setup_statusbar()`.
+
 ### Module layout
 
 ```
 translation_assistant/
-├── main.py          # entry point — creates QApplication + MainWindow
-├── core.py          # ALL pure text logic (no Qt); safe to unit test without a display
-├── settings.py      # QSettings wrapper with typed getters/setters; also owns profile dir helpers
-├── spellcheck.py    # QSyntaxHighlighter subclass using pyenchant
-├── tts.py           # stub (pyttsx3 wired but menu items disabled; TTS deferred)
+├── main.py              # entry point — creates CombinedMainWindow
+├── core.py              # ALL pure text logic (no Qt); safe to unit test without a display
+├── db.py                # Database class — all SQLite CRUD; _conn injection seam for tests
+├── settings.py          # QSettings wrapper with typed getters/setters; owns profile dir helpers
+├── migration.py         # one-time CSV/LEX → SQLite importer (run_startup_migration)
+├── scraper.py           # syosetu.com FetchWorker (QThread)
+├── spellcheck.py        # QSyntaxHighlighter subclass using pyenchant
+├── tts.py               # stub (pyttsx3 wired but menu items disabled; TTS deferred)
 └── ui/
-    ├── main_window.py      # QMainWindow — the entire application state lives here
-    ├── dlg_new.py          # New-file dialog (calls core.build_new_file)
-    ├── dlg_phrase.py       # Add-phrase dialog (appends to profile CSV)
-    ├── dlg_profile.py      # Profile manager (QComboBox + editable QTableWidget)
-    └── dlg_profile_name.py # Profile name input (sanitises forbidden filename chars)
+    ├── combined_window.py      # CombinedMainWindow — THE running QMainWindow
+    ├── main_widget.py          # TranslationAssistantWidget — all TA logic as QWidget
+    ├── main_window.py          # LEGACY standalone window — not launched, do not modify
+    ├── dlg_new.py              # New-document dialog
+    ├── dlg_new_series.py       # Batch new-series dialog
+    ├── dlg_open.py             # Document picker (replaces QFileDialog)
+    ├── dlg_phrase.py           # Add-phrase dialog
+    ├── dlg_profile.py          # Profile manager
+    ├── dlg_profile_name.py     # Profile name input
+    ├── dlg_series.py           # Series manager
+    ├── dlg_series_phrases.py   # Series phrase suggestions
+    ├── dlg_stats.py            # Usage statistics (HeatmapWidget + StatsDialog)
+    ├── dlg_fetch_series.py     # Batch syosetu fetch
+    ├── dlg_batch_import.py     # Batch import from files
+    └── dlg_setup.py            # First-run setup wizard
 ```
 
 ### Key design decisions
 
-**`core.py` is framework-agnostic.** Every text-processing function (`parse_file_content`, `build_new_file`, `save_file`, `replace_and_parse`, `build_review_text`, `calculate_progress`, `build_clipboard_output`, `load_glossary`) takes plain Python types and returns plain Python types. No Qt imports. This makes them trivially testable and is the deliberate split between logic and UI.
+**`core.py` is framework-agnostic.** Every text-processing function takes plain Python types and returns plain Python types. No Qt imports. This makes them trivially testable.
+
+**`db.py` is the single SQLite access point.** All reads and writes go through the `Database` class. The constructor accepts `_conn: sqlite3.Connection | None` — tests pass an in-memory connection, production uses the file at `settings.db_path`. Never import `sqlite3` outside `db.py`.
+
+**Schema migrations are idempotent.** `Database._apply_schema()` applies `ALTER TABLE` migrations using `PRAGMA table_info` checks. Adding a column: check if it exists first, then `ALTER TABLE … ADD COLUMN`. This pattern is safe to run on existing databases.
 
 **`AppSettings` injection seam.** The constructor accepts `_qs: QSettings | None`. Tests pass a temp-file-backed `QSettings` instance; production uses `QSettings("joeglens", "TranslationAssistant")`. Never write to `QSettings` directly — always go through `AppSettings`.
 
 **`SpellHighlighter` injection seam.** The constructor accepts `_dict` to replace the real enchant dictionary in tests. Pass any object with `check(word) -> bool` and `suggest(word) -> list`.
 
-**Event routing.** All key presses (Enter, PgDn, PgUp, Ctrl+*, F1–F8) in `MainWindow` route through a single `_handle_key` method via an event filter installed on the `QMainWindow`. This mirrors the VB original's `PreviewKeyDown` approach.
+**Event routing.** All key presses in `TranslationAssistantWidget` route through `_handle_key` via an event filter on the widget.
 
-**File format.** The `---SEPERATOR---` (note: intentional typo from original) marker divides source text from translations. Raw lines are prefixed with `%` (paragraph start) or `$` (continuation). The raw section is preserved verbatim on save — `save_file` never touches it. Empty lines in the raw section produce blank lines in review panels and are skipped during navigation.
+**File format (legacy import only).** The `---SEPERATOR---` (intentional typo from original) marker divides source text from translations. Raw lines are prefixed with `%` (paragraph start) or `$` (continuation). Documents are now stored in SQLite; the TXT format is only used for import/export.
 
-**Clipboard debounce.** A 400 ms single-shot `QTimer` delays `_write_to_clipboard`. Rapid navigation restarts the timer instead of flooding the clipboard.
-
-**Profile directory.** `settings.get_profile_dir()` is the single source of truth. In dev it resolves to `<repo_root>/Profile/`; in a PyInstaller bundle it resolves to `<exe_dir>/Profile/` via `sys.frozen` detection.
+**Clipboard debounce.** A 400 ms single-shot `QTimer` delays clipboard writes. Rapid navigation restarts the timer instead of flooding the clipboard.
 
 ### Testing
 
-Tests use two shared fixtures from `conftest.py`:
+Tests use shared fixtures from `conftest.py`:
 - `qapp` (session-scoped) — single `QApplication` for the session
-- `tmp_settings` — `AppSettings` backed by a temp INI file with a temp profile dir; uses `monkeypatch` on `_get_app_root`
+- `tmp_settings` — `AppSettings` backed by a temp INI file with a temp profile dir
 
-Test files map to modules: `test_core.py` (55), `test_settings.py`, `test_dialogs.py`, `test_spellcheck.py` (26), `test_main_window.py` (58), `test_integration.py` (46). Total: 236 tests.
+DB tests use in-memory SQLite via `Database(":memory:", _conn=conn)`.
 
-### Planned work: SQLite migration (`SQLITE_PLAN.md`)
-
-A planned migration (not yet started) will replace filesystem-based profile storage (`Profile/*.csv`, `Profile/*.lex`) and TXT-file documents with a single SQLite database (`ta.db`). The plan introduces:
-- A new `db.py` module (`Database` class) with all CRUD; accepts `_conn` injection seam for in-memory tests
-- `dlg_open.py` document picker replacing `QFileDialog`
-- `File → Import / Export` for the old TXT format (retaining interop)
-- `filepath`/`txt_output` state in `MainWindow` replaced by `_doc_id: int | None`
-
-Stages A–G are defined in `SQLITE_PLAN.md`. Each stage must leave the test suite green before the next begins. `core.py` pure functions are unchanged by the migration.
+Test files: `test_core.py`, `test_db.py`, `test_settings.py`, `test_dialogs.py`, `test_spellcheck.py`, `test_main_window.py`, `test_combined_window.py`, `test_integration.py`, `test_migration.py`, `test_dlg_open.py`, `test_dlg_new_series.py`, `test_dlg_series_phrases.py`, `test_scraper.py`. Total: 535 tests.
