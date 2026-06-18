@@ -1,0 +1,76 @@
+from __future__ import annotations
+
+import json
+
+import httpx
+
+from ta.config.languages import Language, to_google_code
+from ta.translators.base import BaseTranslator
+
+
+def _lang_display(lang: Language) -> str:
+    code = to_google_code(lang)
+    name = lang.name.replace("_", " ")
+    return f"{name} ({code})" if code else name
+
+
+class OllamaTranslator(BaseTranslator):
+    def __init__(self, url: str, model: str, system_prompt: str, parent=None):
+        super().__init__("Ollama", parent)
+        self._url = url.rstrip("/")
+        self._model = model
+        self._system_prompt = system_prompt
+
+    def _worker(self) -> None:
+        while True:
+            with self._lock:
+                if self._cancel or self._pending is None:
+                    self._running = False
+                    return
+                text, src, dst = self._pending
+                self._pending = None
+
+            self.translation_started.emit()
+            try:
+                self._stream_translate(text, src, dst)
+            except Exception as exc:
+                if not self._cancel:
+                    self.translation_error.emit(str(exc))
+
+            with self._lock:
+                if self._pending is None:
+                    self._running = False
+                    return
+
+    def _stream_translate(self, text: str, src: Language, dst: Language) -> None:
+        src_display = _lang_display(src)
+        dst_display = _lang_display(dst)
+        system = (
+            self._system_prompt
+            .replace("{src}", src_display)
+            .replace("{dst}", dst_display)
+        )
+        payload = {
+            "model": self._model,
+            "stream": True,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": text},
+            ],
+        }
+        with httpx.stream("POST", f"{self._url}/api/chat", json=payload, timeout=60) as resp:
+            resp.raise_for_status()
+            for line in resp.iter_lines():
+                if self._cancel:
+                    return
+                if not line.strip():
+                    continue
+                obj = json.loads(line)
+                if obj.get("done"):
+                    break
+                token = obj.get("message", {}).get("content", "")
+                if token:
+                    self.translation_chunk.emit(token)
+
+        if not self._cancel:
+            self.translation_ready.emit("")

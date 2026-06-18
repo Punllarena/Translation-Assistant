@@ -6,6 +6,7 @@ from contextlib import contextmanager
 from unittest.mock import patch
 
 import pytest
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
 from ta.translators.base import BaseTranslator
@@ -149,3 +150,107 @@ class TestSettingsOllamaExtensions:
         assert cfg.enabled is True
         assert cfg.model == ""
         assert cfg.system_prompt == ""
+
+
+# ---------------------------------------------------------------------------
+# Task 3: OllamaTranslator
+# ---------------------------------------------------------------------------
+
+class TestOllamaTranslator:
+    def _make_fake_stream(self, tokens):
+        """Return a context manager factory that yields fake NDJSON chunks."""
+        @contextmanager
+        def fake_stream(*args, **kwargs):
+            class FakeResp:
+                def raise_for_status(self): pass
+                def iter_lines(self_inner):
+                    for tok in tokens:
+                        yield json.dumps({"message": {"content": tok}, "done": False})
+                    yield json.dumps({"done": True})
+            yield FakeResp()
+        return fake_stream
+
+    def test_emits_chunks_and_ready(self, qapp):
+        from ta.translators.ollama import OllamaTranslator
+        chunks = []
+        done = threading.Event()
+        t = OllamaTranslator("http://test:11434", "llama3", "Translate {src} to {dst}:")
+        t.translation_chunk.connect(chunks.append, Qt.ConnectionType.DirectConnection)
+        t.translation_ready.connect(lambda _: done.set(), Qt.ConnectionType.DirectConnection)
+
+        with patch("ta.translators.ollama.httpx.stream",
+                   self._make_fake_stream(["Hello", " world"])):
+            t.translate("こんにちは", Language.Japanese, Language.English)
+            assert done.wait(timeout=3.0), "translation_ready never fired"
+
+        assert chunks == ["Hello", " world"]
+
+    def test_ready_signal_value_is_empty_string(self, qapp):
+        from ta.translators.ollama import OllamaTranslator
+        ready_values = []
+        done = threading.Event()
+        t = OllamaTranslator("http://test:11434", "llama3", "")
+        t.translation_ready.connect(
+            lambda v: (ready_values.append(v), done.set()),
+            Qt.ConnectionType.DirectConnection,
+        )
+
+        with patch("ta.translators.ollama.httpx.stream",
+                   self._make_fake_stream(["ok"])):
+            t.translate("test", Language.Japanese, Language.English)
+            done.wait(timeout=3.0)
+
+        assert ready_values == [""]
+
+    def test_emits_error_on_exception(self, qapp):
+        from ta.translators.ollama import OllamaTranslator
+        errors = []
+        done = threading.Event()
+        t = OllamaTranslator("http://test:11434", "llama3", "")
+        t.translation_error.connect(
+            lambda e: (errors.append(e), done.set()),
+            Qt.ConnectionType.DirectConnection,
+        )
+
+        def raise_connection_error(*args, **kwargs):
+            raise Exception("connection refused")
+
+        with patch("ta.translators.ollama.httpx.stream", raise_connection_error):
+            t.translate("test", Language.Japanese, Language.English)
+            done.wait(timeout=3.0)
+
+        assert len(errors) == 1
+        assert "connection refused" in errors[0]
+
+    def test_system_prompt_substitution(self, qapp):
+        """Verify {src}/{dst} are replaced with language display names."""
+        from ta.translators.ollama import OllamaTranslator
+        captured_payload = {}
+        done = threading.Event()
+
+        @contextmanager
+        def capture_stream(*args, **kwargs):
+            captured_payload.update(kwargs.get("json", {}))
+
+            class FakeResp:
+                def raise_for_status(self): pass
+                def iter_lines(self_inner):
+                    yield json.dumps({"done": True})
+            yield FakeResp()
+            done.set()
+
+        t = OllamaTranslator(
+            "http://test:11434", "llama3",
+            "You are a {src} to {dst} translator."
+        )
+        t.translation_ready.connect(lambda _: None, Qt.ConnectionType.DirectConnection)
+
+        with patch("ta.translators.ollama.httpx.stream", capture_stream):
+            t.translate("text", Language.Japanese, Language.English)
+            done.wait(timeout=3.0)
+
+        sys_msg = captured_payload["messages"][0]["content"]
+        assert "Japanese" in sys_msg
+        assert "English" in sys_msg
+        assert "{src}" not in sys_msg
+        assert "{dst}" not in sys_msg
