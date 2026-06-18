@@ -86,6 +86,14 @@ class ReviewTextEdit(QTextEdit):
         self.line_double_clicked.emit(click_pos)
 
 
+class _ClickableLabel(QLabel):
+    clicked = Signal()
+
+    def mousePressEvent(self, event):
+        self.clicked.emit()
+        super().mousePressEvent(event)
+
+
 class TranslationAssistantWidget(QWidget):
 
     source_sentence_changed = Signal(str)
@@ -242,6 +250,9 @@ class TranslationAssistantWidget(QWidget):
             act.triggered.connect(lambda checked, idx=i: self._insert_punctuation(idx))
             self.punct_actions.append(act)
 
+        self.action_stats = QAction("Statistics…", self)
+        self.action_stats.triggered.connect(self._on_stats)
+
     # ------------------------------------------------------------------
     # Widget setup
     # ------------------------------------------------------------------
@@ -331,9 +342,12 @@ class TranslationAssistantWidget(QWidget):
         self._line_label = QLabel("Line: xxxx/xxxx")
         self._word_label = QLabel("xxxx Words")
         self._filesaved_label = QLabel("")
+        self._stats_label = _ClickableLabel("")
+        self._stats_label.clicked.connect(self._on_stats)
         self._status_bar.addWidget(self._completion_label)
         self._status_bar.addWidget(self._line_label)
         self._status_bar.addWidget(self._word_label)
+        self._status_bar.addPermanentWidget(self._stats_label)
         self._status_bar.addPermanentWidget(self._filesaved_label)
         self._update_progress_visibility()
 
@@ -505,6 +519,7 @@ class TranslationAssistantWidget(QWidget):
         self._translated_line.setFocus()
         self._start_clipboard_timer()
         self._restart_autosave_timer()
+        self._update_stats_label()
 
         # Emit so the Aggregator translates the first sentence on load
         raw = self._raw_lines[p]
@@ -618,6 +633,7 @@ class TranslationAssistantWidget(QWidget):
         self._translated_lines[self._array_pointer] = text
         if self._doc_id is not None:
             self._db.save_translation(self._doc_id, self._array_pointer, text)
+            self._update_stats_label()
 
     def _navigate_forward(self, write_file: bool = False) -> None:
         if not self._raw_lines:
@@ -1311,6 +1327,25 @@ class TranslationAssistantWidget(QWidget):
             return True
 
         return False
+
+    # ------------------------------------------------------------------
+    # Usage statistics
+    # ------------------------------------------------------------------
+
+    def _update_stats_label(self) -> None:
+        try:
+            stats = self._db.get_today_stats()
+            self._stats_label.setText(
+                f"Today: {stats['paragraphs']} ¶ / {stats['chars']:,} chars"
+            )
+            self._stats_label.setVisible(True)
+        except Exception:
+            self._stats_label.setVisible(False)
+
+    def _on_stats(self) -> None:
+        from translation_assistant.ui.dlg_stats import StatsDialog
+        with self._topmost_suspended():
+            StatsDialog(self._db, self).exec()
 
     # ------------------------------------------------------------------
     # Window management helpers (delegate to parent window)

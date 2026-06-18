@@ -140,6 +140,7 @@ class CombinedMainWindow(QMainWindow):
 
         # Help
         help_menu = mb.addMenu("Help")
+        help_menu.addAction(ta.action_stats)
         setup_guide_action = QAction("Setup Guide…", self)
         setup_guide_action.triggered.connect(self._open_setup_guide)
         help_menu.addAction(setup_guide_action)
