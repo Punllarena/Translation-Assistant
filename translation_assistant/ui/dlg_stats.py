@@ -165,7 +165,11 @@ class StatsDialog(QDialog):
 
     def _refresh_table(self):
         cutoff = (date.today() - timedelta(days=self._show_days)).isoformat()
-        rows = [r for r in self._all_history if r["date"] >= cutoff]
+        rows = sorted(
+            [r for r in self._all_history if r["date"] >= cutoff],
+            key=lambda r: r["date"],
+            reverse=True,
+        )
         self._table.setRowCount(len(rows))
         for i, row in enumerate(rows):
             self._table.setItem(i, 0, QTableWidgetItem(row["date"]))
