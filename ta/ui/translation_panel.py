@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QTextEdit, QPushButton, QCheckBox, QSizePolicy,
@@ -58,6 +59,7 @@ class TranslationPanel(QWidget):
         self._translator.translation_ready.connect(self._on_ready)
         self._translator.translation_error.connect(self._on_error)
         self._translator.translation_started.connect(self._on_started)
+        self._translator.translation_chunk.connect(self._on_chunk)
 
     def translate(self, text: str, src: Language, dst: Language) -> None:
         self._current_text = text
@@ -71,17 +73,24 @@ class TranslationPanel(QWidget):
         self._current_dst = dst
 
     def _on_ready(self, text: str) -> None:
-        if text.startswith("<html"):
-            self._output.setHtml(text)
-        else:
-            self._output.setPlainText(text)
-        self._status_label.setText("")
+        if text:
+            if text.startswith("<html"):
+                self._output.setHtml(text)
+            else:
+                self._output.setPlainText(text)
+        self._status_label.setText("✓")
 
     def _on_error(self, msg: str) -> None:
         self._output.setPlainText(f"[Error] {msg}")
         self._status_label.setText("✗")
 
     def _on_started(self) -> None:
+        self._output.clear()
+        self._status_label.setText("…")
+
+    def _on_chunk(self, token: str) -> None:
+        self._output.moveCursor(QTextCursor.MoveOperation.End)
+        self._output.insertPlainText(token)
         self._status_label.setText("…")
 
     def _on_toggle(self, state: int) -> None:

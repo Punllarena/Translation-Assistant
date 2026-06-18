@@ -11,6 +11,7 @@ class BaseTranslator(QObject):
     translation_ready = Signal(str)
     translation_error = Signal(str)
     translation_started = Signal()
+    translation_chunk = Signal(str)
 
     def __init__(self, name: str, parent=None):
         super().__init__(parent)
