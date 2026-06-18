@@ -87,6 +87,18 @@ class ReviewTextEdit(QTextEdit):
 
 
 # ---------------------------------------------------------------------------
+# Clickable status-bar label
+# ---------------------------------------------------------------------------
+
+class _ClickableLabel(QLabel):
+    clicked = Signal()
+
+    def mousePressEvent(self, event):
+        self.clicked.emit()
+        super().mousePressEvent(event)
+
+
+# ---------------------------------------------------------------------------
 # Main window
 # ---------------------------------------------------------------------------
 
@@ -227,8 +239,11 @@ class MainWindow(QMainWindow):
         self._action_clipboard.setShortcut("Ctrl+I")
         self._action_clipboard.setEnabled(False)
 
-        # About
-        mb.addAction("About").triggered.connect(self._on_about)
+        # Help
+        help_menu = mb.addMenu("Help")
+        help_menu.addAction("Statistics…").triggered.connect(self._on_stats)
+        help_menu.addSeparator()
+        help_menu.addAction("About").triggered.connect(self._on_about)
 
     def _setup_central_widget(self) -> None:
         font = QFont()
@@ -305,9 +320,12 @@ class MainWindow(QMainWindow):
         self._line_label = QLabel("Line: xxxx/xxxx")
         self._word_label = QLabel("xxxx Words")
         self._filesaved_label = QLabel("")
+        self._stats_label = _ClickableLabel("")
+        self._stats_label.clicked.connect(self._on_stats)
         sb.addWidget(self._completion_label)
         sb.addWidget(self._line_label)
         sb.addWidget(self._word_label)
+        sb.addPermanentWidget(self._stats_label)
         sb.addPermanentWidget(self._filesaved_label)
         self._update_progress_visibility()
 
@@ -478,6 +496,7 @@ class MainWindow(QMainWindow):
         self._translated_line.setFocus()
         self._start_clipboard_timer()
         self._restart_autosave_timer()
+        self._update_stats_label()
 
     def _save_to_db(self) -> None:
         """Full save of all lines to DB."""
@@ -552,6 +571,7 @@ class MainWindow(QMainWindow):
         self._translated_lines[self._array_pointer] = text
         if self._doc_id is not None:
             self._db.save_translation(self._doc_id, self._array_pointer, text)
+            self._update_stats_label()
 
     def _navigate_forward(self, write_file: bool = False) -> None:
         if not self._raw_lines:
@@ -1150,6 +1170,21 @@ class MainWindow(QMainWindow):
         finally:
             if was:
                 self._set_topmost(True)
+
+    def _update_stats_label(self) -> None:
+        try:
+            stats = self._db.get_today_stats()
+            self._stats_label.setText(
+                f"Today: {stats['paragraphs']} ¶ / {stats['chars']:,} chars"
+            )
+            self._stats_label.setVisible(True)
+        except Exception:
+            self._stats_label.setVisible(False)
+
+    def _on_stats(self) -> None:
+        from translation_assistant.ui.dlg_stats import StatsDialog
+        with self._topmost_suspended():
+            StatsDialog(self._db, self).exec()
 
     def closeEvent(self, event) -> None:
         self._settings.splitter_state = self._splitter.saveState()
