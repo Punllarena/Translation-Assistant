@@ -821,3 +821,89 @@ def test_get_document_ids_by_series_empty_when_no_match(db):
     db.create_document("Ch1", series_title="Isekai")
     result = db.get_document_ids_by_series("Nonexistent")
     assert result == []
+
+
+# ---------------------------------------------------------------------------
+# Usage statistics
+# ---------------------------------------------------------------------------
+
+def test_stats_empty(db):
+    stats = db.get_today_stats()
+    assert stats == {"paragraphs": 0, "chars": 0}
+
+
+def test_stats_accumulate(db):
+    doc_id = db.create_document("Test")
+    db.save_lines(doc_id, [
+        {"line_number": 0, "prefix": "%", "raw_text": "こんにちは", "translated_text": ""},
+        {"line_number": 1, "prefix": "%", "raw_text": "さようなら", "translated_text": ""},
+        {"line_number": 2, "prefix": "%", "raw_text": "ありがとう", "translated_text": ""},
+    ])
+    db.save_translation(doc_id, 0, "Hello")
+    db.save_translation(doc_id, 1, "Goodbye")
+    db.save_translation(doc_id, 2, "Thank you")
+    stats = db.get_today_stats()
+    assert stats["paragraphs"] == 3
+    assert stats["chars"] == 15  # 5 chars each
+
+
+def test_stats_cleared(db):
+    doc_id = db.create_document("Test")
+    db.save_lines(doc_id, [
+        {"line_number": 0, "prefix": "%", "raw_text": "こんにちは", "translated_text": ""},
+        {"line_number": 1, "prefix": "%", "raw_text": "さようなら", "translated_text": ""},
+    ])
+    db.save_translation(doc_id, 0, "Hello")
+    db.save_translation(doc_id, 1, "Goodbye")
+    db.save_translation(doc_id, 1, "")  # clear
+    stats = db.get_today_stats()
+    assert stats["paragraphs"] == 1
+    assert stats["chars"] == 5  # only "こんにちは"
+
+
+def test_daily_stats_multi_day(db):
+    doc_id = db.create_document("Test")
+    db.save_lines(doc_id, [
+        {"line_number": 0, "prefix": "%", "raw_text": "あ", "translated_text": ""},
+        {"line_number": 1, "prefix": "%", "raw_text": "い", "translated_text": ""},
+        {"line_number": 2, "prefix": "%", "raw_text": "う", "translated_text": ""},
+    ])
+    db.save_translation(doc_id, 0, "a")
+    db._conn.execute(
+        "UPDATE lines SET translated_at = '2026-06-01 10:00:00' "
+        "WHERE document_id = ? AND line_number = 0",
+        (doc_id,),
+    )
+    db.save_translation(doc_id, 1, "i")
+    db._conn.execute(
+        "UPDATE lines SET translated_at = '2026-06-01 11:00:00' "
+        "WHERE document_id = ? AND line_number = 1",
+        (doc_id,),
+    )
+    db.save_translation(doc_id, 2, "u")
+    db._conn.execute(
+        "UPDATE lines SET translated_at = '2026-06-02 10:00:00' "
+        "WHERE document_id = ? AND line_number = 2",
+        (doc_id,),
+    )
+    db._conn.commit()
+    rows = db.get_daily_stats(days=365)
+    by_date = {r["date"]: r for r in rows}
+    assert by_date["2026-06-01"]["paragraphs"] == 2
+    assert by_date["2026-06-01"]["chars"] == 2   # "あ" + "い"
+    assert by_date["2026-06-02"]["paragraphs"] == 1
+    assert by_date["2026-06-02"]["chars"] == 1   # "う"
+
+
+def test_save_lines_preserves_translated_at(db):
+    """Ctrl+S / autosave must not wipe translated_at timestamps."""
+    doc_id = db.create_document("Test")
+    db.save_lines(doc_id, [
+        {"line_number": 0, "prefix": "%", "raw_text": "あ", "translated_text": ""},
+    ])
+    db.save_translation(doc_id, 0, "a")
+    # simulate autosave: re-save all lines
+    current_lines = db.get_lines(doc_id)
+    db.save_lines(doc_id, current_lines)
+    stats = db.get_today_stats()
+    assert stats["paragraphs"] == 1  # timestamp must survive the bulk-save

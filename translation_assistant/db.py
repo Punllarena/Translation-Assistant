@@ -114,6 +114,14 @@ class Database:
             )
         self._conn.commit()
 
+        # Idempotent column migration for translated_at on lines
+        lines_existing = {r[1] for r in self._conn.execute("PRAGMA table_info(lines)").fetchall()}
+        if "translated_at" not in lines_existing:
+            self._conn.execute(
+                "ALTER TABLE lines ADD COLUMN translated_at TEXT DEFAULT NULL"
+            )
+        self._conn.commit()
+
     def close(self) -> None:
         self._conn.close()
 
@@ -382,11 +390,19 @@ class Database:
         return [dict(r) for r in rows]
 
     def save_lines(self, doc_id: int, lines: list[dict]) -> None:
+        # Read existing translated_at before deleting — autosave must not wipe them
+        existing_ts = {
+            r[0]: r[1]
+            for r in self._conn.execute(
+                "SELECT line_number, translated_at FROM lines WHERE document_id = ?", (doc_id,)
+            ).fetchall()
+        }
         with self._conn:
             self._conn.execute("DELETE FROM lines WHERE document_id = ?", (doc_id,))
             self._conn.executemany(
-                "INSERT INTO lines (document_id, line_number, prefix, raw_text, translated_text) "
-                "VALUES (?, ?, ?, ?, ?)",
+                "INSERT INTO lines "
+                "(document_id, line_number, prefix, raw_text, translated_text, translated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
                 [
                     (
                         doc_id,
@@ -394,6 +410,7 @@ class Database:
                         ln["prefix"],
                         ln["raw_text"],
                         ln.get("translated_text", ""),
+                        existing_ts.get(ln["line_number"]),
                     )
                     for ln in lines
                 ],
@@ -424,11 +441,34 @@ class Database:
 
     def save_translation(self, doc_id: int, line_number: int, text: str) -> None:
         self._conn.execute(
-            "UPDATE lines SET translated_text = ? "
+            "UPDATE lines SET translated_text = ?, "
+            "translated_at = CASE WHEN ? != '' THEN datetime('now') ELSE NULL END "
             "WHERE document_id = ? AND line_number = ?",
-            (text, doc_id, line_number),
+            (text, text, doc_id, line_number),
         )
         self._conn.commit()
+
+    def get_today_stats(self) -> dict:
+        row = self._conn.execute(
+            "SELECT COUNT(*) AS paragraphs, COALESCE(SUM(LENGTH(raw_text)), 0) AS chars "
+            "FROM lines "
+            "WHERE translated_at IS NOT NULL AND date(translated_at) = date('now')"
+        ).fetchone()
+        return {"paragraphs": row[0], "chars": row[1]}
+
+    def get_daily_stats(self, days: int = 30) -> list[dict]:
+        rows = self._conn.execute(
+            "SELECT date(translated_at) AS date, "
+            "COUNT(*) AS paragraphs, "
+            "COALESCE(SUM(LENGTH(raw_text)), 0) AS chars "
+            "FROM lines "
+            "WHERE translated_at IS NOT NULL "
+            "AND date(translated_at) >= date('now', ? || ' days') "
+            "GROUP BY date(translated_at) "
+            "ORDER BY date DESC",
+            (f"-{days}",),
+        ).fetchall()
+        return [dict(r) for r in rows]
 
     def find_tm_matches(
         self, raw_text: str, current_doc_id: int | None, limit: int = 5
