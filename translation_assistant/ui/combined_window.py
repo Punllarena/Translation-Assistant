@@ -52,6 +52,11 @@ class CombinedMainWindow(QMainWindow):
         self._ta_widget.source_sentence_changed.connect(
             self._agg_widget.translate_source
         )
+        ollama = self._agg_widget.get_translator("Ollama")
+        if ollama:
+            ollama.translation_started.connect(self._ta_widget._on_ollama_started)
+            ollama.translation_chunk.connect(self._ta_widget._on_ollama_chunk)
+            ollama.translation_ready.connect(self._ta_widget._on_ollama_ready)
 
     # ------------------------------------------------------------------
     # Menu bar

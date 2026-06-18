@@ -5,7 +5,7 @@ from contextlib import contextmanager
 import re
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QAction, QFont, QKeyEvent, QTextCursor
 from PySide6.QtWidgets import (
     QApplication, QFileDialog, QInputDialog, QLabel, QMenu,
@@ -17,7 +17,7 @@ from translation_assistant.settings import AppSettings
 from translation_assistant.spellcheck import SpellHighlighter
 
 _CJK_FAMILIES = ["Microsoft YaHei", "Noto Sans CJK SC", "WenQuanYi Micro Hei", "sans-serif"]
-_PUNCTUATIONS = ["「」", "『』", "【】", "…", "〜", "〈〉", "《》", "ー"]
+_PUNCTUATIONS = ["「」", "『』", "【】", "…", "〜", "〈〉", "《》", "ー", "♡"]
 
 _HELP_TOP = (
     "HOW TO USE:\n"
@@ -242,6 +242,7 @@ class TranslationAssistantWidget(QWidget):
             "Single Title Bracket : 〈 〉  (F6)",
             "Double Title Bracket : 《 》  (F7)",
             "Long Dash : ー  (F8)",
+            "Heart : ♡  (F9)",
         ]
         self.punct_actions: list[QAction] = []
         for i, label in enumerate(_punct_labels):
@@ -288,6 +289,14 @@ class TranslationAssistantWidget(QWidget):
         self._raw_line.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         self._splitter.addWidget(self._raw_line)
 
+        self._ollama_output = QTextEdit()
+        self._ollama_output.setReadOnly(True)
+        self._ollama_output.setFont(font)
+        self._ollama_output.setMinimumHeight(40)
+        self._ollama_output.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
+        self._ollama_output.setPlaceholderText("Ollama")
+        self._splitter.addWidget(self._ollama_output)
+
         self._tm_panel = QWidget()
         self._tm_panel.setMinimumHeight(0)
         self._tm_layout = QVBoxLayout(self._tm_panel)
@@ -320,12 +329,11 @@ class TranslationAssistantWidget(QWidget):
         self._splitter.setStretchFactor(2, 0)
         self._splitter.setStretchFactor(3, 0)
         self._splitter.setStretchFactor(4, 0)
+        self._splitter.setStretchFactor(5, 0)
 
         saved = self._settings.splitter_state
-        if not saved.isEmpty():
-            self._splitter.restoreState(saved)
-        else:
-            self._splitter.setSizes([300, 52, 0, 52, 137])
+        if saved.isEmpty() or not self._splitter.restoreState(saved):
+            self._splitter.setSizes([300, 52, 52, 0, 52, 137])
 
         layout.addWidget(self._splitter)
 
@@ -1366,6 +1374,26 @@ class TranslationAssistantWidget(QWidget):
                 flags = parent.windowFlags()
                 parent.setWindowFlags(flags | Qt.WindowType.WindowStaysOnTopHint)
                 parent.show()
+
+    # ------------------------------------------------------------------
+    # Ollama inline panel slots (wired by CombinedMainWindow)
+    # ------------------------------------------------------------------
+
+    @Slot()
+    def _on_ollama_started(self) -> None:
+        self._ollama_output.clear()
+
+    @Slot(str)
+    def _on_ollama_chunk(self, token: str) -> None:
+        self._ollama_output.moveCursor(QTextCursor.MoveOperation.End)
+        self._ollama_output.insertPlainText(token)
+
+    @Slot(str)
+    def _on_ollama_ready(self, text: str) -> None:
+        if text:
+            self._ollama_output.setPlainText(text)
+
+    # ------------------------------------------------------------------
 
     def save_state(self) -> None:
         """Called by CombinedMainWindow.closeEvent."""

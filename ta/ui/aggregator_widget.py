@@ -110,6 +110,13 @@ class AggregatorWidget(QWidget):
         self._source_panel.set_text(text)
         self._on_translate(text)
 
+    def get_translator(self, name: str):
+        """Return the translator instance for a panel by name, or None."""
+        for panel in self._panels._panels:
+            if panel.translator_name == name:
+                return panel._translator
+        return None
+
     # ------------------------------------------------------------------
     # Translation pipeline
     # ------------------------------------------------------------------
