@@ -4,7 +4,7 @@ from PySide6.QtWidgets import (
     QDialog, QDialogButtonBox, QTabWidget, QWidget,
     QFormLayout, QVBoxLayout, QHBoxLayout,
     QComboBox, QCheckBox, QLineEdit, QLabel,
-    QSpinBox, QGroupBox, QScrollArea,
+    QSpinBox, QGroupBox, QScrollArea, QPushButton, QPlainTextEdit,
 )
 from PySide6.QtCore import Qt
 
@@ -22,6 +22,7 @@ _TRANSLATOR_LABELS = {
     "libretranslate": "LibreTranslate",
     "mecab": "MeCab",
     "jparser": "JParser",
+    "ollama": "Ollama (Local AI)",
 }
 _ENV_HINTS = {
     "deepl": "DEEPL_API_KEY",
@@ -106,7 +107,7 @@ class SettingsDialog(QDialog):
             api_edit = QLineEdit()
             api_edit.setPlaceholderText(f"API key (or set {_ENV_HINTS.get(name, '')})")
             api_edit.setEchoMode(QLineEdit.EchoMode.Password)
-            if name in ("mecab", "jparser"):
+            if name in ("mecab", "jparser", "ollama"):
                 api_edit.setEnabled(False)
                 api_edit.setPlaceholderText("No key required")
             form.addRow("API key:", api_edit)
@@ -116,6 +117,32 @@ class SettingsDialog(QDialog):
                 url_edit.setPlaceholderText("http://localhost:5000")
                 form.addRow("Server URL:", url_edit)
                 self._translator_url_widgets[name] = url_edit
+
+            if name == "ollama":
+                url_edit = QLineEdit()
+                url_edit.setPlaceholderText("http://pun-ln01:8101")
+                form.addRow("Server URL:", url_edit)
+                self._translator_url_widgets[name] = url_edit
+
+                test_row_w = QWidget()
+                test_row_l = QHBoxLayout(test_row_w)
+                test_row_l.setContentsMargins(0, 0, 0, 0)
+                self._ollama_test_btn = QPushButton("Test Connection")
+                self._ollama_status_lbl = QLabel("")
+                test_row_l.addWidget(self._ollama_test_btn)
+                test_row_l.addWidget(self._ollama_status_lbl)
+                test_row_l.addStretch()
+                form.addRow(test_row_w)
+                self._ollama_test_btn.clicked.connect(self._on_ollama_test)
+
+                self._ollama_model_combo = QComboBox()
+                self._ollama_model_combo.setEditable(True)
+                self._ollama_model_combo.setEnabled(False)
+                form.addRow("Model:", self._ollama_model_combo)
+
+                self._ollama_prompt_edit = QPlainTextEdit()
+                self._ollama_prompt_edit.setFixedHeight(120)
+                form.addRow("System prompt:", self._ollama_prompt_edit)
 
             self._translator_widgets[name] = (enable_cb, api_edit)
             vbox.addWidget(group)
@@ -168,6 +195,31 @@ class SettingsDialog(QDialog):
 
         return w
 
+    def _on_ollama_test(self) -> None:
+        import httpx
+        url = self._translator_url_widgets["ollama"].text().rstrip("/")
+        prev_model = self._ollama_model_combo.currentText()
+        try:
+            resp = httpx.get(f"{url}/api/tags", timeout=5)
+            resp.raise_for_status()
+            models = [m["name"] for m in resp.json().get("models", [])]
+            self._ollama_model_combo.clear()
+            for m in models:
+                self._ollama_model_combo.addItem(m)
+            self._ollama_model_combo.setEnabled(True)
+            self._ollama_status_lbl.setText("Connected ✓")
+            if prev_model:
+                idx = self._ollama_model_combo.findText(prev_model)
+                if idx >= 0:
+                    self._ollama_model_combo.setCurrentIndex(idx)
+                else:
+                    self._ollama_model_combo.insertItem(0, prev_model)
+                    self._ollama_model_combo.setCurrentIndex(0)
+        except Exception as exc:
+            self._ollama_status_lbl.setText(f"Error: {exc}")
+            self._ollama_model_combo.clear()
+            self._ollama_model_combo.setEnabled(False)
+
     # ------------------------------------------------------------------
     # Load / apply
     # ------------------------------------------------------------------
@@ -186,6 +238,16 @@ class SettingsDialog(QDialog):
                 edit.setText(cfg.api_key)
                 if name in self._translator_url_widgets:
                     self._translator_url_widgets[name].setText(cfg.url)
+            if name == "ollama":
+                from ta.config.settings import DEFAULT_OLLAMA_SYSTEM_PROMPT
+                if cfg and cfg.model:
+                    self._ollama_model_combo.addItem(cfg.model)
+                    self._ollama_model_combo.setCurrentIndex(0)
+                    self._ollama_model_combo.setEnabled(True)
+                self._ollama_prompt_edit.setPlainText(
+                    cfg.system_prompt if cfg and cfg.system_prompt
+                    else DEFAULT_OLLAMA_SYSTEM_PROMPT
+                )
 
         self._set_combo_by_data(self._char_repeat_combo, s.filter.char_repeat_mode)
         self._set_combo_by_data(self._line_break_combo, s.filter.line_break_mode)
@@ -216,6 +278,9 @@ class SettingsDialog(QDialog):
             s.translators[name].api_key = edit.text()
             if name in self._translator_url_widgets:
                 s.translators[name].url = self._translator_url_widgets[name].text()
+            if name == "ollama":
+                s.translators[name].model = self._ollama_model_combo.currentText()
+                s.translators[name].system_prompt = self._ollama_prompt_edit.toPlainText()
 
         s.filter.char_repeat_mode = self._char_repeat_combo.currentData()
         s.filter.line_break_mode = self._line_break_combo.currentData()

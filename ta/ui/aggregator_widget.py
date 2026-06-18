@@ -38,6 +38,13 @@ def _build_translator(name: str, cfg):
     if name == "jparser":
         from ta.translators.jparser import JParserTranslator
         return JParserTranslator()
+    if name == "ollama":
+        from ta.translators.ollama import OllamaTranslator
+        return OllamaTranslator(
+            url=cfg.url or "http://pun-ln01:8101",
+            model=cfg.model or "",
+            system_prompt=cfg.system_prompt or "",
+        )
     return None
 
 

@@ -254,3 +254,72 @@ class TestOllamaTranslator:
         assert "English" in sys_msg
         assert "{src}" not in sys_msg
         assert "{dst}" not in sys_msg
+
+
+# ---------------------------------------------------------------------------
+# Task 4: Aggregator factory + SettingsDialog Ollama group
+# ---------------------------------------------------------------------------
+
+class TestBuildTranslatorOllama:
+    def test_build_translator_returns_ollama(self):
+        from ta.ui.aggregator_widget import _build_translator
+        from ta.config.settings import TranslatorConfig
+        from ta.translators.ollama import OllamaTranslator
+        cfg = TranslatorConfig(
+            enabled=True,
+            url="http://test:8101",
+            model="llama3",
+            system_prompt="prompt",
+        )
+        t = _build_translator("ollama", cfg)
+        assert isinstance(t, OllamaTranslator)
+
+    def test_build_translator_ollama_uses_cfg_url(self):
+        from ta.ui.aggregator_widget import _build_translator
+        from ta.config.settings import TranslatorConfig
+        from ta.translators.ollama import OllamaTranslator
+        cfg = TranslatorConfig(url="http://custom:9999", model="m", system_prompt="")
+        t = _build_translator("ollama", cfg)
+        assert t._url == "http://custom:9999"
+
+
+class TestSettingsDialogOllamaGroup:
+    def _make_settings(self):
+        from ta.config.settings import Settings, TranslatorConfig, DEFAULT_OLLAMA_SYSTEM_PROMPT
+        s = Settings()
+        s.translators["ollama"] = TranslatorConfig(
+            enabled=False,
+            url="http://pun-ln01:8101",
+            model="llama3:latest",
+            system_prompt=DEFAULT_OLLAMA_SYSTEM_PROMPT,
+        )
+        return s
+
+    def test_dialog_has_ollama_group(self, qapp):
+        from ta.ui.dialogs.settings_dialog import SettingsDialog
+        from PySide6.QtWidgets import QGroupBox
+        dlg = SettingsDialog(self._make_settings())
+        groups = dlg.findChildren(QGroupBox)
+        titles = [g.title() for g in groups]
+        assert any("Ollama" in t for t in titles)
+
+    def test_dialog_loads_saved_model(self, qapp):
+        from ta.ui.dialogs.settings_dialog import SettingsDialog
+        dlg = SettingsDialog(self._make_settings())
+        assert dlg._ollama_model_combo.currentText() == "llama3:latest"
+        assert dlg._ollama_model_combo.isEnabled()
+
+    def test_dialog_loads_system_prompt(self, qapp):
+        from ta.ui.dialogs.settings_dialog import SettingsDialog
+        from ta.config.settings import DEFAULT_OLLAMA_SYSTEM_PROMPT
+        dlg = SettingsDialog(self._make_settings())
+        assert dlg._ollama_prompt_edit.toPlainText() == DEFAULT_OLLAMA_SYSTEM_PROMPT
+
+    def test_apply_captures_model_and_prompt(self, qapp):
+        from ta.ui.dialogs.settings_dialog import SettingsDialog
+        dlg = SettingsDialog(self._make_settings())
+        dlg._ollama_model_combo.setCurrentText("qwen2:latest")
+        dlg._ollama_prompt_edit.setPlainText("custom prompt")
+        result = dlg.apply()
+        assert result.translators["ollama"].model == "qwen2:latest"
+        assert result.translators["ollama"].system_prompt == "custom prompt"
