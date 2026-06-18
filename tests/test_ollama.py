@@ -68,3 +68,84 @@ class TestTranslationPanelStreaming:
         panel._on_error("timeout")
         assert panel._status_label.text() == "✗"
         assert "[Error]" in panel._output.toPlainText()
+
+
+# ---------------------------------------------------------------------------
+# Task 2: Settings — model and system_prompt fields
+# ---------------------------------------------------------------------------
+
+class TestSettingsOllamaExtensions:
+    def test_translator_config_has_model_field(self):
+        from ta.config.settings import TranslatorConfig
+        cfg = TranslatorConfig(model="llama3")
+        assert cfg.model == "llama3"
+
+    def test_translator_config_has_system_prompt_field(self):
+        from ta.config.settings import TranslatorConfig
+        cfg = TranslatorConfig(system_prompt="my prompt")
+        assert cfg.system_prompt == "my prompt"
+
+    def test_ollama_in_default_translators(self):
+        from ta.config.settings import Settings
+        s = Settings()
+        assert "ollama" in s.translators
+        cfg = s.translators["ollama"]
+        assert cfg.url == "http://pun-ln01:8101"
+        assert "{src}" in cfg.system_prompt
+        assert "{dst}" in cfg.system_prompt
+
+    def test_ollama_in_default_layout_panels(self):
+        from ta.config.settings import Settings
+        s = Settings()
+        assert "ollama" in s.layout_panels
+
+    def test_round_trip_model_and_system_prompt(self, tmp_path):
+        from ta.config.settings import Settings, TranslatorConfig
+        s = Settings()
+        s.translators["ollama"] = TranslatorConfig(
+            enabled=True,
+            url="http://test:8080",
+            model="qwen2:latest",
+            system_prompt="Translate {src} to {dst}.",
+        )
+        path = tmp_path / "settings.toml"
+        s.save(path)
+        s2 = Settings.load(path)
+        cfg2 = s2.translators["ollama"]
+        assert cfg2.enabled is True
+        assert cfg2.url == "http://test:8080"
+        assert cfg2.model == "qwen2:latest"
+        assert cfg2.system_prompt == "Translate {src} to {dst}."
+
+    def test_round_trip_multiline_system_prompt(self, tmp_path):
+        from ta.config.settings import Settings, TranslatorConfig
+        s = Settings()
+        s.translators["ollama"] = TranslatorConfig(
+            model="llama3",
+            system_prompt="Line one.\nLine two.\nLine three.",
+        )
+        path = tmp_path / "settings.toml"
+        s.save(path)
+        s2 = Settings.load(path)
+        assert s2.translators["ollama"].system_prompt == "Line one.\nLine two.\nLine three."
+
+    def test_default_ollama_system_prompt_constant_exported(self):
+        from ta.config.settings import DEFAULT_OLLAMA_SYSTEM_PROMPT
+        assert "{src}" in DEFAULT_OLLAMA_SYSTEM_PROMPT
+        assert "{dst}" in DEFAULT_OLLAMA_SYSTEM_PROMPT
+
+    def test_existing_translator_config_unaffected(self):
+        """Existing translators load fine without model/system_prompt in TOML."""
+        from ta.config.settings import Settings, TranslatorConfig
+        import tempfile, pathlib
+        toml = "[translators.deepl]\nenabled = true\napi_key = \"abc\"\n"
+        with tempfile.NamedTemporaryFile(suffix=".toml", mode="w", delete=False) as f:
+            f.write(toml)
+            p = pathlib.Path(f.name)
+        s = Settings.load(p)
+        p.unlink()
+        cfg = s.translators.get("deepl")
+        assert cfg is not None
+        assert cfg.enabled is True
+        assert cfg.model == ""
+        assert cfg.system_prompt == ""

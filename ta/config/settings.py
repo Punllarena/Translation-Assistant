@@ -9,6 +9,24 @@ from typing import Any
 from ta.config.languages import Language, from_string
 
 
+DEFAULT_OLLAMA_SYSTEM_PROMPT = (
+    "You are a professional {src} to {dst} translator.\n\n"
+    "Task:\n\n"
+    "* Translate only the {src} text contained in the user's current message.\n"
+    "* Do not use, reference, infer, or rely on any previous messages, "
+    "conversation history, or external context.\n"
+    "* Treat each translation request as an independent, standalone input.\n"
+    "* If the current message is ambiguous, translate only based on the text "
+    "present in the current message.\n"
+    "* Preserve the original meaning, tone, nuance, and intent as accurately as possible.\n"
+    "* Produce natural, grammatically correct {dst} output.\n\n"
+    "Output requirements:\n\n"
+    "* Return only the translation.\n"
+    "* Do not provide explanations, notes, commentary, alternatives, or metadata.\n\n"
+    "Translate the {src} text in the user's current message:"
+)
+
+
 def _config_dir() -> Path:
     xdg = os.environ.get("XDG_CONFIG_HOME", "")
     base = Path(xdg) if xdg else Path.home() / ".config"
@@ -23,6 +41,8 @@ class TranslatorConfig:
     enabled: bool = False
     api_key: str = ""
     url: str = ""
+    model: str = ""
+    system_prompt: str = ""
 
 
 @dataclass
@@ -63,13 +83,18 @@ class Settings:
         "google": TranslatorConfig(enabled=False),
         "bing": TranslatorConfig(enabled=False),
         "libretranslate": TranslatorConfig(enabled=False, url="http://localhost:5000"),
+        "ollama": TranslatorConfig(
+            enabled=False,
+            url="http://pun-ln01:8101",
+            system_prompt=DEFAULT_OLLAMA_SYSTEM_PROMPT,
+        ),
         "mecab": TranslatorConfig(enabled=True),
         "jparser": TranslatorConfig(enabled=True),
     })
 
     # Ordered list of panels to display
     layout_panels: list[str] = field(default_factory=lambda: [
-        "deepl", "google", "bing", "libretranslate", "mecab", "jparser"
+        "deepl", "google", "bing", "libretranslate", "ollama", "mecab", "jparser"
     ])
 
     @classmethod
@@ -127,6 +152,8 @@ class Settings:
                     enabled=cfg.get("enabled", False),
                     api_key=api_key,
                     url=cfg.get("url", ""),
+                    model=cfg.get("model", ""),
+                    system_prompt=cfg.get("system_prompt", ""),
                 )
 
         if "layout" in data:
@@ -169,6 +196,10 @@ class Settings:
             ]
             if cfg.url:
                 lines.append(f'url = "{cfg.url}"')
+            if cfg.model:
+                lines.append(f'model = "{cfg.model}"')
+            if cfg.system_prompt:
+                lines.append(f'system_prompt = """\n{cfg.system_prompt}"""')
             lines.append("")
 
         panels_str = ", ".join(f'"{p}"' for p in self.layout_panels)
