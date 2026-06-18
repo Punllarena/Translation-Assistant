@@ -41,7 +41,7 @@ def _build_translator(name: str, cfg):
     if name == "ollama":
         from ta.translators.ollama import OllamaTranslator
         return OllamaTranslator(
-            url=cfg.url or "http://pun-ln01:8101",
+            url=cfg.url or "http://localhost:11434",
             model=cfg.model or "",
             system_prompt=cfg.system_prompt or "",
         )

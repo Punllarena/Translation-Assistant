@@ -120,7 +120,7 @@ class SettingsDialog(QDialog):
 
             if name == "ollama":
                 url_edit = QLineEdit()
-                url_edit.setPlaceholderText("http://pun-ln01:8101")
+                url_edit.setPlaceholderText("http://localhost:11434")
                 form.addRow("Server URL:", url_edit)
                 self._translator_url_widgets[name] = url_edit
 

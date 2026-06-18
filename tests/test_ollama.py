@@ -91,7 +91,7 @@ class TestSettingsOllamaExtensions:
         s = Settings()
         assert "ollama" in s.translators
         cfg = s.translators["ollama"]
-        assert cfg.url == "http://pun-ln01:8101"
+        assert cfg.url == "http://localhost:11434"
         assert "{src}" in cfg.system_prompt
         assert "{dst}" in cfg.system_prompt
 
@@ -289,7 +289,7 @@ class TestSettingsDialogOllamaGroup:
         s = Settings()
         s.translators["ollama"] = TranslatorConfig(
             enabled=False,
-            url="http://pun-ln01:8101",
+            url="http://localhost:11434",
             model="llama3:latest",
             system_prompt=DEFAULT_OLLAMA_SYSTEM_PROMPT,
         )

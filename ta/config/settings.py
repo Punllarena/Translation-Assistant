@@ -11,19 +11,11 @@ from ta.config.languages import Language, from_string
 
 DEFAULT_OLLAMA_SYSTEM_PROMPT = (
     "You are a professional {src} to {dst} translator.\n\n"
-    "Task:\n\n"
-    "* Translate only the {src} text contained in the user's current message.\n"
-    "* Do not use, reference, infer, or rely on any previous messages, "
-    "conversation history, or external context.\n"
-    "* Treat each translation request as an independent, standalone input.\n"
-    "* If the current message is ambiguous, translate only based on the text "
-    "present in the current message.\n"
-    "* Preserve the original meaning, tone, nuance, and intent as accurately as possible.\n"
-    "* Produce natural, grammatically correct {dst} output.\n\n"
-    "Output requirements:\n\n"
-    "* Return only the translation.\n"
-    "* Do not provide explanations, notes, commentary, alternatives, or metadata.\n\n"
-    "Translate the {src} text in the user's current message:"
+    "Translate the following {src} text to {dst}.\n\n"
+    "Requirements:\n"
+    "* Preserve the original meaning, tone, nuance, and intent.\n"
+    "* Produce natural, grammatically correct {dst}.\n"
+    "* Return only the translation — no explanations, notes, or commentary."
 )
 
 
@@ -85,7 +77,7 @@ class Settings:
         "libretranslate": TranslatorConfig(enabled=False, url="http://localhost:5000"),
         "ollama": TranslatorConfig(
             enabled=False,
-            url="http://pun-ln01:8101",
+            url="http://localhost:11434",
             system_prompt=DEFAULT_OLLAMA_SYSTEM_PROMPT,
         ),
         "mecab": TranslatorConfig(enabled=True),
