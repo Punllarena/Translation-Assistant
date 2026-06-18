@@ -173,6 +173,9 @@ class AggregatorWidget(QWidget):
         dlg = SettingsDialog(self._settings, self)
         if dlg.exec():
             self._settings = dlg.apply()
+            for name in self._settings.translators:
+                if name not in self._settings.layout_panels:
+                    self._settings.layout_panels.append(name)
             self._settings.save(DEFAULT_CONFIG_PATH)
 
     def show_substitutions(self) -> None:
