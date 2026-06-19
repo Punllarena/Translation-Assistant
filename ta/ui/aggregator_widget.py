@@ -83,6 +83,8 @@ class AggregatorWidget(QWidget):
         self._panels.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         main_layout.addWidget(self._panels, stretch=1)
 
+        self._ollama_panel: TranslationPanel | None = None
+        self._ollama_translator = None
         for name in self._settings.layout_panels:
             cfg = self._settings.translators.get(name)
             if cfg is None or not cfg.enabled:
@@ -93,6 +95,12 @@ class AggregatorWidget(QWidget):
             translator.translation_ready.connect(
                 lambda text, n=name: self._on_translation_received(n, text)
             )
+            if name == "ollama":
+                self._ollama_translator = translator
+                self._ollama_panel = TranslationPanel(translator)
+                # Insert between source panel (0) and panels container (1)
+                main_layout.insertWidget(1, self._ollama_panel)
+                continue
             panel = TranslationPanel(translator)
             self._panels.add_panel(panel)
 
@@ -112,6 +120,8 @@ class AggregatorWidget(QWidget):
 
     def get_translator(self, name: str):
         """Return the translator instance for a panel by name, or None."""
+        if name.lower() == "ollama":
+            return self._ollama_translator
         for panel in self._panels._panels:
             if panel.translator_name == name:
                 return panel._translator
@@ -127,11 +137,11 @@ class AggregatorWidget(QWidget):
             return
         self._current_source = text
         self._pending_translations = {}
-        self._panels.translate_all(
-            text,
-            self._source_panel.src_language(),
-            self._source_panel.dst_language(),
-        )
+        src = self._source_panel.src_language()
+        dst = self._source_panel.dst_language()
+        self._panels.translate_all(text, src, dst)
+        if self._ollama_panel is not None:
+            self._ollama_panel.translate(text, src, dst)
 
     def _preprocess(self, text: str) -> str:
         if self._settings.enable_substitutions:
@@ -148,6 +158,8 @@ class AggregatorWidget(QWidget):
 
     def _on_languages_changed(self, src: Language, dst: Language) -> None:
         self._panels.set_languages(src, dst)
+        if self._ollama_panel is not None:
+            self._ollama_panel.set_languages(src, dst)
 
     def _on_translation_received(self, name: str, text: str) -> None:
         if not text:

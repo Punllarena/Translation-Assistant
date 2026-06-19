@@ -270,6 +270,17 @@ class TranslationAssistantWidget(QWidget):
         self._splitter = QSplitter(Qt.Orientation.Vertical)
         self._splitter.setChildrenCollapsible(False)
 
+        def _labeled(title: str, inner: QWidget) -> QWidget:
+            w = QWidget()
+            vbox = QVBoxLayout(w)
+            vbox.setContentsMargins(0, 0, 0, 0)
+            vbox.setSpacing(0)
+            lbl = QLabel(title)
+            lbl.setStyleSheet("font-size: 9pt; color: gray; padding: 1px 4px;")
+            vbox.addWidget(lbl)
+            vbox.addWidget(inner)
+            return w
+
         self._review_top = ReviewTextEdit()
         self._review_top.setReadOnly(True)
         self._review_top.setFont(font)
@@ -280,22 +291,14 @@ class TranslationAssistantWidget(QWidget):
         self._review_top.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         self._review_top.setMinimumHeight(50)
         self._review_top.line_double_clicked.connect(self._on_review_top_double_click)
-        self._splitter.addWidget(self._review_top)
+        self._splitter.addWidget(_labeled("Context (Above)", self._review_top))
 
         self._raw_line = QTextEdit()
         self._raw_line.setReadOnly(True)
         self._raw_line.setFont(font)
         self._raw_line.setMinimumHeight(40)
         self._raw_line.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
-        self._splitter.addWidget(self._raw_line)
-
-        self._ollama_output = QTextEdit()
-        self._ollama_output.setReadOnly(True)
-        self._ollama_output.setFont(font)
-        self._ollama_output.setMinimumHeight(40)
-        self._ollama_output.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
-        self._ollama_output.setPlaceholderText("Ollama")
-        self._splitter.addWidget(self._ollama_output)
+        self._splitter.addWidget(_labeled("Source", self._raw_line))
 
         self._tm_panel = QWidget()
         self._tm_panel.setMinimumHeight(0)
@@ -303,7 +306,7 @@ class TranslationAssistantWidget(QWidget):
         self._tm_layout.setContentsMargins(2, 2, 2, 2)
         self._tm_layout.setSpacing(2)
         self._tm_panel.setVisible(False)
-        self._splitter.addWidget(self._tm_panel)
+        self._splitter.addWidget(_labeled("TM Matches", self._tm_panel))
 
         self._translated_line = QTextEdit()
         self._translated_line.setFont(font)
@@ -312,7 +315,7 @@ class TranslationAssistantWidget(QWidget):
         self._translated_line.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         self._translated_line.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._translated_line.customContextMenuRequested.connect(self._on_translated_context_menu)
-        self._splitter.addWidget(self._translated_line)
+        self._splitter.addWidget(_labeled("Translation", self._translated_line))
         self._spell_highlighter = SpellHighlighter(self._translated_line.document())
 
         self._review_bottom = ReviewTextEdit()
@@ -322,18 +325,17 @@ class TranslationAssistantWidget(QWidget):
         self._review_bottom.setMinimumHeight(50)
         self._review_bottom.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         self._review_bottom.line_double_clicked.connect(self._on_review_bottom_double_click)
-        self._splitter.addWidget(self._review_bottom)
+        self._splitter.addWidget(_labeled("Context (Below)", self._review_bottom))
 
         self._splitter.setStretchFactor(0, 1)
         self._splitter.setStretchFactor(1, 0)
         self._splitter.setStretchFactor(2, 0)
         self._splitter.setStretchFactor(3, 0)
         self._splitter.setStretchFactor(4, 0)
-        self._splitter.setStretchFactor(5, 0)
 
         saved = self._settings.splitter_state
         if saved.isEmpty() or not self._splitter.restoreState(saved):
-            self._splitter.setSizes([300, 52, 52, 0, 52, 137])
+            self._splitter.setSizes([300, 52, 0, 52, 137])
 
         layout.addWidget(self._splitter)
 
@@ -1374,26 +1376,6 @@ class TranslationAssistantWidget(QWidget):
                 flags = parent.windowFlags()
                 parent.setWindowFlags(flags | Qt.WindowType.WindowStaysOnTopHint)
                 parent.show()
-
-    # ------------------------------------------------------------------
-    # Ollama inline panel slots (wired by CombinedMainWindow)
-    # ------------------------------------------------------------------
-
-    @Slot()
-    def _on_ollama_started(self) -> None:
-        self._ollama_output.clear()
-
-    @Slot(str)
-    def _on_ollama_chunk(self, token: str) -> None:
-        self._ollama_output.moveCursor(QTextCursor.MoveOperation.End)
-        self._ollama_output.insertPlainText(token)
-
-    @Slot(str)
-    def _on_ollama_ready(self, text: str) -> None:
-        if text:
-            self._ollama_output.setPlainText(text)
-
-    # ------------------------------------------------------------------
 
     def save_state(self) -> None:
         """Called by CombinedMainWindow.closeEvent."""
