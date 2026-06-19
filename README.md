@@ -23,6 +23,8 @@ A desktop tool for Japanese/Chinese → English translation work. Port of the or
 - Import / export individual documents to the original TXT format
 - Database backup and restore (full `ta.db` copy)
 - **Setup Guide** dialog walks through MeCab and JParser installation on first launch
+- **Usage statistics** — heatmap calendar and per-day table showing lines translated (**Help → Statistics**)
+- **Ollama translator** — local LLM translation via a running Ollama instance; configurable model and system prompt; streams tokens into the aggregator panel
 
 ---
 
@@ -36,8 +38,9 @@ A desktop tool for Japanese/Chinese → English translation work. Port of the or
 | PySide6 | ≥ 6.6 | Qt6 GUI |
 | pyttsx3 | ≥ 2.90 | TTS stub (deferred) |
 | pyenchant | ≥ 3.2 | Spellcheck |
-| requests | ≥ 2.31 | Syosetu scraper |
+| requests | ≥ 2.28 | Syosetu scraper |
 | beautifulsoup4 | ≥ 4.12 | Syosetu scraper |
+| httpx | ≥ 0.27 | Ollama / LibreTranslate HTTP |
 
 **System libraries (Linux)**
 
@@ -54,6 +57,7 @@ On Windows: install the `pyenchant` wheel — enchant is bundled.
 |---|---|
 | MeCab | `pip install fugashi unidic-lite` |
 | JParser | Download `edict2` from [edrdg.org](https://www.edrdg.org/jmdict/edict.html) → place at `dictionaries/edict2` |
+| Ollama | Install [Ollama](https://ollama.com) and pull a model (e.g. `ollama pull gemma3`) |
 
 Without these, the panels display setup instructions instead of output.
 
@@ -89,7 +93,7 @@ python -m translation_assistant.main
 ## Testing
 
 ```bash
-pytest            # run all 487 tests
+pytest            # run all 559 tests
 pytest -q         # quiet output
 ```
 
@@ -116,6 +120,18 @@ Pre-built releases (AppImage for Linux, NSIS installer for Windows) are produced
 2. Paste the series index URL (e.g. `https://ncode.syosetu.com/n…/`)
 3. The dialog loads the chapter list; tick the chapters to import
 4. Click **Fetch Selected** — chapters are fetched with rate limiting and saved to the database
+
+---
+
+## Ollama translator
+
+With [Ollama](https://ollama.com) running locally:
+
+1. Pull a model: `ollama pull gemma3` (or any chat model)
+2. Open **Settings → Aggregator Settings** and enable **Ollama**
+3. Set the URL (`http://localhost:11434`) and model name
+4. Optionally customise the system prompt
+5. The Ollama panel in the aggregator streams the response as tokens arrive
 
 ---
 
@@ -207,11 +223,24 @@ translation_assistant/
     ├── dlg_new_series.py    # New series dialog
     ├── dlg_open.py          # Open document dialog (grouped tree view)
     ├── dlg_fetch_series.py  # Syosetu batch import dialog
+    ├── dlg_batch_import.py  # Batch file import dialog
     ├── dlg_series.py        # Series manager dialog
+    ├── dlg_series_phrases.py # Series phrase suggestions dialog
+    ├── dlg_stats.py         # Usage statistics (heatmap + table)
     ├── dlg_setup.py         # Setup guide dialog (MeCab / JParser)
     ├── dlg_phrase.py        # Add phrase dialog
     ├── dlg_profile.py       # Profile manager dialog
     └── dlg_profile_name.py  # Profile name input dialog
+ta/                          # Translation Aggregator module
+├── config/                  # Language and translator settings
+├── core/                    # Clipboard, filter, history, substitutions
+├── translators/             # Bing, DeepL, Google, JParser, LibreTranslate, MeCab, Ollama
+└── ui/
+    ├── aggregator_widget.py # Aggregator panel embedded in CombinedMainWindow
+    ├── panels_container.py  # Translator panel layout
+    ├── source_panel.py      # Source text display
+    ├── translation_panel.py # Per-translator output panel (supports streaming)
+    └── dialogs/             # Aggregator settings, history, substitutions dialogs
 tests/
 ├── conftest.py
 ├── test_core.py              # pure logic
@@ -221,6 +250,7 @@ tests/
 ├── test_dialogs.py           # dialog behaviour
 ├── test_dlg_open.py          # open document dialog
 ├── test_dlg_new_series.py    # new series dialog
+├── test_dlg_series_phrases.py # series phrase suggestions
 ├── test_combined_window.py   # main window shell
 ├── test_main_window.py       # main widget
 ├── test_scraper.py           # scraper
