@@ -11,6 +11,8 @@ _EN_WORDS = (
     "ELSE 0 END), 0)"
 )
 
+_EN_WORDS_L = _EN_WORDS.replace("translated_text", "l.translated_text")
+
 _DDL = """
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
@@ -514,9 +516,7 @@ class Database:
             f"SELECT d.series_title AS series, "
             f"COUNT(l.id) AS paragraphs, "
             f"COALESCE(SUM(LENGTH(l.raw_text)), 0) AS chars, "
-            f"COALESCE(SUM(CASE WHEN TRIM(l.translated_text) != '' "
-            f"THEN LENGTH(TRIM(l.translated_text)) - LENGTH(REPLACE(TRIM(l.translated_text), ' ', '')) + 1 "
-            f"ELSE 0 END), 0) AS en_words, "
+            f"{_EN_WORDS_L} AS en_words, "
             f"COUNT(DISTINCT l.document_id) AS chapters "
             f"FROM lines l "
             f"JOIN documents d ON d.id = l.document_id "
