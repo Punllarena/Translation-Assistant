@@ -565,3 +565,34 @@ class TestProfileDialog:
         assert "Default" in names
         assert "JP_Novel" in names
         assert "CN_Web" in names
+
+
+# ---------------------------------------------------------------------------
+# StatsDialog
+# ---------------------------------------------------------------------------
+
+def test_stats_dialog_renders(qapp):
+    import sqlite3
+    from translation_assistant.db import Database
+    from translation_assistant.ui.dlg_stats import StatsDialog
+    conn = sqlite3.connect(":memory:")
+    db = Database(":memory:", _conn=conn)
+    dlg = StatsDialog(db)
+    assert dlg.windowTitle() == "Usage Statistics"
+    dlg.close()
+
+
+def test_stats_dialog_renders_with_data(qapp):
+    import sqlite3
+    from translation_assistant.db import Database
+    from translation_assistant.ui.dlg_stats import StatsDialog
+    conn = sqlite3.connect(":memory:")
+    db = Database(":memory:", _conn=conn)
+    doc_id = db.create_document("Ch1", series_title="Isekai")
+    db.save_lines(doc_id, [
+        {"line_number": 0, "prefix": "%", "raw_text": "あ", "translated_text": ""},
+    ])
+    db.save_translation(doc_id, 0, "hello world")
+    dlg = StatsDialog(db)
+    assert dlg.windowTitle() == "Usage Statistics"
+    dlg.close()
