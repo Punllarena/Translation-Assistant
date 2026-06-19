@@ -53,12 +53,14 @@ def fetch_syosetu(url: str) -> tuple[str, str]:
     title_el = soup.find(class_=lambda c: c and "p-novel__title--rensai" in c.split())
     title = title_el.get_text(strip=True) if title_el else ""
 
-    content_el = soup.find(
+    _skip = {"p-novel__text--preface", "p-novel__text--afterword"}
+    content_els = soup.find_all(
         class_=lambda c: c and "js-novel-text" in c.split() and "p-novel__text" in c.split()
+        and not (set(c.split()) & _skip)
     )
-    if not content_el:
+    if not content_els:
         raise ValueError("Could not find novel text on page")
-    content = "\n".join(_para_text(p) for p in content_el.find_all("p"))
+    content = "\n".join(_para_text(p) for el in content_els for p in el.find_all("p"))
 
     return title, content
 
