@@ -221,7 +221,7 @@ class StatsDialog(QDialog):
         table.setHorizontalHeaderLabels(["Series", "Paragraphs", "Source Chars", "EN Words", "Chapters"])
         table.horizontalHeader().setStretchLastSection(True)
         table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
         table.verticalHeader().setVisible(False)
         for i, row in enumerate(series_data):
             table.setItem(i, 0, QTableWidgetItem(row["series"]))
