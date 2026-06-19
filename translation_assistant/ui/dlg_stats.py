@@ -71,7 +71,7 @@ class HeatmapWidget(QWidget):
                 d = self._cell_to_date(col, row)
                 if d > self._today:
                     continue
-                entry = self._data.get(d.isoformat(), {"paragraphs": 0, "chars": 0})
+                entry = self._data.get(d.isoformat(), {"paragraphs": 0, "chars": 0, "en_words": 0})
                 painter.fillRect(
                     col * _STEP + _GAP,
                     row * _STEP + _GAP,
@@ -82,12 +82,16 @@ class HeatmapWidget(QWidget):
         painter.end()
 
     def mouseMoveEvent(self, event):
-        col = int((event.position().x() - _GAP) / _STEP)
-        row = int((event.position().y() - _GAP) / _STEP)
+        x, y = event.position().x(), event.position().y()
+        if x < _GAP or y < _GAP:
+            QToolTip.hideText()
+            return
+        col = int((x - _GAP) / _STEP)
+        row = int((y - _GAP) / _STEP)
         if 0 <= col < 52 and 0 <= row < 7:
             d = self._cell_to_date(col, row)
             if d <= self._today:
-                entry = self._data.get(d.isoformat(), {"paragraphs": 0, "chars": 0})
+                entry = self._data.get(d.isoformat(), {"paragraphs": 0, "chars": 0, "en_words": 0})
                 QToolTip.showText(
                     event.globalPosition().toPoint(),
                     f"{_fmt_date(d.isoformat())}: {entry['paragraphs']} paras / {entry['chars']:,} chars",
@@ -104,7 +108,6 @@ class StatsDialog(QDialog):
         super().__init__(parent)
         self._db = db
         self._show_days = 30
-        self._all_history: list[dict] = []
         self._setup_ui()
 
     def _setup_ui(self):
@@ -148,7 +151,7 @@ class StatsDialog(QDialog):
         heatmap_data = {r["date"]: r for r in self._all_history}
         layout.addWidget(HeatmapWidget(heatmap_data, widget))
 
-        today_label = f"Today ({date.today().strftime('%B %-d, %Y')})"
+        today_label = f"Today ({_fmt_date(date.today().isoformat())})"
         periods = [
             (today_label, summary["today"]),
             ("Last 7 days",  summary["week"]),
@@ -172,6 +175,7 @@ class StatsDialog(QDialog):
             summary_table.setItem(i, 2, QTableWidgetItem(f"{data['chars']:,}"))
             summary_table.setItem(i, 3, QTableWidgetItem(f"{data['en_words']:,}"))
         summary_table.resizeColumnsToContents()
+        summary_table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         row_h = summary_table.rowHeight(0) if summary_table.rowCount() > 0 else 22
         summary_table.setFixedHeight(
             summary_table.horizontalHeader().height() + 4 * row_h + 4
@@ -243,7 +247,7 @@ class StatsDialog(QDialog):
         self._refresh_table()
 
     def _refresh_table(self):
-        cutoff = (date.today() - timedelta(days=self._show_days)).isoformat()
+        cutoff = (date.today() - timedelta(days=self._show_days - 1)).isoformat()
         rows = sorted(
             [r for r in self._all_history if r["date"] >= cutoff],
             key=lambda r: r["date"],

@@ -3,6 +3,7 @@ Framework-agnostic text processing logic.
 Ported from MainWindow.xaml.vb and frmNew.xaml.vb.
 """
 import re
+from datetime import date, timedelta
 from pathlib import Path
 
 SEPARATOR = "---SEPERATOR---"
@@ -587,8 +588,6 @@ def compute_streaks(history: list[dict]) -> dict:
         - best_day_date: str (ISO date, empty if no data)
         - best_day_paras: int (max paragraphs, 0 if no data)
     """
-    from datetime import date, timedelta
-
     active_set = {r["date"] for r in history if r["paragraphs"] > 0}
     active = sorted(active_set)
 

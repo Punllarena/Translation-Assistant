@@ -506,8 +506,8 @@ class Database:
 
         return {
             "today":   _q("AND date(translated_at) = date('now')"),
-            "week":    _q("AND date(translated_at) >= date('now', '-7 days')"),
-            "month":   _q("AND date(translated_at) >= date('now', '-30 days')"),
+            "week":    _q("AND date(translated_at) >= date('now', '-6 days')"),
+            "month":   _q("AND date(translated_at) >= date('now', '-29 days')"),
             "alltime": _q(""),
         }
 
