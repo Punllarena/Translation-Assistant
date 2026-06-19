@@ -829,7 +829,7 @@ def test_get_document_ids_by_series_empty_when_no_match(db):
 
 def test_stats_empty(db):
     stats = db.get_today_stats()
-    assert stats == {"paragraphs": 0, "chars": 0}
+    assert stats == {"paragraphs": 0, "chars": 0, "en_words": 0}
 
 
 def test_stats_accumulate(db):
@@ -844,7 +844,8 @@ def test_stats_accumulate(db):
     db.save_translation(doc_id, 2, "Thank you")
     stats = db.get_today_stats()
     assert stats["paragraphs"] == 3
-    assert stats["chars"] == 15  # 5 chars each
+    assert stats["chars"] == 15       # 5 chars each
+    assert stats["en_words"] == 4     # "Hello"(1) + "Goodbye"(1) + "Thank you"(2)
 
 
 def test_stats_cleared(db):
@@ -858,7 +859,8 @@ def test_stats_cleared(db):
     db.save_translation(doc_id, 1, "")  # clear
     stats = db.get_today_stats()
     assert stats["paragraphs"] == 1
-    assert stats["chars"] == 5  # only "こんにちは"
+    assert stats["chars"] == 5       # only "こんにちは"
+    assert stats["en_words"] == 1    # only "Hello"
 
 
 def test_daily_stats_multi_day(db):
@@ -868,31 +870,110 @@ def test_daily_stats_multi_day(db):
         {"line_number": 1, "prefix": "%", "raw_text": "い", "translated_text": ""},
         {"line_number": 2, "prefix": "%", "raw_text": "う", "translated_text": ""},
     ])
-    db.save_translation(doc_id, 0, "a")
+    db.save_translation(doc_id, 0, "a b")
     db._conn.execute(
         "UPDATE lines SET translated_at = '2026-06-01 10:00:00' "
-        "WHERE document_id = ? AND line_number = 0",
-        (doc_id,),
+        "WHERE document_id = ? AND line_number = 0", (doc_id,),
     )
     db.save_translation(doc_id, 1, "i")
     db._conn.execute(
         "UPDATE lines SET translated_at = '2026-06-01 11:00:00' "
-        "WHERE document_id = ? AND line_number = 1",
-        (doc_id,),
+        "WHERE document_id = ? AND line_number = 1", (doc_id,),
     )
-    db.save_translation(doc_id, 2, "u")
+    db.save_translation(doc_id, 2, "u v w")
     db._conn.execute(
         "UPDATE lines SET translated_at = '2026-06-02 10:00:00' "
-        "WHERE document_id = ? AND line_number = 2",
-        (doc_id,),
+        "WHERE document_id = ? AND line_number = 2", (doc_id,),
     )
     db._conn.commit()
     rows = db.get_daily_stats(days=365)
     by_date = {r["date"]: r for r in rows}
     assert by_date["2026-06-01"]["paragraphs"] == 2
-    assert by_date["2026-06-01"]["chars"] == 2   # "あ" + "い"
+    assert by_date["2026-06-01"]["chars"] == 2      # "あ"(1) + "い"(1)
+    assert by_date["2026-06-01"]["en_words"] == 3   # "a b"(2) + "i"(1)
     assert by_date["2026-06-02"]["paragraphs"] == 1
-    assert by_date["2026-06-02"]["chars"] == 1   # "う"
+    assert by_date["2026-06-02"]["chars"] == 1      # "う"(1)
+    assert by_date["2026-06-02"]["en_words"] == 3   # "u v w"(3)
+
+
+def test_get_all_daily_stats_ordered_asc(db):
+    doc_id = db.create_document("Test")
+    db.save_lines(doc_id, [
+        {"line_number": 0, "prefix": "%", "raw_text": "あ", "translated_text": ""},
+        {"line_number": 1, "prefix": "%", "raw_text": "い", "translated_text": ""},
+    ])
+    db.save_translation(doc_id, 0, "a")
+    db._conn.execute(
+        "UPDATE lines SET translated_at = '2026-06-02 10:00:00' "
+        "WHERE document_id = ? AND line_number = 0", (doc_id,),
+    )
+    db.save_translation(doc_id, 1, "i")
+    db._conn.execute(
+        "UPDATE lines SET translated_at = '2026-06-01 10:00:00' "
+        "WHERE document_id = ? AND line_number = 1", (doc_id,),
+    )
+    db._conn.commit()
+    rows = db.get_all_daily_stats()
+    assert rows[0]["date"] == "2026-06-01"
+    assert rows[1]["date"] == "2026-06-02"
+
+
+def test_get_summary_stats_alltime(db):
+    doc_id = db.create_document("Test")
+    db.save_lines(doc_id, [
+        {"line_number": 0, "prefix": "%", "raw_text": "あ", "translated_text": ""},
+        {"line_number": 1, "prefix": "%", "raw_text": "い", "translated_text": ""},
+    ])
+    db.save_translation(doc_id, 0, "hello world")
+    db.save_translation(doc_id, 1, "bye")
+    summary = db.get_summary_stats()
+    assert summary["alltime"]["paragraphs"] == 2
+    assert summary["alltime"]["en_words"] == 3   # "hello world"(2) + "bye"(1)
+    assert set(summary.keys()) == {"today", "week", "month", "alltime"}
+    for key in ("today", "week", "month", "alltime"):
+        assert set(summary[key].keys()) == {"paragraphs", "chars", "en_words"}
+
+
+def test_get_series_stats(db):
+    doc1 = db.create_document("Ch1", series_title="Isekai")
+    doc2 = db.create_document("Ch2", series_title="Isekai")
+    doc3 = db.create_document("StandAlone")  # no series — excluded
+    db.save_lines(doc1, [
+        {"line_number": 0, "prefix": "%", "raw_text": "あ", "translated_text": ""},
+    ])
+    db.save_lines(doc2, [
+        {"line_number": 0, "prefix": "%", "raw_text": "い", "translated_text": ""},
+    ])
+    db.save_lines(doc3, [
+        {"line_number": 0, "prefix": "%", "raw_text": "う", "translated_text": ""},
+    ])
+    db.save_translation(doc1, 0, "hello world")
+    db.save_translation(doc2, 0, "bye")
+    db.save_translation(doc3, 0, "ignored")
+    rows = db.get_series_stats()
+    assert len(rows) == 1
+    assert rows[0]["series"] == "Isekai"
+    assert rows[0]["paragraphs"] == 2
+    assert rows[0]["en_words"] == 3    # "hello world"(2) + "bye"(1)
+    assert rows[0]["chapters"] == 2    # doc1 and doc2
+
+
+def test_get_series_stats_sorted_by_paragraphs_desc(db):
+    doc_a = db.create_document("A1", series_title="AAA")
+    doc_b = db.create_document("B1", series_title="BBB")
+    db.save_lines(doc_a, [
+        {"line_number": 0, "prefix": "%", "raw_text": "x", "translated_text": ""},
+    ])
+    db.save_lines(doc_b, [
+        {"line_number": 0, "prefix": "%", "raw_text": "y", "translated_text": ""},
+        {"line_number": 1, "prefix": "%", "raw_text": "z", "translated_text": ""},
+    ])
+    db.save_translation(doc_a, 0, "one")
+    db.save_translation(doc_b, 0, "two")
+    db.save_translation(doc_b, 1, "three")
+    rows = db.get_series_stats()
+    assert rows[0]["series"] == "BBB"   # 2 paragraphs > 1
+    assert rows[1]["series"] == "AAA"
 
 
 def test_save_lines_preserves_translated_at(db):
@@ -902,8 +983,7 @@ def test_save_lines_preserves_translated_at(db):
         {"line_number": 0, "prefix": "%", "raw_text": "あ", "translated_text": ""},
     ])
     db.save_translation(doc_id, 0, "a")
-    # simulate autosave: re-save all lines
     current_lines = db.get_lines(doc_id)
     db.save_lines(doc_id, current_lines)
     stats = db.get_today_stats()
-    assert stats["paragraphs"] == 1  # timestamp must survive the bulk-save
+    assert stats["paragraphs"] == 1

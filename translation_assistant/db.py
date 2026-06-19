@@ -5,6 +5,12 @@ All other modules import from here; nothing else imports sqlite3 directly.
 import sqlite3
 from pathlib import Path
 
+_EN_WORDS = (
+    "COALESCE(SUM(CASE WHEN TRIM(translated_text) != '' "
+    "THEN LENGTH(TRIM(translated_text)) - LENGTH(REPLACE(TRIM(translated_text), ' ', '')) + 1 "
+    "ELSE 0 END), 0)"
+)
+
 _DDL = """
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
@@ -450,23 +456,73 @@ class Database:
 
     def get_today_stats(self) -> dict:
         row = self._conn.execute(
-            "SELECT COUNT(*) AS paragraphs, COALESCE(SUM(LENGTH(raw_text)), 0) AS chars "
-            "FROM lines "
-            "WHERE translated_at IS NOT NULL AND date(translated_at) = date('now')"
+            f"SELECT COUNT(*) AS paragraphs, "
+            f"COALESCE(SUM(LENGTH(raw_text)), 0) AS chars, "
+            f"{_EN_WORDS} AS en_words "
+            f"FROM lines "
+            f"WHERE translated_at IS NOT NULL AND date(translated_at) = date('now')"
         ).fetchone()
-        return {"paragraphs": row[0], "chars": row[1]}
+        return {"paragraphs": row[0], "chars": row[1], "en_words": row[2]}
 
     def get_daily_stats(self, days: int = 30) -> list[dict]:
         rows = self._conn.execute(
-            "SELECT date(translated_at) AS date, "
-            "COUNT(*) AS paragraphs, "
-            "COALESCE(SUM(LENGTH(raw_text)), 0) AS chars "
-            "FROM lines "
-            "WHERE translated_at IS NOT NULL "
-            "AND date(translated_at) >= date('now', ? || ' days') "
-            "GROUP BY date(translated_at) "
-            "ORDER BY date DESC",
+            f"SELECT date(translated_at) AS date, "
+            f"COUNT(*) AS paragraphs, "
+            f"COALESCE(SUM(LENGTH(raw_text)), 0) AS chars, "
+            f"{_EN_WORDS} AS en_words "
+            f"FROM lines "
+            f"WHERE translated_at IS NOT NULL "
+            f"AND date(translated_at) >= date('now', ? || ' days') "
+            f"GROUP BY date(translated_at) "
+            f"ORDER BY date DESC",
             (f"-{days}",),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_all_daily_stats(self) -> list[dict]:
+        rows = self._conn.execute(
+            f"SELECT date(translated_at) AS date, "
+            f"COUNT(*) AS paragraphs, "
+            f"COALESCE(SUM(LENGTH(raw_text)), 0) AS chars, "
+            f"{_EN_WORDS} AS en_words "
+            f"FROM lines "
+            f"WHERE translated_at IS NOT NULL "
+            f"GROUP BY date(translated_at) "
+            f"ORDER BY date ASC"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_summary_stats(self) -> dict:
+        def _q(where: str) -> dict:
+            row = self._conn.execute(
+                f"SELECT COUNT(*) AS paragraphs, "
+                f"COALESCE(SUM(LENGTH(raw_text)), 0) AS chars, "
+                f"{_EN_WORDS} AS en_words "
+                f"FROM lines WHERE translated_at IS NOT NULL {where}"
+            ).fetchone()
+            return {"paragraphs": row[0], "chars": row[1], "en_words": row[2]}
+
+        return {
+            "today":   _q("AND date(translated_at) = date('now')"),
+            "week":    _q("AND date(translated_at) >= date('now', '-7 days')"),
+            "month":   _q("AND date(translated_at) >= date('now', '-30 days')"),
+            "alltime": _q(""),
+        }
+
+    def get_series_stats(self) -> list[dict]:
+        rows = self._conn.execute(
+            f"SELECT d.series_title AS series, "
+            f"COUNT(l.id) AS paragraphs, "
+            f"COALESCE(SUM(LENGTH(l.raw_text)), 0) AS chars, "
+            f"COALESCE(SUM(CASE WHEN TRIM(l.translated_text) != '' "
+            f"THEN LENGTH(TRIM(l.translated_text)) - LENGTH(REPLACE(TRIM(l.translated_text), ' ', '')) + 1 "
+            f"ELSE 0 END), 0) AS en_words, "
+            f"COUNT(DISTINCT l.document_id) AS chapters "
+            f"FROM lines l "
+            f"JOIN documents d ON d.id = l.document_id "
+            f"WHERE l.translated_at IS NOT NULL AND d.series_title != '' "
+            f"GROUP BY d.series_title "
+            f"ORDER BY paragraphs DESC"
         ).fetchall()
         return [dict(r) for r in rows]
 
