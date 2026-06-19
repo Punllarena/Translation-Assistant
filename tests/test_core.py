@@ -949,3 +949,81 @@ class TestBatchImportFolder:
         assert "Multiple CSV" in result["warnings"][0]
         assert db.get_profile_id("A") is None
         assert db.get_profile_id("B") is None
+
+
+# ---------------------------------------------------------------------------
+# compute_streaks
+# ---------------------------------------------------------------------------
+from datetime import date, timedelta
+from translation_assistant.core import compute_streaks
+
+
+def _h(*entries):
+    """Build history list from (iso_date, paragraphs) pairs."""
+    return [{"date": d, "paragraphs": p} for d, p in entries]
+
+
+def _today():
+    return date.today().isoformat()
+
+
+def _days_ago(n):
+    return (date.today() - timedelta(days=n)).isoformat()
+
+
+def test_compute_streaks_empty():
+    result = compute_streaks([])
+    assert result == {"current_streak": 0, "longest_streak": 0, "best_day_date": "", "best_day_paras": 0}
+
+
+def test_compute_streaks_single_day_today():
+    today = _today()
+    result = compute_streaks(_h((today, 5)))
+    assert result["current_streak"] == 1
+    assert result["longest_streak"] == 1
+    assert result["best_day_date"] == today
+    assert result["best_day_paras"] == 5
+
+
+def test_compute_streaks_consecutive_days():
+    history = _h(
+        (_days_ago(2), 3),
+        (_days_ago(1), 5),
+        (_today(), 2),
+    )
+    result = compute_streaks(history)
+    assert result["current_streak"] == 3
+    assert result["longest_streak"] == 3
+    assert result["best_day_paras"] == 5
+
+
+def test_compute_streaks_gap_breaks_current():
+    # days_ago(3), days_ago(2) consecutive; days_ago(1) missing; today present
+    history = _h(
+        (_days_ago(3), 4),
+        (_days_ago(2), 4),
+        (_today(), 2),
+    )
+    result = compute_streaks(history)
+    assert result["current_streak"] == 1   # gap on days_ago(1)
+    assert result["longest_streak"] == 2   # days_ago(3)+days_ago(2)
+
+
+def test_compute_streaks_today_no_entry_yesterday_yes():
+    history = _h((_days_ago(1), 5))
+    result = compute_streaks(history)
+    assert result["current_streak"] == 1   # yesterday counts when today absent
+
+
+def test_compute_streaks_longest_not_current():
+    # 3-day run long ago, gap, single day today
+    history = _h(
+        (_days_ago(18), 10),
+        (_days_ago(17), 10),
+        (_days_ago(16), 10),
+        (_today(), 1),
+    )
+    result = compute_streaks(history)
+    assert result["longest_streak"] == 3
+    assert result["current_streak"] == 1   # gap between days_ago(16) and today
+    assert result["best_day_paras"] == 10

@@ -566,3 +566,58 @@ def extract_frequent_nouns(
         key=lambda x: x[1],
         reverse=True,
     )
+
+
+# ---------------------------------------------------------------------------
+# Stats computation
+# ---------------------------------------------------------------------------
+
+def compute_streaks(history: list[dict]) -> dict:
+    """
+    Compute current streak, longest streak, and best day from daily stats history.
+
+    Args:
+        history: list of dicts with keys "date" (ISO string "YYYY-MM-DD") and
+                 "paragraphs" (int).
+
+    Returns:
+        dict with keys:
+        - current_streak: int (active or ended yesterday)
+        - longest_streak: int (all time)
+        - best_day_date: str (ISO date, empty if no data)
+        - best_day_paras: int (max paragraphs, 0 if no data)
+    """
+    from datetime import date, timedelta
+
+    active_set = {r["date"] for r in history if r["paragraphs"] > 0}
+    active = sorted(active_set)
+
+    if not active:
+        return {"current_streak": 0, "longest_streak": 0, "best_day_date": "", "best_day_paras": 0}
+
+    longest = 1
+    run = 1
+    for i in range(1, len(active)):
+        prev = date.fromisoformat(active[i - 1])
+        curr = date.fromisoformat(active[i])
+        if (curr - prev).days == 1:
+            run += 1
+            if run > longest:
+                longest = run
+        else:
+            run = 1
+
+    today = date.today()
+    check = today if today.isoformat() in active_set else today - timedelta(days=1)
+    current = 0
+    while check.isoformat() in active_set:
+        current += 1
+        check -= timedelta(days=1)
+
+    best = max(history, key=lambda r: r["paragraphs"])
+    return {
+        "current_streak": current,
+        "longest_streak": longest,
+        "best_day_date": best["date"],
+        "best_day_paras": best["paragraphs"],
+    }
