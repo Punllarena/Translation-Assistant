@@ -11,7 +11,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 from PySide6.QtCore import QSettings
-from PySide6.QtWidgets import QDialog
+from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtWidgets import QDialog, QKeySequenceEdit
 
 from translation_assistant.db import Database
 from translation_assistant.settings import AppSettings
@@ -596,3 +597,85 @@ def test_stats_dialog_renders_with_data(qapp):
     dlg = StatsDialog(db)
     assert dlg.windowTitle() == "Usage Statistics"
     dlg.close()
+
+
+# ---------------------------------------------------------------------------
+# ShortcutsDialog
+# ---------------------------------------------------------------------------
+
+class TestShortcutsDialog:
+    def _make_registry(self, qapp):
+        """Two-entry registry for testing."""
+        entries = []
+        for key, name, default in [
+            ("new_doc", "New Document", "Ctrl+N"),
+            ("open",    "Open",         "Ctrl+O"),
+        ]:
+            act = QAction(name, qapp)
+            act.setShortcut(default)
+            entries.append((key, name, act, default))
+        return entries
+
+    def test_row_count(self, qapp, tmp_path):
+        from translation_assistant.ui.dlg_shortcuts import ShortcutsDialog, _HANDLE_KEY_SHORTCUTS
+        from PySide6.QtWidgets import QTableWidget
+        settings = make_settings(tmp_path)
+        registry = self._make_registry(qapp)
+        dlg = ShortcutsDialog(registry, settings)
+        table = dlg.findChild(QTableWidget)
+        # 1 "Editable" header + len(registry) rows + 1 "View Only" header + len(_HANDLE_KEY_SHORTCUTS) rows
+        expected = 2 + len(registry) + len(_HANDLE_KEY_SHORTCUTS)
+        assert table.rowCount() == expected
+
+    def test_edit_and_save(self, qapp, tmp_path):
+        from translation_assistant.ui.dlg_shortcuts import ShortcutsDialog
+        from PySide6.QtWidgets import QTableWidget
+        settings = make_settings(tmp_path)
+        registry = self._make_registry(qapp)
+        dlg = ShortcutsDialog(registry, settings)
+        table = dlg.findChild(QTableWidget)
+        # Row 0: "Editable" section header. Row 1: first editable row (new_doc).
+        cell_widget = table.cellWidget(1, 1)
+        assert cell_widget is not None, "Expected cell widget at row 1, col 1"
+        kse = cell_widget.findChild(QKeySequenceEdit)
+        kse.setKeySequence(QKeySequence("Ctrl+Z"))
+        dlg._on_ok()
+        assert settings.get_shortcut("new_doc") == "Ctrl+Z"
+        _, _, action, _ = registry[0]
+        assert action.shortcut().toString() == "Ctrl+Z"
+
+    def test_reset_defaults(self, qapp, tmp_path):
+        from translation_assistant.ui.dlg_shortcuts import ShortcutsDialog
+        from PySide6.QtWidgets import QTableWidget
+        settings = make_settings(tmp_path)
+        registry = self._make_registry(qapp)
+        dlg = ShortcutsDialog(registry, settings)
+        table = dlg.findChild(QTableWidget)
+        # Change new_doc shortcut in the UI
+        cell_widget = table.cellWidget(1, 1)
+        kse = cell_widget.findChild(QKeySequenceEdit)
+        kse.setKeySequence(QKeySequence("Ctrl+Z"))
+        # Reset — should revert to default without saving
+        dlg._on_reset()
+        assert kse.keySequence().toString() == "Ctrl+N"
+        assert settings.get_shortcut("new_doc") is None  # not saved
+
+    def test_conflict_blocks_save(self, qapp, tmp_path):
+        from translation_assistant.ui.dlg_shortcuts import ShortcutsDialog
+        from PySide6.QtWidgets import QTableWidget
+        from unittest.mock import patch
+        settings = make_settings(tmp_path)
+        registry = self._make_registry(qapp)
+        dlg = ShortcutsDialog(registry, settings)
+        table = dlg.findChild(QTableWidget)
+        # Set both rows (new_doc=row1, open=row2) to the same shortcut
+        for row in (1, 2):
+            cell_widget = table.cellWidget(row, 1)
+            kse = cell_widget.findChild(QKeySequenceEdit)
+            kse.setKeySequence(QKeySequence("Ctrl+Z"))
+        with patch("translation_assistant.ui.dlg_shortcuts.QMessageBox.warning") as mock_warn:
+            dlg._on_ok()
+            mock_warn.assert_called_once()
+        # Settings must remain unchanged
+        assert settings.get_shortcut("new_doc") is None
+        assert settings.get_shortcut("open") is None
