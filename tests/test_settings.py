@@ -174,3 +174,35 @@ def test_last_doc_id_none_clears(qapp, tmp_path):
     s1.save()
     s2 = AppSettings(_qs=QSettings(ini, QSettings.Format.IniFormat))
     assert s2.last_doc_id is None
+
+
+# ---------------------------------------------------------------------------
+# Keyboard shortcuts
+# ---------------------------------------------------------------------------
+
+class TestShortcutPersistence:
+    def test_get_shortcut_returns_none_when_unset(self, tmp_path):
+        from PySide6.QtCore import QSettings
+        from translation_assistant.settings import AppSettings
+        qs = QSettings(str(tmp_path / "s.ini"), QSettings.Format.IniFormat)
+        s = AppSettings(_qs=qs)
+        assert s.get_shortcut("new_doc") is None
+
+    def test_set_and_get_shortcut(self, tmp_path):
+        from PySide6.QtCore import QSettings
+        from translation_assistant.settings import AppSettings
+        qs = QSettings(str(tmp_path / "s.ini"), QSettings.Format.IniFormat)
+        s = AppSettings(_qs=qs)
+        s.set_shortcut("new_doc", "Ctrl+Z")
+        assert s.get_shortcut("new_doc") == "Ctrl+Z"
+
+    def test_clear_shortcuts(self, tmp_path):
+        from PySide6.QtCore import QSettings
+        from translation_assistant.settings import AppSettings
+        qs = QSettings(str(tmp_path / "s.ini"), QSettings.Format.IniFormat)
+        s = AppSettings(_qs=qs)
+        s.set_shortcut("new_doc", "Ctrl+Z")
+        s.set_shortcut("open", "Ctrl+Y")
+        s.clear_shortcuts()
+        assert s.get_shortcut("new_doc") is None
+        assert s.get_shortcut("open") is None

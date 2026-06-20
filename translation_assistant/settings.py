@@ -167,3 +167,14 @@ class AppSettings:
     def save(self) -> None:
         """Flush settings to disk immediately."""
         self._qs.sync()
+
+    # --- keyboard shortcuts ---
+
+    def get_shortcut(self, key: str) -> str | None:
+        return self._qs.value(f"shortcuts/{key}", None)
+
+    def set_shortcut(self, key: str, value: str) -> None:
+        self._qs.setValue(f"shortcuts/{key}", value)
+
+    def clear_shortcuts(self) -> None:
+        self._qs.remove("shortcuts")
