@@ -125,6 +125,7 @@ class TranslationAssistantWidget(QWidget):
         self._tl_complete: int = 0
 
         self._build_actions()
+        self._build_shortcut_registry()
         self._setup_central_widget()
         self._setup_statusbar()
         self._setup_timers()
@@ -135,14 +136,14 @@ class TranslationAssistantWidget(QWidget):
     # ------------------------------------------------------------------
 
     def _build_actions(self) -> None:
-        self.action_new_doc = QAction("New Document (CTRL+N)", self)
+        self.action_new_doc = QAction("New Document", self)
         self.action_new_doc.triggered.connect(self._on_new_doc)
         self.action_new_doc.setShortcut("Ctrl+N")
 
         self.action_new_series = QAction("New Series", self)
         self.action_new_series.triggered.connect(self._on_new_series)
 
-        self.action_open = QAction("Open (CTRL+O)", self)
+        self.action_open = QAction("Open", self)
         self.action_open.triggered.connect(self._on_open)
         self.action_open.setShortcut("Ctrl+O")
 
@@ -152,7 +153,7 @@ class TranslationAssistantWidget(QWidget):
         self.action_batch_import = QAction("Import Folder…", self)
         self.action_batch_import.triggered.connect(self._on_batch_import)
 
-        self.action_save = QAction("Save (CTRL+S)", self)
+        self.action_save = QAction("Save", self)
         self.action_save.triggered.connect(self._on_save)
         self.action_save.setShortcut("Ctrl+S")
         self.action_save.setEnabled(False)
@@ -170,11 +171,11 @@ class TranslationAssistantWidget(QWidget):
         self.action_db_import = QAction("Import Database Backup…", self)
         self.action_db_import.triggered.connect(self._on_db_import)
 
-        self.action_profile = QAction("Profile (CTRL+P)", self)
+        self.action_profile = QAction("Profile", self)
         self.action_profile.triggered.connect(self._on_profile)
         self.action_profile.setShortcut("Ctrl+P")
 
-        self.action_phrase = QAction("Phrase (CTRL+L)", self)
+        self.action_phrase = QAction("Phrase", self)
         self.action_phrase.triggered.connect(self._on_phrase)
         self.action_phrase.setShortcut("Ctrl+L")
 
@@ -188,7 +189,7 @@ class TranslationAssistantWidget(QWidget):
         self.action_tm.setChecked(self._settings.tm_visible)
         self.action_tm.triggered.connect(self._on_toggle_tm)
 
-        self.action_go_to_line = QAction("Go to Line… (Ctrl+G)", self)
+        self.action_go_to_line = QAction("Go to Line…", self)
         self.action_go_to_line.setShortcut("Ctrl+G")
         self.action_go_to_line.triggered.connect(self._on_go_to_line)
         self.action_go_to_line.setEnabled(False)
@@ -208,7 +209,7 @@ class TranslationAssistantWidget(QWidget):
         self.action_tts_cn.setEnabled(False)
         self.action_tts_cn.triggered.connect(self._on_toggle_tts_cn)
 
-        self.action_clipboard = QAction("Clipboard (CTRL+I)", self)
+        self.action_clipboard = QAction("Clipboard", self)
         self.action_clipboard.triggered.connect(self._on_clipboard_export)
         self.action_clipboard.setShortcut("Ctrl+I")
         self.action_clipboard.setEnabled(False)
@@ -234,15 +235,15 @@ class TranslationAssistantWidget(QWidget):
 
         # Build punctuation actions list (CombinedMainWindow puts these in a submenu)
         _punct_labels = [
-            "Single Quote : 「　」  (F1)",
-            "Double Quote : 『　』  (F2)",
-            "Lenticular : 【　】  (F3)",
-            "Ellipsis : …  (F4)",
-            "Wave Dash : 〜  (F5)",
-            "Single Title Bracket : 〈 〉  (F6)",
-            "Double Title Bracket : 《 》  (F7)",
-            "Long Dash : ー  (F8)",
-            "Heart : ♡  (F9)",
+            "Single Quote : 「　」",
+            "Double Quote : 『　』",
+            "Lenticular : 【　】",
+            "Ellipsis : …",
+            "Wave Dash : 〜",
+            "Single Title Bracket : 〈 〉",
+            "Double Title Bracket : 《 》",
+            "Long Dash : ー",
+            "Heart : ♡",
         ]
         self.punct_actions: list[QAction] = []
         for i, label in enumerate(_punct_labels):
@@ -253,6 +254,38 @@ class TranslationAssistantWidget(QWidget):
 
         self.action_stats = QAction("Statistics…", self)
         self.action_stats.triggered.connect(self._on_stats)
+
+        self.action_series_phrases = QAction("Series Phrase Suggestions…", self)
+        self.action_series_phrases.setShortcut("Ctrl+Shift+P")
+        self.action_series_phrases.triggered.connect(self._on_series_phrases)
+
+    def _build_shortcut_registry(self) -> None:
+        self._shortcut_registry: list[tuple[str, str, QAction, str]] = [
+            ("new_doc",        "New Document",              self.action_new_doc,        "Ctrl+N"),
+            ("open",           "Open",                      self.action_open,           "Ctrl+O"),
+            ("save",           "Save",                      self.action_save,           "Ctrl+S"),
+            ("profile",        "Profile",                   self.action_profile,        "Ctrl+P"),
+            ("phrase",         "Phrase",                    self.action_phrase,         "Ctrl+L"),
+            ("go_to_line",     "Go to Line",                self.action_go_to_line,     "Ctrl+G"),
+            ("clipboard",      "Clipboard",                 self.action_clipboard,      "Ctrl+I"),
+            ("series_phrases", "Series Phrase Suggestions", self.action_series_phrases, "Ctrl+Shift+P"),
+        ]
+        _punct_names = [
+            "Single Quote", "Double Quote", "Lenticular",
+            "Ellipsis", "Wave Dash", "Single Title Bracket",
+            "Double Title Bracket", "Long Dash", "Heart",
+        ]
+        for i, (act, name) in enumerate(zip(self.punct_actions, _punct_names)):
+            self._shortcut_registry.append(
+                (f"punct_{i}", f"Special: {name}", act, f"F{i + 1}")
+            )
+        self._apply_saved_shortcuts()
+
+    def _apply_saved_shortcuts(self) -> None:
+        for key, _, action, _ in self._shortcut_registry:
+            saved = self._settings.get_shortcut(key)
+            if saved:
+                action.setShortcut(saved)
 
     # ------------------------------------------------------------------
     # Widget setup
@@ -461,7 +494,13 @@ class TranslationAssistantWidget(QWidget):
         self._raw_section = ""
         self._doc_id = doc_id
         doc = self._db.get_document(doc_id)
-        pos = doc["last_position"]
+        from translation_assistant.core import line_has_content
+        untranslated = next(
+            (i for i, t in enumerate(self._translated_lines)
+             if line_has_content(self._raw_lines[i]) and not t),
+            None,
+        )
+        pos = untranslated if untranslated is not None else doc["last_position"]
         self._array_pointer = min(pos, max(0, len(self._raw_lines) - 1))
         series = doc.get("series_title", "")
         if series:
@@ -1356,6 +1395,15 @@ class TranslationAssistantWidget(QWidget):
         from translation_assistant.ui.dlg_stats import StatsDialog
         with self._topmost_suspended():
             StatsDialog(self._db, self).exec()
+
+    def _on_series_phrases(self) -> None:
+        from translation_assistant.ui.dlg_series_phrases import SeriesPhrasesDialog, _get_series_for_doc
+        dlg = SeriesPhrasesDialog(
+            self._db, self._settings,
+            current_series=_get_series_for_doc(self._db, self._doc_id),
+            parent=self,
+        )
+        dlg.exec()
 
     # ------------------------------------------------------------------
     # Window management helpers (delegate to parent window)

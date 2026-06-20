@@ -131,10 +131,7 @@ class CombinedMainWindow(QMainWindow):
         history_action.triggered.connect(agg.show_history)
         tools_menu.addAction(history_action)
         tools_menu.addSeparator()
-        series_phrases_action = QAction("Series Phrase Suggestions… (Ctrl+Shift+P)", self)
-        series_phrases_action.setShortcut("Ctrl+Shift+P")
-        series_phrases_action.triggered.connect(self._on_series_phrases)
-        tools_menu.addAction(series_phrases_action)
+        tools_menu.addAction(ta.action_series_phrases)
         tools_menu.addSeparator()
         tools_menu.addAction(ta.action_about)
 
@@ -148,16 +145,6 @@ class CombinedMainWindow(QMainWindow):
     # ------------------------------------------------------------------
     # Window management
     # ------------------------------------------------------------------
-
-    def _on_series_phrases(self) -> None:
-        from translation_assistant.ui.dlg_series_phrases import SeriesPhrasesDialog, _get_series_for_doc
-        ta = self._ta_widget
-        dlg = SeriesPhrasesDialog(
-            ta._db, ta._settings,
-            current_series=_get_series_for_doc(ta._db, ta._doc_id),
-            parent=self,
-        )
-        dlg.exec()
 
     def _open_setup_guide(self) -> None:
         from translation_assistant.ui.dlg_setup import SetupGuideDialog

@@ -421,11 +421,21 @@ class TestOpenDocument:
         win.open_document(doc_id)
         assert win._translated_lines[0] == "Alpha"
 
-    def test_open_document_restores_last_position(self, win):
+    def test_open_document_jumps_to_first_untranslated(self, win):
         doc_id = win._db.create_document("Test")
         win._db.save_lines(doc_id, [
-            {"line_number": 0, "prefix": "%", "raw_text": "A", "translated_text": ""},
-            {"line_number": 1, "prefix": "%", "raw_text": "B", "translated_text": ""},
+            {"line_number": 0, "prefix": "%", "raw_text": "A", "translated_text": "done"},
+            {"line_number": 1, "prefix": "%", "raw_text": "", "translated_text": ""},  # blank — skip
+            {"line_number": 2, "prefix": "%", "raw_text": "C", "translated_text": ""},
+        ])
+        win.open_document(doc_id)
+        assert win._array_pointer == 2
+
+    def test_open_document_falls_back_to_last_position_when_all_translated(self, win):
+        doc_id = win._db.create_document("Test")
+        win._db.save_lines(doc_id, [
+            {"line_number": 0, "prefix": "%", "raw_text": "A", "translated_text": "done"},
+            {"line_number": 1, "prefix": "%", "raw_text": "B", "translated_text": "done"},
         ])
         win._db.set_last_position(doc_id, 1)
         win.open_document(doc_id)
@@ -610,3 +620,49 @@ class TestDictionary:
         # no selection
         win._add_to_dictionary()
         assert win._db.get_custom_words("Default") == before
+
+
+# ---------------------------------------------------------------------------
+# Shortcut registry
+# ---------------------------------------------------------------------------
+
+def _make_widget(tmp_path):
+    from PySide6.QtCore import QSettings
+    from translation_assistant.settings import AppSettings
+    from translation_assistant.ui.main_widget import TranslationAssistantWidget
+    qs = QSettings(str(tmp_path / "s.ini"), QSettings.Format.IniFormat)
+    settings = AppSettings(_qs=qs)
+    conn = sqlite3.connect(":memory:")
+    db = Database(":memory:", _conn=conn)
+    db.create_profile("Default", is_default=True)
+    return TranslationAssistantWidget(_settings=settings, _db=db), settings
+
+
+class TestShortcutRegistry:
+    def test_registry_has_expected_keys(self, qapp, tmp_path):
+        w, _ = _make_widget(tmp_path)
+        keys = [e[0] for e in w._shortcut_registry]
+        for expected in ("new_doc", "open", "save", "profile", "phrase",
+                         "go_to_line", "clipboard", "series_phrases",
+                         "punct_0", "punct_8"):
+            assert expected in keys, f"missing key: {expected}"
+
+    def test_apply_saved_shortcuts_overrides_default(self, qapp, tmp_path):
+        from PySide6.QtCore import QSettings
+        from translation_assistant.settings import AppSettings
+        from translation_assistant.ui.main_widget import TranslationAssistantWidget
+        qs = QSettings(str(tmp_path / "s.ini"), QSettings.Format.IniFormat)
+        settings = AppSettings(_qs=qs)
+        settings.set_shortcut("save", "Ctrl+Z")
+        conn = sqlite3.connect(":memory:")
+        db = Database(":memory:", _conn=conn)
+        db.create_profile("Default", is_default=True)
+        w = TranslationAssistantWidget(_settings=settings, _db=db)
+        entry = next(e for e in w._shortcut_registry if e[0] == "save")
+        _, _, action, _ = entry
+        assert action.shortcut().toString() == "Ctrl+Z"
+
+    def test_action_series_phrases_exists(self, qapp, tmp_path):
+        w, _ = _make_widget(tmp_path)
+        assert hasattr(w, "action_series_phrases")
+        assert w.action_series_phrases.shortcut().toString() == "Ctrl+Shift+P"
