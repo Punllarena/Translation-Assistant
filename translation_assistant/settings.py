@@ -176,5 +176,8 @@ class AppSettings:
     def set_shortcut(self, key: str, value: str) -> None:
         self._qs.setValue(f"shortcuts/{key}", value)
 
+    def clear_shortcut(self, key: str) -> None:
+        self._qs.remove(f"shortcuts/{key}")
+
     def clear_shortcuts(self) -> None:
         self._qs.remove("shortcuts")

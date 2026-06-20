@@ -679,3 +679,19 @@ class TestShortcutsDialog:
         # Settings must remain unchanged
         assert settings.get_shortcut("new_doc") is None
         assert settings.get_shortcut("open") is None
+
+    def test_clear_shortcut_removes_from_settings(self, qapp, tmp_path):
+        from translation_assistant.ui.dlg_shortcuts import ShortcutsDialog
+        from PySide6.QtWidgets import QTableWidget
+        settings = make_settings(tmp_path)
+        # Pre-set a shortcut, then clear it via the dialog
+        settings.set_shortcut("new_doc", "Ctrl+Z")
+        registry = self._make_registry(qapp)
+        dlg = ShortcutsDialog(registry, settings)
+        table = dlg.findChild(QTableWidget)
+        cell_widget = table.cellWidget(1, 1)
+        kse = cell_widget.findChild(QKeySequenceEdit)
+        kse.setKeySequence(QKeySequence())  # clear to empty
+        dlg._on_ok()
+        # Should be removed from settings, not written as ""
+        assert settings.get_shortcut("new_doc") is None

@@ -162,7 +162,10 @@ class ShortcutsDialog(QDialog):
             if kse is None:
                 continue
             seq = kse.keySequence().toString()
-            self._settings.set_shortcut(key, seq)
-            action.setShortcut(seq)
+            if seq:
+                self._settings.set_shortcut(key, seq)
+                action.setShortcut(seq)
+            else:
+                self._settings.clear_shortcut(key)
 
         self.accept()
