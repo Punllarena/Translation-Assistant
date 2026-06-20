@@ -78,3 +78,20 @@ class TestSignalBridge:
         win._ta_widget.load_content(content, title="Test")
         assert len(received) >= 1
         assert "Hello world" in received[-1]
+
+
+class TestShortcutsMenuEntry:
+    def test_settings_menu_has_shortcuts_action(self, win):
+        mb = win.menuBar()
+        # Find Settings menu directly
+        for action in mb.actions():
+            if action.text() == "Settings":
+                settings_menu = action.menu()
+                break
+        else:
+            settings_menu = None
+
+        assert settings_menu is not None
+        # Get action texts
+        action_texts = [a.text() for a in settings_menu.actions()]
+        assert "Keyboard Shortcuts…" in action_texts

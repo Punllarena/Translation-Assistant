@@ -107,6 +107,10 @@ class CombinedMainWindow(QMainWindow):
         tts_menu.addAction(ta.action_tts_jp)
         tts_menu.addAction(ta.action_tts_cn)
         settings_menu.addMenu(tts_menu)
+        settings_menu.addSeparator()
+        shortcuts_action = QAction("Keyboard Shortcuts…", self)
+        shortcuts_action.triggered.connect(self._on_shortcuts)
+        settings_menu.addAction(shortcuts_action)
 
         # Special Punctuations
         punct_menu = mb.addMenu("Special Punctuations")
@@ -145,6 +149,12 @@ class CombinedMainWindow(QMainWindow):
     # ------------------------------------------------------------------
     # Window management
     # ------------------------------------------------------------------
+
+    def _on_shortcuts(self) -> None:
+        from translation_assistant.ui.dlg_shortcuts import ShortcutsDialog
+        ta = self._ta_widget
+        dlg = ShortcutsDialog(ta._shortcut_registry, ta._settings, self)
+        dlg.exec()
 
     def _open_setup_guide(self) -> None:
         from translation_assistant.ui.dlg_setup import SetupGuideDialog
