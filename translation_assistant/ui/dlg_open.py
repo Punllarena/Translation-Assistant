@@ -4,10 +4,10 @@ Document picker dialog — shows all documents grouped by series in a tree view.
 from datetime import datetime
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
     QComboBox, QDialog, QFormLayout, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
-    QMessageBox, QPushButton, QSpinBox, QTreeWidget, QTreeWidgetItem,
+    QMessageBox, QPlainTextEdit, QPushButton, QSpinBox, QSplitter, QTreeWidget, QTreeWidgetItem,
     QVBoxLayout,
 )
 
@@ -75,7 +75,18 @@ class OpenDocumentDialog(QDialog):
         self._tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._tree.customContextMenuRequested.connect(self._on_context_menu)
         self._tree.itemActivated.connect(self._on_item_activated)
-        layout.addWidget(self._tree)
+
+        self._splitter = QSplitter(Qt.Orientation.Vertical)
+        self._splitter.addWidget(self._tree)
+
+        self._preview = QPlainTextEdit()
+        self._preview.setReadOnly(True)
+        preview_font = QFont("monospace")
+        preview_font.setPointSize(9)
+        self._preview.setFont(preview_font)
+        self._splitter.addWidget(self._preview)
+        self._splitter.setSizes([300, 80])
+        layout.addWidget(self._splitter)
 
         btn_row = QHBoxLayout()
         self._open_btn = QPushButton("Open")
@@ -187,6 +198,14 @@ class OpenDocumentDialog(QDialog):
         self._delete_btn.setEnabled(is_leaf)
         has_url = is_leaf and bool(self._source_urls.get(id(leaf), ""))
         self._refetch_btn.setEnabled(has_url)
+
+        if not is_leaf:
+            self._preview.setPlainText("")
+        else:
+            doc_id = self._doc_ids[id(leaf)]
+            rows = self._db.get_lines(doc_id)
+            lines = [r["raw_text"] for r in rows if r["raw_text"]][:8]
+            self._preview.setPlainText("\n".join(lines))
 
     def _on_open(self) -> None:
         leaf = self._current_leaf()

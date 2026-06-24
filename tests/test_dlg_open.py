@@ -400,6 +400,34 @@ class TestOpenDocumentDialog:
         titles = _all_leaf_titles(dlg)
         assert titles.index("Apple") < titles.index("Zebra")
 
+    def test_preview_pane_exists(self, qapp, mem_db):
+        dlg = OpenDocumentDialog(mem_db)
+        assert hasattr(dlg, "_preview")
+
+    def test_preview_loads_on_selection(self, qapp, mem_db):
+        doc_id = mem_db.create_document("Story")
+        mem_db.save_lines(doc_id, [
+            {"line_number": 0, "prefix": "%", "raw_text": "First line", "translated_text": ""},
+            {"line_number": 1, "prefix": "%", "raw_text": "Second line", "translated_text": ""},
+        ])
+        dlg = OpenDocumentDialog(mem_db)
+        leaf = _first_leaf(dlg)
+        dlg._tree.setCurrentItem(leaf)
+        text = dlg._preview.toPlainText()
+        assert "First line" in text
+        assert "Second line" in text
+
+    def test_preview_clears_when_no_selection(self, qapp, mem_db):
+        doc_id = mem_db.create_document("Story")
+        mem_db.save_lines(doc_id, [
+            {"line_number": 0, "prefix": "%", "raw_text": "Some text", "translated_text": ""},
+        ])
+        dlg = OpenDocumentDialog(mem_db)
+        leaf = _first_leaf(dlg)
+        dlg._tree.setCurrentItem(leaf)
+        dlg._tree.setCurrentItem(None)
+        assert dlg._preview.toPlainText() == ""
+
 
 def _first_leaf_is_hidden(dlg, title: str) -> bool:
     r = _root(dlg)
