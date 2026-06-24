@@ -264,6 +264,7 @@ class OpenDocumentDialog(QDialog):
         dlg = _EditSourceDialog(doc_id, leaf.text(0), self._db, parent=self)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self._load_documents()
+            self._select_doc(doc_id)
 
     def _on_refetch(self) -> None:
         from PySide6.QtWidgets import QMessageBox
@@ -346,7 +347,7 @@ class OpenDocumentDialog(QDialog):
             return
         if item.childCount() == 0:
             item = item.parent()
-        if item is None or item.text(0) == _NO_SERIES:
+        if item is None or item.text(0).startswith(_NO_SERIES):
             return
         from PySide6.QtWidgets import QMenu
         menu = QMenu(self)

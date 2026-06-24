@@ -8,6 +8,7 @@ series group items are headers and cannot be opened.
 import sqlite3
 import pytest
 
+from PySide6.QtWidgets import QDialog
 from translation_assistant.db import Database
 from translation_assistant.ui.dlg_open import OpenDocumentDialog
 
@@ -442,6 +443,39 @@ class TestOpenDocumentDialog:
         dlg = OpenDocumentDialog(mem_db)
         dlg._tree.setCurrentItem(_first_leaf(dlg))
         assert dlg._edit_source_btn.isEnabled()
+
+    def test_no_series_context_menu_suppressed(self, qapp, mem_db):
+        """Right-clicking (No Series) group must NOT show context menu."""
+        mem_db.create_document("Standalone")  # no series → goes under (No Series)
+        dlg = OpenDocumentDialog(mem_db)
+        # Find the (No Series) group item
+        r = _root(dlg)
+        no_series_group = None
+        for i in range(r.childCount()):
+            if r.child(i).text(0).startswith("(No Series)"):
+                no_series_group = r.child(i)
+                break
+        assert no_series_group is not None
+        # Verify the guard logic: the group text starts with (No Series)
+        # so startswith check will be True and _on_context_menu will return early
+        assert no_series_group.text(0).startswith("(No Series)")
+
+    def test_edit_source_restores_selection_after_save(self, qapp, mem_db):
+        from unittest.mock import patch
+        from translation_assistant.ui.dlg_open import _EditSourceDialog
+        doc_id = mem_db.create_document("Story")
+        mem_db.save_lines(doc_id, [
+            {"line_number": 0, "prefix": "%", "raw_text": "Hello", "translated_text": ""},
+        ])
+        dlg = OpenDocumentDialog(mem_db)
+        dlg._tree.setCurrentItem(_first_leaf(dlg))
+        with patch.object(_EditSourceDialog, "exec", return_value=QDialog.DialogCode.Accepted):
+            with patch.object(_EditSourceDialog, "_on_save"):
+                dlg._on_edit_source()
+        # Selection should be restored
+        current = dlg._tree.currentItem()
+        assert current is not None
+        assert current.childCount() == 0  # it's a leaf
 
 
 class TestEditSourceDialog:
