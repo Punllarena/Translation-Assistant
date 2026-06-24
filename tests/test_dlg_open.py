@@ -361,6 +361,45 @@ class TestOpenDocumentDialog:
         group = r.child(0)
         assert "(2)" in group.text(0)
 
+    def test_sort_combo_exists(self, qapp, mem_db):
+        dlg = OpenDocumentDialog(mem_db)
+        assert hasattr(dlg, "_sort_combo")
+
+    def test_sort_last_edited_newest_first(self, qapp, mem_db):
+        id_old = mem_db.create_document("OldDoc", chapter_title="OldDoc")
+        id_new = mem_db.create_document("NewDoc", chapter_title="NewDoc")
+        mem_db._conn.execute(
+            "UPDATE documents SET updated_at = '2023-01-01 00:00:00' WHERE id = ?", (id_old,)
+        )
+        mem_db._conn.execute(
+            "UPDATE documents SET updated_at = '2025-06-01 00:00:00' WHERE id = ?", (id_new,)
+        )
+        mem_db._conn.commit()
+        dlg = OpenDocumentDialog(mem_db)
+        dlg._sort_combo.setCurrentIndex(1)  # Last Edited
+        titles = _all_leaf_titles(dlg)
+        assert titles.index("NewDoc") < titles.index("OldDoc")
+
+    def test_sort_progress_asc(self, qapp, mem_db):
+        id_done = mem_db.create_document("Done", chapter_title="Done")
+        id_none = mem_db.create_document("None", chapter_title="None")
+        mem_db.save_lines(id_done, [
+            {"line_number": 0, "prefix": "%", "raw_text": "A", "translated_text": "T"},
+        ])
+        # id_none has no lines → 0%
+        dlg = OpenDocumentDialog(mem_db)
+        dlg._sort_combo.setCurrentIndex(2)  # Progress ↑
+        titles = _all_leaf_titles(dlg)
+        assert titles.index("None") < titles.index("Done")
+
+    def test_sort_title_alpha(self, qapp, mem_db):
+        mem_db.create_document("Zebra", chapter_title="Zebra")
+        mem_db.create_document("Apple", chapter_title="Apple")
+        dlg = OpenDocumentDialog(mem_db)
+        dlg._sort_combo.setCurrentIndex(4)  # Title A→Z
+        titles = _all_leaf_titles(dlg)
+        assert titles.index("Apple") < titles.index("Zebra")
+
 
 def _first_leaf_is_hidden(dlg, title: str) -> bool:
     r = _root(dlg)

@@ -6,7 +6,7 @@ from datetime import datetime
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
-    QDialog, QFormLayout, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
+    QComboBox, QDialog, QFormLayout, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
     QMessageBox, QPushButton, QSpinBox, QTreeWidget, QTreeWidgetItem,
     QVBoxLayout,
 )
@@ -44,10 +44,23 @@ class OpenDocumentDialog(QDialog):
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(6)
 
+        top_row = QHBoxLayout()
         self._filter_edit = QLineEdit()
         self._filter_edit.setPlaceholderText("Filter by title…")
         self._filter_edit.textChanged.connect(self._apply_filter)
-        layout.addWidget(self._filter_edit)
+        top_row.addWidget(self._filter_edit)
+
+        self._sort_combo = QComboBox()
+        self._sort_combo.addItems([
+            "Series Order",
+            "Last Edited",
+            "Progress ↑",
+            "Progress ↓",
+            "Title A→Z",
+        ])
+        self._sort_combo.currentIndexChanged.connect(self._load_documents)
+        top_row.addWidget(self._sort_combo)
+        layout.addLayout(top_row)
 
         self._tree = QTreeWidget()
         self._tree.setColumnCount(3)
@@ -101,7 +114,20 @@ class OpenDocumentDialog(QDialog):
         groups: dict[str, QTreeWidgetItem] = {}
         group_counts: dict[str, int] = {}
 
-        for doc in sorted(docs, key=lambda d: (d["series_title"] or _NO_SERIES, d["series_order"])):
+        idx = self._sort_combo.currentIndex() if hasattr(self, "_sort_combo") else 0
+        _display = lambda d: d["chapter_title"] if d["chapter_title"] else d["title"]
+        if idx == 1:  # Last Edited
+            docs_sorted = sorted(docs, key=lambda d: d["updated_at"] or "", reverse=True)
+        elif idx == 2:  # Progress ↑
+            docs_sorted = sorted(docs, key=lambda d: (d["progress"], d["series_title"] or _NO_SERIES, d["series_order"]))
+        elif idx == 3:  # Progress ↓
+            docs_sorted = sorted(docs, key=lambda d: (-d["progress"], d["series_title"] or _NO_SERIES, d["series_order"]))
+        elif idx == 4:  # Title A→Z
+            docs_sorted = sorted(docs, key=lambda d: (d["series_title"] or _NO_SERIES, _display(d)))
+        else:  # Series Order (default)
+            docs_sorted = sorted(docs, key=lambda d: (d["series_title"] or _NO_SERIES, d["series_order"]))
+
+        for doc in docs_sorted:
             series = doc["series_title"] or _NO_SERIES
             if series not in groups:
                 group_item = QTreeWidgetItem(self._tree, [series, "", ""])
