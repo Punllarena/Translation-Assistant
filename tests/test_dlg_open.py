@@ -63,13 +63,13 @@ class TestOpenDocumentDialog:
     def test_ungrouped_doc_appears_under_no_series(self, qapp, mem_db):
         mem_db.create_document("My Story")
         dlg = OpenDocumentDialog(mem_db)
-        assert "(No Series)" in _group_names(dlg)
+        assert any(n.startswith("(No Series)") for n in _group_names(dlg))
         assert "My Story" in _all_leaf_titles(dlg)
 
     def test_grouped_doc_appears_under_series(self, qapp, mem_db):
         mem_db.create_document("Ch1", series_title="My Novel", series_order=1, chapter_title="Chapter 1")
         dlg = OpenDocumentDialog(mem_db)
-        assert "My Novel" in _group_names(dlg)
+        assert any(n.startswith("My Novel") for n in _group_names(dlg))
         assert "Chapter 1" in _all_leaf_titles(dlg)
 
     def test_documents_grouped_correctly(self, qapp, mem_db):
@@ -78,11 +78,11 @@ class TestOpenDocumentDialog:
         mem_db.create_document("Standalone")
         dlg = OpenDocumentDialog(mem_db)
         groups = _group_names(dlg)
-        assert "Novel" in groups
-        assert "(No Series)" in groups
+        assert any(n.startswith("Novel") for n in groups)
+        assert any(n.startswith("(No Series)") for n in groups)
         # Novel group has 2 children
         r = _root(dlg)
-        novel_group = next(r.child(i) for i in range(r.childCount()) if r.child(i).text(0) == "Novel")
+        novel_group = next(r.child(i) for i in range(r.childCount()) if r.child(i).text(0).startswith("Novel"))
         assert novel_group.childCount() == 2
 
     def test_progress_shown_for_document(self, qapp, mem_db):
@@ -324,6 +324,42 @@ class TestOpenDocumentDialog:
 
         lines = mem_db.get_lines(doc_id)
         assert lines[0]["translated_text"] == "MyTrans"
+
+    def test_progress_zero_percent_color(self, qapp, mem_db):
+        from PySide6.QtGui import QColor
+        doc_id = mem_db.create_document("Story")
+        # no lines → 0%
+        dlg = OpenDocumentDialog(mem_db)
+        leaf = _first_leaf(dlg)
+        assert leaf.foreground(1).color().name() == "#888888"
+
+    def test_progress_partial_color(self, qapp, mem_db):
+        from PySide6.QtGui import QColor
+        doc_id = mem_db.create_document("Story")
+        mem_db.save_lines(doc_id, [
+            {"line_number": 0, "prefix": "%", "raw_text": "A", "translated_text": "Trans"},
+            {"line_number": 1, "prefix": "%", "raw_text": "B", "translated_text": ""},
+        ])
+        dlg = OpenDocumentDialog(mem_db)
+        leaf = _first_leaf(dlg)
+        assert leaf.foreground(1).color().name() == "#c8a000"
+
+    def test_progress_complete_color(self, qapp, mem_db):
+        doc_id = mem_db.create_document("Story")
+        mem_db.save_lines(doc_id, [
+            {"line_number": 0, "prefix": "%", "raw_text": "A", "translated_text": "Trans"},
+        ])
+        dlg = OpenDocumentDialog(mem_db)
+        leaf = _first_leaf(dlg)
+        assert leaf.foreground(1).color().name() == "#2a8a2a"
+
+    def test_series_header_shows_doc_count(self, qapp, mem_db):
+        mem_db.create_document("C1", series_title="Novel", series_order=1, chapter_title="Ch 1")
+        mem_db.create_document("C2", series_title="Novel", series_order=2, chapter_title="Ch 2")
+        dlg = OpenDocumentDialog(mem_db)
+        r = _root(dlg)
+        group = r.child(0)
+        assert "(2)" in group.text(0)
 
 
 def _first_leaf_is_hidden(dlg, title: str) -> bool:

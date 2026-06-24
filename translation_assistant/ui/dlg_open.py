@@ -4,6 +4,7 @@ Document picker dialog — shows all documents grouped by series in a tree view.
 from datetime import datetime
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QDialog, QFormLayout, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
     QMessageBox, QPushButton, QSpinBox, QTreeWidget, QTreeWidgetItem,
@@ -98,8 +99,9 @@ class OpenDocumentDialog(QDialog):
             return
 
         groups: dict[str, QTreeWidgetItem] = {}
+        group_counts: dict[str, int] = {}
 
-        for doc in sorted(docs, key=lambda d: (d["series_title"], d["series_order"])):
+        for doc in sorted(docs, key=lambda d: (d["series_title"] or _NO_SERIES, d["series_order"])):
             series = doc["series_title"] or _NO_SERIES
             if series not in groups:
                 group_item = QTreeWidgetItem(self._tree, [series, "", ""])
@@ -108,14 +110,29 @@ class OpenDocumentDialog(QDialog):
                 font.setBold(True)
                 group_item.setFont(0, font)
                 groups[series] = group_item
+                group_counts[series] = 0
 
             display = doc["chapter_title"] if doc["chapter_title"] else doc["title"]
             progress = f"{doc['progress']}%"
             last_edited = _fmt_date(doc.get("updated_at", ""))
             leaf = QTreeWidgetItem(groups[series], [display, progress, last_edited])
             leaf.setTextAlignment(1, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+
+            pct = doc["progress"]
+            if pct == 0:
+                leaf.setForeground(1, QColor("#888888"))
+            elif pct == 100:
+                leaf.setForeground(1, QColor("#2a8a2a"))
+            else:
+                leaf.setForeground(1, QColor("#c8a000"))
+
             self._doc_ids[id(leaf)] = doc["id"]
             self._source_urls[id(leaf)] = doc.get("source_url", "")
+            group_counts[series] += 1
+
+        for series, group_item in groups.items():
+            count = group_counts[series]
+            group_item.setText(0, f"{series} ({count})")
 
         self._tree.expandAll()
 
