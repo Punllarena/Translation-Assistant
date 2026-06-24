@@ -428,6 +428,61 @@ class TestOpenDocumentDialog:
         dlg._tree.setCurrentItem(None)
         assert dlg._preview.toPlainText() == ""
 
+    def test_edit_source_btn_exists(self, qapp, mem_db):
+        dlg = OpenDocumentDialog(mem_db)
+        assert hasattr(dlg, "_edit_source_btn")
+
+    def test_edit_source_btn_disabled_initially(self, qapp, mem_db):
+        mem_db.create_document("Doc")
+        dlg = OpenDocumentDialog(mem_db)
+        assert not dlg._edit_source_btn.isEnabled()
+
+    def test_edit_source_btn_enabled_on_selection(self, qapp, mem_db):
+        mem_db.create_document("Doc")
+        dlg = OpenDocumentDialog(mem_db)
+        dlg._tree.setCurrentItem(_first_leaf(dlg))
+        assert dlg._edit_source_btn.isEnabled()
+
+
+class TestEditSourceDialog:
+    def test_loads_raw_text_stripping_prefix(self, qapp, mem_db):
+        from translation_assistant.ui.dlg_open import _EditSourceDialog
+        doc_id = mem_db.create_document("Story")
+        mem_db.save_lines(doc_id, [
+            {"line_number": 0, "prefix": "%", "raw_text": "Hello world", "translated_text": ""},
+            {"line_number": 1, "prefix": "$", "raw_text": "Continuation", "translated_text": ""},
+        ])
+        dlg = _EditSourceDialog(doc_id, "Story", mem_db)
+        text = dlg._editor.toPlainText()
+        assert "Hello world" in text
+        assert "Continuation" in text
+        assert "%" not in text
+        assert "$" not in text
+
+    def test_save_updates_db_raw_content(self, qapp, mem_db):
+        from translation_assistant.ui.dlg_open import _EditSourceDialog
+        doc_id = mem_db.create_document("Story")
+        mem_db.save_lines(doc_id, [
+            {"line_number": 0, "prefix": "%", "raw_text": "Originl", "translated_text": "Trans"},
+        ])
+        dlg = _EditSourceDialog(doc_id, "Story", mem_db)
+        dlg._editor.setPlainText("Original")
+        dlg._on_save()
+        lines = mem_db.get_lines(doc_id)
+        assert any(r["raw_text"] == "Original" for r in lines)
+
+    def test_save_preserves_existing_translations(self, qapp, mem_db):
+        from translation_assistant.ui.dlg_open import _EditSourceDialog
+        doc_id = mem_db.create_document("Story")
+        mem_db.save_lines(doc_id, [
+            {"line_number": 0, "prefix": "%", "raw_text": "Hello", "translated_text": "Bonjour"},
+        ])
+        dlg = _EditSourceDialog(doc_id, "Story", mem_db)
+        dlg._editor.setPlainText("Hello")  # same text, no structural change
+        dlg._on_save()
+        lines = mem_db.get_lines(doc_id)
+        assert lines[0]["translated_text"] == "Bonjour"
+
 
 def _first_leaf_is_hidden(dlg, title: str) -> bool:
     r = _root(dlg)

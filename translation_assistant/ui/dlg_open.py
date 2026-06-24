@@ -96,6 +96,9 @@ class OpenDocumentDialog(QDialog):
         self._edit_btn = QPushButton("Edit…")
         self._edit_btn.setEnabled(False)
         self._edit_btn.clicked.connect(self._on_edit)
+        self._edit_source_btn = QPushButton("Edit Source…")
+        self._edit_source_btn.setEnabled(False)
+        self._edit_source_btn.clicked.connect(self._on_edit_source)
         self._delete_btn = QPushButton("Delete")
         self._delete_btn.setEnabled(False)
         self._delete_btn.setStyleSheet("color: red;")
@@ -108,6 +111,7 @@ class OpenDocumentDialog(QDialog):
         btn_row.addStretch()
         btn_row.addWidget(self._open_btn)
         btn_row.addWidget(self._edit_btn)
+        btn_row.addWidget(self._edit_source_btn)
         btn_row.addWidget(self._delete_btn)
         btn_row.addWidget(self._refetch_btn)
         btn_row.addWidget(cancel_btn)
@@ -195,6 +199,7 @@ class OpenDocumentDialog(QDialog):
         is_leaf = leaf is not None
         self._open_btn.setEnabled(is_leaf)
         self._edit_btn.setEnabled(is_leaf)
+        self._edit_source_btn.setEnabled(is_leaf)
         self._delete_btn.setEnabled(is_leaf)
         has_url = is_leaf and bool(self._source_urls.get(id(leaf), ""))
         self._refetch_btn.setEnabled(has_url)
@@ -250,6 +255,15 @@ class OpenDocumentDialog(QDialog):
         )
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self._do_edit(doc_id, dlg.series_title, dlg.series_order, dlg.chapter_title)
+
+    def _on_edit_source(self) -> None:
+        leaf = self._current_leaf()
+        if leaf is None:
+            return
+        doc_id = self._doc_ids[id(leaf)]
+        dlg = _EditSourceDialog(doc_id, leaf.text(0), self._db, parent=self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self._load_documents()
 
     def _on_refetch(self) -> None:
         from PySide6.QtWidgets import QMessageBox
@@ -414,6 +428,49 @@ class _EditMetadataDialog(QDialog):
     @property
     def chapter_title(self) -> str:
         return self._chapter_edit.text().strip()
+
+
+class _EditSourceDialog(QDialog):
+    def __init__(self, doc_id: int, doc_title: str, db: Database, parent=None) -> None:
+        super().__init__(parent)
+        self._doc_id = doc_id
+        self._db = db
+        self.setWindowTitle(f"Edit Source — {doc_title}")
+        self.setMinimumSize(500, 400)
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(6)
+
+        self._editor = QPlainTextEdit()
+        editor_font = QFont("monospace")
+        editor_font.setPointSize(10)
+        self._editor.setFont(editor_font)
+        layout.addWidget(self._editor)
+
+        rows = self._db.get_lines(doc_id)
+        text = "\n".join(r["raw_text"] for r in rows)
+        self._editor.setPlainText(text)
+
+        btn_row = QHBoxLayout()
+        save_btn = QPushButton("Save")
+        save_btn.setDefault(True)
+        save_btn.clicked.connect(self._on_save)
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+        btn_row.addStretch()
+        btn_row.addWidget(save_btn)
+        btn_row.addWidget(cancel_btn)
+        layout.addLayout(btn_row)
+
+    def _on_save(self) -> None:
+        from translation_assistant.core import build_new_file, parse_file_content
+        text = self._editor.toPlainText()
+        formatted = build_new_file(text)
+        raw_lines, _, _ = parse_file_content(formatted)
+        self._db.replace_raw_content(self._doc_id, raw_lines)
+        self.accept()
 
 
 def _fmt_date(iso: str) -> str:
