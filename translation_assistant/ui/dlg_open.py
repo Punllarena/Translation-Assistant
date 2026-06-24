@@ -60,17 +60,20 @@ class OpenDocumentDialog(QDialog):
         self._tree.itemDoubleClicked.connect(self._on_item_double_clicked)
         self._tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._tree.customContextMenuRequested.connect(self._on_context_menu)
+        self._tree.itemActivated.connect(self._on_item_activated)
         layout.addWidget(self._tree)
 
         btn_row = QHBoxLayout()
         self._open_btn = QPushButton("Open")
         self._open_btn.setEnabled(False)
+        self._open_btn.setDefault(True)
         self._open_btn.clicked.connect(self._on_open)
         self._edit_btn = QPushButton("Edit…")
         self._edit_btn.setEnabled(False)
         self._edit_btn.clicked.connect(self._on_edit)
         self._delete_btn = QPushButton("Delete")
         self._delete_btn.setEnabled(False)
+        self._delete_btn.setStyleSheet("color: red;")
         self._delete_btn.clicked.connect(self._on_delete)
         self._refetch_btn = QPushButton("Re-fetch")
         self._refetch_btn.setEnabled(False)
@@ -206,7 +209,9 @@ class OpenDocumentDialog(QDialog):
         )
         if answer != QMessageBox.StandardButton.Yes:
             return
-        self._refetch_btn.setEnabled(False)
+        for btn in (self._open_btn, self._edit_btn, self._delete_btn, self._refetch_btn):
+            btn.setEnabled(False)
+        self._refetch_btn.setText("Fetching…")
         self._refetch_worker = FetchWorker(url, parent=self)
         self._refetch_worker.finished.connect(
             lambda title, content: self._on_refetch_done(doc_id, title, content)
@@ -222,12 +227,14 @@ class OpenDocumentDialog(QDialog):
         raw_lines, _, _ = parse_file_content(formatted)
         self._db.replace_raw_content(doc_id, raw_lines)
         self._refetch_worker = None
+        self._refetch_btn.setText("Re-fetch")
         self._load_documents()
         QMessageBox.information(self, "Re-fetch", "Content re-fetched successfully.")
 
     def _on_refetch_error(self, msg: str) -> None:
         from PySide6.QtWidgets import QMessageBox
         self._refetch_worker = None
+        self._refetch_btn.setText("Re-fetch")
         self._on_selection_changed()
         QMessageBox.warning(self, "Re-fetch Failed", f"Error: {msg}")
 
@@ -244,6 +251,12 @@ class OpenDocumentDialog(QDialog):
             chapter_title=chapter_title,
         )
         self._load_documents()
+
+    def _on_item_activated(self, item: QTreeWidgetItem, _col: int) -> None:
+        if item.childCount() > 0:
+            return
+        self._selected_doc_id = self._doc_ids[id(item)]
+        self.accept()
 
     def _on_item_double_clicked(self, item: QTreeWidgetItem, _col: int) -> None:
         if item.childCount() > 0:

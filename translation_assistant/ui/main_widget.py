@@ -108,6 +108,8 @@ class TranslationAssistantWidget(QWidget):
         self._translated_lines: list[str] = []
         self._raw_section: str = ""
         self._doc_id: int | None = None
+        self._is_dirty: bool = False
+        self._block_dirty: bool = False
 
         # Navigation state
         self._array_pointer: int = 0
@@ -209,9 +211,9 @@ class TranslationAssistantWidget(QWidget):
         self.action_tts_cn.setEnabled(False)
         self.action_tts_cn.triggered.connect(self._on_toggle_tts_cn)
 
-        self.action_clipboard = QAction("Clipboard", self)
+        self.action_clipboard = QAction("Copy to Clipboard", self)
         self.action_clipboard.triggered.connect(self._on_clipboard_export)
-        self.action_clipboard.setShortcut("Ctrl+I")
+        self.action_clipboard.setShortcut("Ctrl+Shift+C")
         self.action_clipboard.setEnabled(False)
 
         self.action_about = QAction("About", self)
@@ -255,6 +257,9 @@ class TranslationAssistantWidget(QWidget):
         self.action_stats = QAction("Statistics…", self)
         self.action_stats.triggered.connect(self._on_stats)
 
+        self.action_autosave = QAction("Autosave Interval…", self)
+        self.action_autosave.triggered.connect(self._on_set_autosave)
+
         self.action_series_phrases = QAction("Series Phrase Suggestions…", self)
         self.action_series_phrases.setShortcut("Ctrl+Shift+P")
         self.action_series_phrases.triggered.connect(self._on_series_phrases)
@@ -267,7 +272,7 @@ class TranslationAssistantWidget(QWidget):
             ("profile",        "Profile",                   self.action_profile,        "Ctrl+P"),
             ("phrase",         "Phrase",                    self.action_phrase,         "Ctrl+L"),
             ("go_to_line",     "Go to Line",                self.action_go_to_line,     "Ctrl+G"),
-            ("clipboard",      "Clipboard",                 self.action_clipboard,      "Ctrl+I"),
+            ("clipboard",      "Copy to Clipboard",         self.action_clipboard,      "Ctrl+Shift+C"),
             ("series_phrases", "Series Phrase Suggestions", self.action_series_phrases, "Ctrl+Shift+P"),
         ]
         _punct_names = [
@@ -317,7 +322,9 @@ class TranslationAssistantWidget(QWidget):
         self._review_top = ReviewTextEdit()
         self._review_top.setReadOnly(True)
         self._review_top.setFont(font)
-        self._review_top.setPlainText(_HELP_TOP)
+        self._review_top.setPlaceholderText(
+            "Open a document to begin — prior sentences appear here."
+        )
         self._review_top.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
@@ -331,20 +338,31 @@ class TranslationAssistantWidget(QWidget):
         self._raw_line.setFont(font)
         self._raw_line.setMinimumHeight(40)
         self._raw_line.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
-        self._splitter.addWidget(_labeled("Source", self._raw_line))
+        self._splitter.addWidget(_labeled("Source (read-only)", self._raw_line))
 
         self._tm_panel = QWidget()
         self._tm_panel.setMinimumHeight(0)
         self._tm_layout = QVBoxLayout(self._tm_panel)
         self._tm_layout.setContentsMargins(2, 2, 2, 2)
         self._tm_layout.setSpacing(2)
-        self._tm_panel.setVisible(False)
-        self._splitter.addWidget(_labeled("TM Matches", self._tm_panel))
+        self._tm_panel.setVisible(True)
+        self._tm_wrapper = QWidget()
+        _tw_vbox = QVBoxLayout(self._tm_wrapper)
+        _tw_vbox.setContentsMargins(0, 0, 0, 0)
+        _tw_vbox.setSpacing(0)
+        _tm_lbl = _ClickableLabel("TM Matches")
+        _tm_lbl.setStyleSheet("font-size: 9pt; color: gray; padding: 1px 4px;")
+        _tm_lbl.clicked.connect(self._toggle_tm_panel)
+        _tw_vbox.addWidget(_tm_lbl)
+        _tw_vbox.addWidget(self._tm_panel)
+        self._tm_wrapper.setVisible(False)
+        self._splitter.addWidget(self._tm_wrapper)
 
         self._translated_line = QTextEdit()
         self._translated_line.setFont(font)
         self._translated_line.setMinimumHeight(40)
         self._translated_line.setAcceptRichText(False)
+        self._translated_line.setPlaceholderText("Type translation here…")
         self._translated_line.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         self._translated_line.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._translated_line.customContextMenuRequested.connect(self._on_translated_context_menu)
@@ -354,7 +372,9 @@ class TranslationAssistantWidget(QWidget):
         self._review_bottom = ReviewTextEdit()
         self._review_bottom.setReadOnly(True)
         self._review_bottom.setFont(font)
-        self._review_bottom.setPlainText(_HELP_BOTTOM)
+        self._review_bottom.setPlaceholderText(
+            "Enter / PgDn = next sentence  ·  PgUp = previous  ·  Ctrl+← / → = phrase"
+        )
         self._review_bottom.setMinimumHeight(50)
         self._review_bottom.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         self._review_bottom.line_double_clicked.connect(self._on_review_bottom_double_click)
@@ -376,23 +396,30 @@ class TranslationAssistantWidget(QWidget):
                        self._translated_line, self._review_bottom):
             widget.installEventFilter(self)
 
+        self._translated_line.textChanged.connect(self._on_translation_text_changed)
+
     def _setup_statusbar(self) -> None:
         self._status_bar = QStatusBar()
         layout = self.layout()
         layout.addWidget(self._status_bar)
 
-        self._completion_label = QLabel("0% Complete")
-        self._line_label = QLabel("Line: xxxx/xxxx")
-        self._word_label = QLabel("xxxx Words")
+        self._completion_label = QLabel()
+        self._line_label = QLabel()
+        self._word_label = QLabel()
+        self._profile_label = QLabel()
+        self._autosave_label = QLabel()
         self._filesaved_label = QLabel("")
         self._stats_label = _ClickableLabel("")
         self._stats_label.clicked.connect(self._on_stats)
         self._status_bar.addWidget(self._completion_label)
         self._status_bar.addWidget(self._line_label)
         self._status_bar.addWidget(self._word_label)
+        self._status_bar.addWidget(self._profile_label)
+        self._status_bar.addWidget(self._autosave_label)
         self._status_bar.addPermanentWidget(self._stats_label)
         self._status_bar.addPermanentWidget(self._filesaved_label)
         self._update_progress_visibility()
+        self._update_autosave_label()
 
     def _setup_timers(self) -> None:
         self._clipboard_timer = QTimer(self)
@@ -413,6 +440,7 @@ class TranslationAssistantWidget(QWidget):
         self._load_glossary_for_profile()
         self._load_spell_dict()
         self._try_init_tts()
+        self._update_profile_label()
         last = self._settings.last_doc_id
         if last is not None:
             try:
@@ -530,7 +558,9 @@ class TranslationAssistantWidget(QWidget):
             raw_lines[p], self._glossary, self._parse_chars
         )
         self._raw_line.setPlainText(display)
+        self._block_dirty = True
         self._translated_line.setPlainText(translated_lines[p])
+        self._block_dirty = False
         self._parse_sentences = sentences
         self._parse_pointer = -1
         self._replaced = replaced
@@ -569,6 +599,11 @@ class TranslationAssistantWidget(QWidget):
         self._start_clipboard_timer()
         self._restart_autosave_timer()
         self._update_stats_label()
+        self._update_progress_visibility()
+        self._update_profile_label()
+        self._set_dirty(False)
+        if self._doc_id is not None:
+            self._settings.add_to_recent(self._doc_id)
 
         # Emit so the Aggregator translates the first sentence on load
         raw = self._raw_lines[p]
@@ -605,7 +640,9 @@ class TranslationAssistantWidget(QWidget):
             self._raw_lines[p], self._glossary, self._parse_chars
         )
         self._raw_line.setPlainText(display)
+        self._block_dirty = True
         self._translated_line.setPlainText(self._translated_lines[p])
+        self._block_dirty = False
         self._parse_sentences = sentences
         self._parse_pointer = -1
         self._replaced = replaced
@@ -640,7 +677,7 @@ class TranslationAssistantWidget(QWidget):
                 item.widget().deleteLater()
 
         if not self._raw_lines or not self._settings.tm_visible:
-            self._tm_panel.setVisible(False)
+            self._tm_wrapper.setVisible(False)
             return
 
         p = self._array_pointer
@@ -649,10 +686,10 @@ class TranslationAssistantWidget(QWidget):
         matches = self._db.find_tm_matches(raw_text, self._doc_id)
 
         if not matches:
-            self._tm_panel.setVisible(False)
+            self._tm_wrapper.setVisible(False)
             return
 
-        self._tm_panel.setVisible(True)
+        self._tm_wrapper.setVisible(True)
         for m in matches:
             date_str = m["updated_at"][:10] if m.get("updated_at") else ""
             label = f"{m['translated_text']}  —  {m['doc_title']}, {date_str}"
@@ -666,10 +703,47 @@ class TranslationAssistantWidget(QWidget):
             self._tm_layout.addWidget(btn)
 
     def _update_progress_visibility(self) -> None:
-        visible = self._settings.show_progress
+        visible = self._settings.show_progress and self._doc_id is not None
         self._completion_label.setVisible(visible)
         self._line_label.setVisible(visible)
         self._word_label.setVisible(visible)
+
+    def _update_profile_label(self) -> None:
+        profile = self._settings.profile_used or "Default"
+        self._profile_label.setText(f"Profile: {profile}")
+        self._profile_label.setVisible(True)
+
+    def _update_autosave_label(self) -> None:
+        minutes = self._settings.auto_save
+        text = f"Autosave: {minutes}m" if minutes > 0 else "Autosave: off"
+        self._autosave_label.setText(text)
+
+    def _on_set_autosave(self) -> None:
+        from PySide6.QtWidgets import QInputDialog
+        current = self._settings.auto_save
+        minutes, ok = QInputDialog.getInt(
+            self, "Autosave Interval",
+            "Interval in minutes (0 = disabled):",
+            current, 0, 60,
+        )
+        if ok:
+            self._settings.auto_save = minutes
+            self._settings.save()
+            self._update_autosave_label()
+            self._restart_autosave_timer()
+
+    def _on_translation_text_changed(self) -> None:
+        if not self._block_dirty and self._doc_id is not None:
+            self._set_dirty(True)
+
+    def _set_dirty(self, dirty: bool) -> None:
+        if self._is_dirty == dirty:
+            return
+        self._is_dirty = dirty
+        win = self.window()
+        if win is not self:
+            base = "Translation Assistant"
+            win.setWindowTitle(base + " *" if dirty else base)
 
     # ------------------------------------------------------------------
     # Navigation
@@ -683,6 +757,7 @@ class TranslationAssistantWidget(QWidget):
         if self._doc_id is not None:
             self._db.save_translation(self._doc_id, self._array_pointer, text)
             self._update_stats_label()
+            self._set_dirty(False)
 
     def _navigate_forward(self, write_file: bool = False) -> None:
         if not self._raw_lines:
@@ -1122,6 +1197,7 @@ class TranslationAssistantWidget(QWidget):
                 self._update_parse_chars()
                 self._glossary = self._db.get_glossary(self._settings.profile_used)
                 self._load_spell_dict()
+                self._update_profile_label()
                 if self._raw_lines:
                     from translation_assistant.core import replace_and_parse
                     display, sentences, replaced = replace_and_parse(
@@ -1163,6 +1239,10 @@ class TranslationAssistantWidget(QWidget):
         self._settings.tm_visible = self.action_tm.isChecked()
         self._settings.save()
         self._update_tm_panel()
+
+    def _toggle_tm_panel(self) -> None:
+        self.action_tm.setChecked(not self.action_tm.isChecked())
+        self._on_toggle_tm()
 
     def _on_go_to_line(self) -> None:
         if not self._raw_lines:

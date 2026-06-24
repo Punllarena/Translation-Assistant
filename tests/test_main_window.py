@@ -77,11 +77,13 @@ class TestInstantiation:
     def test_clipboard_action_disabled_initially(self, win):
         assert not win.action_clipboard.isEnabled()
 
-    def test_help_text_shown_in_review_top(self, win):
-        assert "HOW TO USE" in win._review_top.toPlainText()
+    def test_placeholder_shown_in_review_top(self, win):
+        assert win._review_top.toPlainText() == ""
+        assert "Open a document" in win._review_top.placeholderText()
 
-    def test_help_text_shown_in_review_bottom(self, win):
-        assert "NAVIGATION CONTROLS" in win._review_bottom.toPlainText()
+    def test_placeholder_shown_in_review_bottom(self, win):
+        assert win._review_bottom.toPlainText() == ""
+        assert "Enter" in win._review_bottom.placeholderText()
 
 
 # ---------------------------------------------------------------------------
@@ -592,7 +594,8 @@ class TestProgressDisplay:
         assert win._completion_label.isHidden()
         assert win._line_label.isHidden()
 
-    def test_progress_shown_when_setting_on(self, win):
+    def test_progress_shown_when_setting_on_and_doc_loaded(self, win):
+        _load(win, "%Hello\n")
         win._settings.show_progress = True
         win._update_progress_visibility()
         assert not win._completion_label.isHidden()

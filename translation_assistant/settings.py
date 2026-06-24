@@ -181,3 +181,22 @@ class AppSettings:
 
     def clear_shortcuts(self) -> None:
         self._qs.remove("shortcuts")
+
+    # --- recent documents (list of doc IDs, most-recent first, max 10) ---
+
+    @property
+    def recent_doc_ids(self) -> list[int]:
+        import json
+        raw = self._qs.value("RecentDocIds", "[]")
+        try:
+            return list(json.loads(raw))
+        except Exception:
+            return []
+
+    def add_to_recent(self, doc_id: int) -> None:
+        import json
+        ids = self.recent_doc_ids
+        if doc_id in ids:
+            ids.remove(doc_id)
+        ids.insert(0, doc_id)
+        self._qs.setValue("RecentDocIds", json.dumps(ids[:10]))

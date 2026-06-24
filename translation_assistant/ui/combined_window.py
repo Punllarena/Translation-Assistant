@@ -67,6 +67,9 @@ class CombinedMainWindow(QMainWindow):
         file_menu.addAction(ta.action_new_doc)
         file_menu.addAction(ta.action_new_series)
         file_menu.addAction(ta.action_open)
+        self._recent_menu = QMenu("Recent Documents", self)
+        self._recent_menu.aboutToShow.connect(self._rebuild_recent_menu)
+        file_menu.addMenu(self._recent_menu)
         file_menu.addAction(ta.action_save)
         file_menu.addSeparator()
         file_menu.addAction(ta.action_import)
@@ -81,15 +84,19 @@ class CombinedMainWindow(QMainWindow):
         file_menu.addMenu(md_menu)
         file_menu.addAction(ta.action_manage_series)
         file_menu.addSeparator()
-        file_menu.addAction(ta.action_db_export)
-        file_menu.addAction(ta.action_db_import)
+        db_menu = QMenu("Database", self)
+        db_menu.addAction(ta.action_db_export)
+        db_menu.addAction(ta.action_db_import)
+        file_menu.addMenu(db_menu)
+        file_menu.addSeparator()
+        file_menu.addAction(ta.action_clipboard)  # #1: moved from top-level
         file_menu.addSeparator()
         quit_action = QAction("Quit", self)
         quit_action.setShortcut(QKeySequence.StandardKey.Quit)
         quit_action.triggered.connect(self.close)
         file_menu.addAction(quit_action)
 
-        # Settings
+        # Settings — dialogs only; toggles moved to View (#4)
         settings_menu = mb.addMenu("Settings")
         settings_menu.addAction(ta.action_profile)
         settings_menu.addAction(ta.action_phrase)
@@ -101,23 +108,17 @@ class CombinedMainWindow(QMainWindow):
         subs_action.triggered.connect(agg.show_substitutions)
         settings_menu.addAction(subs_action)
         settings_menu.addSeparator()
-        settings_menu.addAction(ta.action_progress)
-        settings_menu.addAction(ta.action_tm)
         tts_menu = QMenu("Text-To-Speech", self)
         tts_menu.addAction(ta.action_tts_jp)
         tts_menu.addAction(ta.action_tts_cn)
         settings_menu.addMenu(tts_menu)
         settings_menu.addSeparator()
+        settings_menu.addAction(ta.action_autosave)
         shortcuts_action = QAction("Keyboard Shortcuts…", self)
         shortcuts_action.triggered.connect(self._on_shortcuts)
         settings_menu.addAction(shortcuts_action)
 
-        # Special Punctuations
-        punct_menu = mb.addMenu("Special Punctuations")
-        for act in ta.punct_actions:
-            punct_menu.addAction(act)
-
-        # View
+        # View — includes toggles moved from Settings (#4)
         view_menu = mb.addMenu("View")
         self._action_on_top = QAction("Always on Top", self, checkable=True)
         if hasattr(ta, '_settings'):
@@ -125,30 +126,52 @@ class CombinedMainWindow(QMainWindow):
         self._action_on_top.triggered.connect(self._toggle_topmost)
         view_menu.addAction(self._action_on_top)
         view_menu.addAction(ta.action_go_to_line)
+        view_menu.addSeparator()
+        view_menu.addAction(ta.action_progress)   # #4: moved from Settings
+        view_menu.addAction(ta.action_tm)          # #4: moved from Settings
 
-        # Clipboard
-        mb.addAction(ta.action_clipboard)
-
-        # Tools
+        # Tools — Statistics moved here (#3); Special Punctuations demoted (#5); About moved to Help (#2)
         tools_menu = mb.addMenu("Tools")
         history_action = QAction("History…", self)
         history_action.triggered.connect(agg.show_history)
         tools_menu.addAction(history_action)
         tools_menu.addSeparator()
         tools_menu.addAction(ta.action_series_phrases)
+        tools_menu.addAction(ta.action_stats)      # #3: moved from Help
         tools_menu.addSeparator()
-        tools_menu.addAction(ta.action_about)
+        punct_menu = QMenu("Special Punctuations", self)  # #5: demoted from top-level
+        for act in ta.punct_actions:
+            punct_menu.addAction(act)
+        tools_menu.addMenu(punct_menu)
 
-        # Help
+        # Help — About moved here (#2)
         help_menu = mb.addMenu("Help")
-        help_menu.addAction(ta.action_stats)
         setup_guide_action = QAction("Setup Guide…", self)
         setup_guide_action.triggered.connect(self._open_setup_guide)
         help_menu.addAction(setup_guide_action)
+        help_menu.addAction(ta.action_about)       # #2: moved from Tools
 
     # ------------------------------------------------------------------
     # Window management
     # ------------------------------------------------------------------
+
+    def _rebuild_recent_menu(self) -> None:
+        self._recent_menu.clear()
+        ta = self._ta_widget
+        ids = ta._settings.recent_doc_ids
+        if not ids:
+            self._recent_menu.addAction("(no recent documents)").setEnabled(False)
+            return
+        for doc_id in ids:
+            try:
+                doc = ta._db.get_document(doc_id)
+                title = doc.get("chapter_title") or doc.get("title") or f"Document {doc_id}"
+                series = doc.get("series_title", "") or ""
+                label = f"{series} — {title}" if series else title
+            except Exception:
+                continue
+            action = self._recent_menu.addAction(label)
+            action.triggered.connect(lambda checked, d=doc_id: ta.open_document(d))
 
     def _on_shortcuts(self) -> None:
         from translation_assistant.ui.dlg_shortcuts import ShortcutsDialog
