@@ -129,6 +129,11 @@ class CombinedMainWindow(QMainWindow):
         view_menu.addSeparator()
         view_menu.addAction(ta.action_progress)   # #4: moved from Settings
         view_menu.addAction(ta.action_tm)          # #4: moved from Settings
+        view_menu.addSeparator()
+        font_menu = QMenu("Font Size", self)
+        font_menu.addAction(ta.action_font_larger)
+        font_menu.addAction(ta.action_font_smaller)
+        view_menu.addMenu(font_menu)
 
         # Tools — Statistics moved here (#3); Special Punctuations demoted (#5); About moved to Help (#2)
         tools_menu = mb.addMenu("Tools")

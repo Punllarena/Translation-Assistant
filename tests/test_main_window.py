@@ -669,3 +669,46 @@ class TestShortcutRegistry:
         w, _ = _make_widget(tmp_path)
         assert hasattr(w, "action_series_phrases")
         assert w.action_series_phrases.shortcut().toString() == "Ctrl+Shift+P"
+
+
+class TestFontSize:
+    def test_has_font_larger_action(self, win):
+        assert hasattr(win, "action_font_larger")
+
+    def test_has_font_smaller_action(self, win):
+        assert hasattr(win, "action_font_smaller")
+
+    def test_font_larger_increases_size(self, win):
+        initial = win._settings.font_size
+        win._adjust_font_size(+1)
+        assert win._settings.font_size == initial + 1.0
+
+    def test_font_smaller_decreases_size(self, win):
+        win._settings.font_size = 14.0
+        win._adjust_font_size(-1)
+        assert win._settings.font_size == 13.0
+
+    def test_font_size_clamped_at_max(self, win):
+        win._settings.font_size = 24.0
+        win._adjust_font_size(+1)
+        assert win._settings.font_size == 24.0
+
+    def test_font_size_clamped_at_min(self, win):
+        win._settings.font_size = 8.0
+        win._adjust_font_size(-1)
+        assert win._settings.font_size == 8.0
+
+    def test_apply_font_sets_font_on_all_panels(self, win):
+        win._settings.font_size = 18.0
+        win._apply_font()
+        for panel in (win._review_top, win._raw_line,
+                      win._translated_line, win._review_bottom):
+            assert abs(panel.font().pointSizeF() - 18.0) < 0.1
+
+    def test_font_larger_in_shortcut_registry(self, win):
+        keys = [entry[0] for entry in win._shortcut_registry]
+        assert "font_larger" in keys
+
+    def test_font_smaller_in_shortcut_registry(self, win):
+        keys = [entry[0] for entry in win._shortcut_registry]
+        assert "font_smaller" in keys

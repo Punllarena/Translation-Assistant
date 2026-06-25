@@ -264,6 +264,14 @@ class TranslationAssistantWidget(QWidget):
         self.action_series_phrases.setShortcut("Ctrl+Shift+P")
         self.action_series_phrases.triggered.connect(self._on_series_phrases)
 
+        self.action_font_larger = QAction("Larger", self)
+        self.action_font_larger.setShortcut("Ctrl+=")
+        self.action_font_larger.triggered.connect(lambda: self._adjust_font_size(+1))
+
+        self.action_font_smaller = QAction("Smaller", self)
+        self.action_font_smaller.setShortcut("Ctrl+-")
+        self.action_font_smaller.triggered.connect(lambda: self._adjust_font_size(-1))
+
     def _build_shortcut_registry(self) -> None:
         self._shortcut_registry: list[tuple[str, str, QAction, str]] = [
             ("new_doc",        "New Document",              self.action_new_doc,        "Ctrl+N"),
@@ -274,6 +282,8 @@ class TranslationAssistantWidget(QWidget):
             ("go_to_line",     "Go to Line",                self.action_go_to_line,     "Ctrl+G"),
             ("clipboard",      "Copy to Clipboard",         self.action_clipboard,      "Ctrl+Shift+C"),
             ("series_phrases", "Series Phrase Suggestions", self.action_series_phrases, "Ctrl+Shift+P"),
+            ("font_larger",    "Font Size: Larger",         self.action_font_larger,    "Ctrl+="),
+            ("font_smaller",   "Font Size: Smaller",        self.action_font_smaller,   "Ctrl+-"),
         ]
         _punct_names = [
             "Single Quote", "Double Quote", "Lenticular",
@@ -299,7 +309,7 @@ class TranslationAssistantWidget(QWidget):
     def _setup_central_widget(self) -> None:
         font = QFont()
         font.setFamilies(_CJK_FAMILIES)
-        font.setPointSizeF(12.5)
+        font.setPointSizeF(self._settings.font_size)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(5, 5, 5, 0)
@@ -731,6 +741,20 @@ class TranslationAssistantWidget(QWidget):
             self._settings.save()
             self._update_autosave_label()
             self._restart_autosave_timer()
+
+    def _adjust_font_size(self, delta: int) -> None:
+        new_size = max(8.0, min(24.0, self._settings.font_size + delta))
+        self._settings.font_size = new_size
+        self._settings.save()
+        self._apply_font()
+
+    def _apply_font(self) -> None:
+        font = QFont()
+        font.setFamilies(_CJK_FAMILIES)
+        font.setPointSizeF(self._settings.font_size)
+        for w in (self._review_top, self._raw_line,
+                  self._translated_line, self._review_bottom):
+            w.setFont(font)
 
     def _on_translation_text_changed(self) -> None:
         if not self._block_dirty and self._doc_id is not None:
