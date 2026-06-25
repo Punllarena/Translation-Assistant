@@ -784,3 +784,34 @@ class TestWindowTitle:
         win._doc_title = "Chapter 1"
         win._is_dirty = False
         win._refresh_window_title()  # no parent window in tests — must not raise
+
+
+class TestParseCounter:
+    def test_parse_label_exists(self, win):
+        assert hasattr(win, "_parse_label")
+
+    def test_parse_label_hidden_initially(self, win):
+        assert win._parse_label.isHidden()
+
+    def test_parse_label_shows_after_advance_parse(self, win):
+        _load(win, "%Hello。World。\n")
+        win._parse_sentences = ["Hello", "World"]
+        win._parse_pointer = 0
+        # Manually call the counter update logic by invoking _advance_parse path
+        # Simulate: pointer is already at 0, call _advance_parse to reach 1
+        win._parse_pointer = -1
+        win._advance_parse()  # moves to 0
+        assert not win._parse_label.isHidden()
+        assert "Phrase 1/" in win._parse_label.text()
+
+    def test_parse_label_hides_on_navigation(self, win):
+        _load(win, "%Hello。World。\n%Second\n")
+        win._parse_label.setVisible(True)
+        win._navigate_forward()
+        assert win._parse_label.isHidden()
+
+    def test_parse_label_hides_when_pointer_negative(self, win):
+        _load(win, "%Hello。World。\n")
+        win._advance_parse()  # moves to 0
+        win._retreat_parse()  # moves back to -1
+        assert win._parse_label.isHidden()

@@ -456,6 +456,8 @@ class TranslationAssistantWidget(QWidget):
         self._completion_label = QLabel()
         self._line_label = QLabel()
         self._word_label = QLabel()
+        self._parse_label = QLabel("")
+        self._parse_label.setHidden(True)
         self._profile_label = QLabel()
         self._autosave_label = QLabel()
         self._filesaved_label = QLabel("")
@@ -464,6 +466,7 @@ class TranslationAssistantWidget(QWidget):
         self._status_bar.addWidget(self._completion_label)
         self._status_bar.addWidget(self._line_label)
         self._status_bar.addWidget(self._word_label)
+        self._status_bar.addWidget(self._parse_label)
         self._status_bar.addWidget(self._profile_label)
         self._status_bar.addWidget(self._autosave_label)
         self._status_bar.addPermanentWidget(self._stats_label)
@@ -723,6 +726,7 @@ class TranslationAssistantWidget(QWidget):
         raw = self._raw_lines[p]
         self.source_sentence_changed.emit(raw.lstrip("%$").strip())
         self._update_tm_panel()
+        self._parse_label.setVisible(False)
 
     def _update_tm_panel(self) -> None:
         while self._tm_layout.count():
@@ -944,6 +948,11 @@ class TranslationAssistantWidget(QWidget):
             self._replaced = replaced
         else:
             self._highlight_parse_sentence(self._parse_pointer)
+        if self._parse_pointer >= 0:
+            self._parse_label.setText(f"Phrase {self._parse_pointer + 1}/{len(self._parse_sentences)}")
+            self._parse_label.setVisible(True)
+        else:
+            self._parse_label.setVisible(False)
         self._start_clipboard_timer()
         self._translated_line.setFocus()
 
@@ -965,6 +974,11 @@ class TranslationAssistantWidget(QWidget):
             self._raw_line.setPlainText(raw.replace("$", "").replace("%", ""))
         else:
             self._highlight_parse_sentence(self._parse_pointer)
+        if self._parse_pointer >= 0:
+            self._parse_label.setText(f"Phrase {self._parse_pointer + 1}/{len(self._parse_sentences)}")
+            self._parse_label.setVisible(True)
+        else:
+            self._parse_label.setVisible(False)
         self._start_clipboard_timer()
         self._translated_line.setFocus()
 
