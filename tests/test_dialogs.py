@@ -695,3 +695,26 @@ class TestShortcutsDialog:
         dlg._on_ok()
         # Should be removed from settings, not written as ""
         assert settings.get_shortcut("new_doc") is None
+
+
+# ---------------------------------------------------------------------------
+# WPSettingsDialog
+# ---------------------------------------------------------------------------
+
+def test_wp_settings_dialog_loads(qapp, tmp_settings):
+    from translation_assistant.ui.dlg_wp_settings import WPSettingsDialog
+    dlg = WPSettingsDialog(tmp_settings)
+    assert dlg.windowTitle() == "WordPress Settings"
+    dlg.reject()
+
+
+def test_wp_settings_dialog_saves_on_accept(qapp, tmp_settings):
+    from translation_assistant.ui.dlg_wp_settings import WPSettingsDialog
+    from unittest.mock import patch
+    dlg = WPSettingsDialog(tmp_settings)
+    dlg._url_edit.setText("https://example.com/wp-json/ta-publisher/v1/publish")
+    dlg._key_edit.setText("my-api-key")
+    with patch.object(dlg, "accept"):
+        dlg._on_save()
+    assert tmp_settings.wp_endpoint_url == "https://example.com/wp-json/ta-publisher/v1/publish"
+    assert tmp_settings.wp_api_key == "my-api-key"
