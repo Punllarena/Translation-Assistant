@@ -95,3 +95,35 @@ class TestShortcutsMenuEntry:
         # Get action texts
         action_texts = [a.text() for a in settings_menu.actions()]
         assert "Keyboard Shortcuts…" in action_texts
+
+
+class TestPublishWPAction:
+    def test_action_publish_wp_exists(self, win):
+        assert hasattr(win._ta_widget, "action_publish_wp")
+
+    def test_action_publish_wp_disabled_with_no_doc(self, win):
+        assert not win._ta_widget.action_publish_wp.isEnabled()
+
+    def test_action_publish_wp_in_file_menu(self, win):
+        mb = win.menuBar()
+        for action in mb.actions():
+            if action.text() == "File":
+                file_menu = action.menu()
+                break
+        else:
+            file_menu = None
+        assert file_menu is not None
+        action_texts = [a.text() for a in file_menu.actions()]
+        assert "Publish to WordPress…" in action_texts
+
+    def test_settings_menu_has_wp_settings_action(self, win):
+        mb = win.menuBar()
+        for action in mb.actions():
+            if action.text() == "Settings":
+                settings_menu = action.menu()
+                break
+        else:
+            settings_menu = None
+        assert settings_menu is not None
+        action_texts = [a.text() for a in settings_menu.actions()]
+        assert "WordPress Settings…" in action_texts

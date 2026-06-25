@@ -5,7 +5,7 @@ from contextlib import contextmanager
 import re
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, Qt, QTimer, Signal, Slot
+from PySide6.QtCore import QEvent, Qt, QThread, QTimer, Signal, Slot
 from PySide6.QtGui import QAction, QFont, QKeyEvent, QTextCursor
 from PySide6.QtWidgets import (
     QApplication, QFileDialog, QFrame, QInputDialog, QLabel, QMenu,
@@ -73,6 +73,26 @@ _HELP_BOTTOM = (
 
 def _sanitize_filename(name: str) -> str:
     return re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', name).strip(". ")
+
+
+class _PublishWorker(QThread):
+    finished = Signal(dict)
+    error = Signal(str)
+
+    def __init__(self, endpoint_url: str, payload: dict, parent=None) -> None:
+        super().__init__(parent)
+        self._endpoint_url = endpoint_url
+        self._payload = payload
+
+    def run(self) -> None:
+        from translation_assistant.wp_publisher import publish, WPPublishError
+        try:
+            result = publish(self._endpoint_url, self._payload)
+            self.finished.emit(result)
+        except WPPublishError as exc:
+            self.error.emit(exc.message)
+        except Exception as exc:
+            self.error.emit(str(exc))
 
 
 class ReviewTextEdit(QTextEdit):
@@ -194,6 +214,10 @@ class TranslationAssistantWidget(QWidget):
         self.action_export = QAction("Export to file…", self)
         self.action_export.triggered.connect(self._on_export)
         self.action_export.setEnabled(False)
+
+        self.action_publish_wp = QAction("Publish to WordPress…", self)
+        self.action_publish_wp.triggered.connect(self._on_publish_wp)
+        self.action_publish_wp.setEnabled(False)
 
         self.action_manage_series = QAction("Manage Series…", self)
         self.action_manage_series.triggered.connect(self._on_manage_series)
@@ -654,6 +678,7 @@ class TranslationAssistantWidget(QWidget):
 
         self.action_save.setEnabled(True)
         self.action_export.setEnabled(True)
+        self.action_publish_wp.setEnabled(True)
         self.action_clipboard.setEnabled(True)
         self.action_go_to_line.setEnabled(True)
         self.action_export_md_tl_doc.setEnabled(True)
@@ -1288,6 +1313,7 @@ class TranslationAssistantWidget(QWidget):
         self._refresh_window_title()
         self.action_save.setEnabled(False)
         self.action_export.setEnabled(False)
+        self.action_publish_wp.setEnabled(False)
         self._load_glossary_for_profile()
         self._filesaved_label.setText("Database imported.")
         self._filesaved_timer.start()
@@ -1297,6 +1323,75 @@ class TranslationAssistantWidget(QWidget):
         with self._topmost_suspended():
             dlg = SeriesManagerDialog(self._db, parent=self)
             dlg.exec()
+
+    def _on_publish_wp(self) -> None:
+        from translation_assistant.ui.dlg_wp_settings import WPSettingsDialog
+        from translation_assistant.wp_publisher import build_payload, WPPublishError
+
+        endpoint_url = self._settings.wp_endpoint_url
+        api_key = self._settings.wp_api_key
+        if not endpoint_url or not api_key:
+            dlg = WPSettingsDialog(self._settings, parent=self)
+            if not dlg.exec():
+                return
+            endpoint_url = self._settings.wp_endpoint_url
+            api_key = self._settings.wp_api_key
+            if not endpoint_url or not api_key:
+                return
+
+        doc_meta = self._db.get_document(self._doc_id)
+        series_title = doc_meta["series_title"]
+        series_meta = self._db.get_series_wp_meta(series_title)
+
+        if not series_meta["series_slug"] or not series_meta["series_title_short"]:
+            from translation_assistant.ui.dlg_series import SeriesManagerDialog
+            QMessageBox.information(
+                self,
+                "WP Fields Missing",
+                f'Set "Series Slug" and "Short Title" for "{series_title}" in Series Manager.',
+            )
+            dlg = SeriesManagerDialog(self._db, parent=self)
+            dlg.exec()
+            series_meta = self._db.get_series_wp_meta(series_title)
+            if not series_meta["series_slug"] or not series_meta["series_title_short"]:
+                return
+
+        lines = self._db.get_lines(self._doc_id)
+        if not any(ln["translated_text"].strip() for ln in lines):
+            QMessageBox.warning(self, "Nothing to Publish", "No translated lines to publish.")
+            return
+
+        try:
+            payload = build_payload(doc_meta, series_meta, lines, api_key=api_key)
+        except ValueError as exc:
+            QMessageBox.warning(self, "Payload Error", str(exc))
+            return
+
+        chapter_label = "Synopsis" if doc_meta["series_order"] == 0 else f"Chapter {doc_meta['series_order']}"
+        confirm = QMessageBox.question(
+            self,
+            "Publish to WordPress",
+            f"Publish <b>{doc_meta['chapter_title']}</b> ({chapter_label}) to WordPress?",
+        )
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+
+        self._publish_worker = _PublishWorker(endpoint_url, payload, parent=self)
+        self._publish_worker.finished.connect(self._on_publish_done)
+        self._publish_worker.error.connect(self._on_publish_error)
+        self._publish_worker.start()
+
+    def _on_publish_done(self, result: dict) -> None:
+        page_url = result.get("page_url", "")
+        post_url = result.get("post_url", "")
+        if result.get("created") is False:
+            msg = f"Already published.\nPage: {page_url}"
+        else:
+            msg = f"Published!\nPage: {page_url}\nPost: {post_url}"
+        QMessageBox.information(self, "WordPress Publish", msg)
+
+    def _on_publish_error(self, message: str) -> None:
+        QMessageBox.warning(self, "Publish Failed", message)
 
     # ------------------------------------------------------------------
     # Dialogs

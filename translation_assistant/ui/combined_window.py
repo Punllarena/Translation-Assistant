@@ -82,6 +82,8 @@ class CombinedMainWindow(QMainWindow):
         md_menu.addAction(ta.action_export_md_tl_series)
         md_menu.addAction(ta.action_export_md_ruby_series)
         file_menu.addMenu(md_menu)
+        file_menu.addSeparator()
+        file_menu.addAction(ta.action_publish_wp)
         file_menu.addAction(ta.action_manage_series)
         file_menu.addSeparator()
         db_menu = QMenu("Database", self)
@@ -117,6 +119,10 @@ class CombinedMainWindow(QMainWindow):
         shortcuts_action = QAction("Keyboard Shortcuts…", self)
         shortcuts_action.triggered.connect(self._on_shortcuts)
         settings_menu.addAction(shortcuts_action)
+        settings_menu.addSeparator()
+        wp_settings_action = QAction("WordPress Settings…", self)
+        wp_settings_action.triggered.connect(self._on_wp_settings)
+        settings_menu.addAction(wp_settings_action)
 
         # View — includes toggles moved from Settings (#4)
         view_menu = mb.addMenu("View")
@@ -182,6 +188,11 @@ class CombinedMainWindow(QMainWindow):
         from translation_assistant.ui.dlg_shortcuts import ShortcutsDialog
         ta = self._ta_widget
         dlg = ShortcutsDialog(ta._shortcut_registry, ta._settings, self)
+        dlg.exec()
+
+    def _on_wp_settings(self) -> None:
+        from translation_assistant.ui.dlg_wp_settings import WPSettingsDialog
+        dlg = WPSettingsDialog(self._ta_widget._settings, parent=self)
         dlg.exec()
 
     def _open_setup_guide(self) -> None:
