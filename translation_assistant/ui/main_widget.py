@@ -1376,6 +1376,7 @@ class TranslationAssistantWidget(QWidget):
         if confirm != QMessageBox.StandardButton.Yes:
             return
 
+        self.action_publish_wp.setEnabled(False)
         self._publish_worker = _PublishWorker(endpoint_url, payload, parent=self)
         self._publish_worker.finished.connect(self._on_publish_done)
         self._publish_worker.error.connect(self._on_publish_error)
@@ -1389,9 +1390,11 @@ class TranslationAssistantWidget(QWidget):
         else:
             msg = f"Published!\nPage: {page_url}\nPost: {post_url}"
         QMessageBox.information(self, "WordPress Publish", msg)
+        self.action_publish_wp.setEnabled(True)
 
     def _on_publish_error(self, message: str) -> None:
         QMessageBox.warning(self, "Publish Failed", message)
+        self.action_publish_wp.setEnabled(True)
 
     # ------------------------------------------------------------------
     # Dialogs
