@@ -759,3 +759,28 @@ class TestSourceLabel:
     def test_raw_line_placeholder_text(self, win):
         assert "Ctrl+O" in win._raw_line.placeholderText() or \
                "File" in win._raw_line.placeholderText()
+
+
+class TestWindowTitle:
+    def test_doc_title_empty_initially(self, win):
+        assert win._doc_title == ""
+
+    def test_doc_title_set_from_chapter_title_on_load(self, win):
+        win.load_content("%Hello\n---SEPERATOR---\n", title="Doc", chapter_title="Chapter 1")
+        assert win._doc_title == "Chapter 1"
+
+    def test_doc_title_falls_back_to_title(self, win):
+        win.load_content("%Hello\n---SEPERATOR---\n", title="My Doc", chapter_title="")
+        assert win._doc_title == "My Doc"
+
+    def test_doc_title_empty_string_when_no_title(self, win):
+        win.load_content("%Hello\n---SEPERATOR---\n", title="", chapter_title="")
+        assert win._doc_title == ""
+
+    def test_refresh_window_title_method_exists(self, win):
+        assert callable(getattr(win, "_refresh_window_title", None))
+
+    def test_refresh_window_title_does_not_crash(self, win):
+        win._doc_title = "Chapter 1"
+        win._is_dirty = False
+        win._refresh_window_title()  # no parent window in tests — must not raise

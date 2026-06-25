@@ -139,6 +139,7 @@ class TranslationAssistantWidget(QWidget):
         self._raw_section: str = ""
         self._doc_id: int | None = None
         self._is_dirty: bool = False
+        self._doc_title: str = ""
         self._block_dirty: bool = False
 
         # Navigation state
@@ -642,6 +643,8 @@ class TranslationAssistantWidget(QWidget):
         self.action_export_md_ruby_doc.setEnabled(True)
         _doc_meta = self._db.get_document(self._doc_id)
         _doc_display = _doc_meta.get("chapter_title") or _doc_meta.get("title") or ""
+        self._doc_title = _doc_display
+        self._refresh_window_title()
         self._source_label.setText(f"Source — {_doc_display}" if _doc_display else "Source (read-only)")
         _has_series = bool(_doc_meta.get("series_title", ""))
         self.action_export_md_tl_series.setEnabled(_has_series)
@@ -805,10 +808,13 @@ class TranslationAssistantWidget(QWidget):
         if self._is_dirty == dirty:
             return
         self._is_dirty = dirty
+        self._refresh_window_title()
+
+    def _refresh_window_title(self) -> None:
         win = self.window()
         if win is not self:
-            base = "Translation Assistant"
-            win.setWindowTitle(base + " *" if dirty else base)
+            base = f"{self._doc_title} — Translation Assistant" if self._doc_title else "Translation Assistant"
+            win.setWindowTitle(base + " *" if self._is_dirty else base)
 
     # ------------------------------------------------------------------
     # Navigation
@@ -1239,6 +1245,8 @@ class TranslationAssistantWidget(QWidget):
         self._raw_line.clear()
         self._translated_line.clear()
         self._source_label.setText("Source (read-only)")
+        self._doc_title = ""
+        self._refresh_window_title()
         self.action_save.setEnabled(False)
         self.action_export.setEnabled(False)
         self._load_glossary_for_profile()
