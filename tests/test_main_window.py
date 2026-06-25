@@ -731,3 +731,31 @@ class TestTmRow:
         )
         row.mousePressEvent(event)
         assert received == ["Hello world"]
+
+
+class TestSourceLabel:
+    def test_has_source_label(self, win):
+        assert hasattr(win, "_source_label")
+
+    def test_source_label_default_text(self, win):
+        assert "Source" in win._source_label.text()
+
+    def test_source_label_updates_on_load_with_chapter_title(self, win):
+        win.load_content(
+            "%Hello\n---SEPERATOR---\n",
+            title="Doc Title",
+            chapter_title="Chapter 1",
+        )
+        assert "Chapter 1" in win._source_label.text()
+
+    def test_source_label_falls_back_to_title(self, win):
+        win.load_content(
+            "%Hello\n---SEPERATOR---\n",
+            title="My Doc",
+            chapter_title="",
+        )
+        assert "My Doc" in win._source_label.text()
+
+    def test_raw_line_placeholder_text(self, win):
+        assert "Ctrl+O" in win._raw_line.placeholderText() or \
+               "File" in win._raw_line.placeholderText()
