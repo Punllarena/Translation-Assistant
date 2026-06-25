@@ -629,6 +629,7 @@ class TranslationAssistantWidget(QWidget):
         self._block_dirty = False
         self._parse_sentences = sentences
         self._parse_pointer = -1
+        self._parse_label.setVisible(False)
         self._replaced = replaced
 
         n = len(raw_lines)
@@ -1282,6 +1283,7 @@ class TranslationAssistantWidget(QWidget):
         self._translated_line.clear()
         self._source_label.setText("Source (read-only)")
         self._translation_label.setText("Translation")
+        self._parse_label.setVisible(False)
         self._doc_title = ""
         self._refresh_window_title()
         self.action_save.setEnabled(False)
