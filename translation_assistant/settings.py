@@ -140,7 +140,7 @@ class AppSettings:
 
     @property
     def font_size(self) -> float:
-        return self._qs.value("FontSize", 12.5, type=float)
+        return self._qs.value("FontSize", self._DEFAULTS["FontSize"], type=float)
 
     @font_size.setter
     def font_size(self, value: float) -> None:
