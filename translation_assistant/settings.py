@@ -35,6 +35,7 @@ class AppSettings:
         "OnTop": True,
         "TTS": False,
         "TTSLang": 0,
+        "FontSize": 12.5,
     }
 
     def __init__(self, _qs: QSettings | None = None) -> None:
@@ -134,6 +135,16 @@ class AppSettings:
     @tm_visible.setter
     def tm_visible(self, value: bool) -> None:
         self._qs.setValue("TMVisible", value)
+
+    # --- editor font size ---
+
+    @property
+    def font_size(self) -> float:
+        return self._qs.value("FontSize", 12.5, type=float)
+
+    @font_size.setter
+    def font_size(self, value: float) -> None:
+        self._qs.setValue("FontSize", value)
 
     # --- setup wizard shown ---
 

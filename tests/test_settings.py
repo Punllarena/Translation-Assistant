@@ -206,3 +206,20 @@ class TestShortcutPersistence:
         s.clear_shortcuts()
         assert s.get_shortcut("new_doc") is None
         assert s.get_shortcut("open") is None
+
+
+# ---------------------------------------------------------------------------
+# font_size
+# ---------------------------------------------------------------------------
+
+def test_default_font_size(tmp_settings):
+    assert tmp_settings.font_size == 12.5
+
+
+def test_font_size_persists(qapp, tmp_path):
+    ini = str(tmp_path / "settings.ini")
+    s1 = AppSettings(_qs=QSettings(ini, QSettings.Format.IniFormat))
+    s1.font_size = 16.0
+    s1.save()
+    s2 = AppSettings(_qs=QSettings(ini, QSettings.Format.IniFormat))
+    assert s2.font_size == 16.0
