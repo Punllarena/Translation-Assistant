@@ -65,6 +65,11 @@ def publish(endpoint_url: str, payload: dict, timeout: int = 15) -> dict:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read())
     except HTTPError as exc:
+        if exc.code == 409:
+            try:
+                return json.loads(exc.read())
+            except Exception:
+                return {"created": False}
         try:
             body = json.loads(exc.read())
             msg = body.get("message", str(exc))

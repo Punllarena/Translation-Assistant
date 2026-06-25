@@ -110,3 +110,12 @@ def test_publish_connection_error_raises_wp_publish_error():
         with pytest.raises(WPPublishError) as exc_info:
             publish("https://example.com/endpoint", {"api_key": "k"})
     assert exc_info.value.status_code is None
+
+def test_publish_409_treated_as_success():
+    response_data = {"created": False, "page_url": "https://site.com/series/"}
+    err = HTTPError("url", 409, "Conflict", {}, None)
+    err.read = lambda: json.dumps(response_data).encode()
+    with patch("urllib.request.urlopen", side_effect=err):
+        result = publish("https://example.com/endpoint", {"api_key": "k"})
+    assert result["created"] is False
+    assert result["page_url"] == "https://site.com/series/"
