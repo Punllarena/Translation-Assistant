@@ -9,7 +9,7 @@ from PySide6.QtCore import QEvent, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QAction, QFont, QKeyEvent, QTextCursor
 from PySide6.QtWidgets import (
     QApplication, QFileDialog, QFrame, QInputDialog, QLabel, QMenu,
-    QMessageBox, QPushButton, QSizePolicy, QSplitter, QStatusBar, QTextEdit, QVBoxLayout, QWidget,
+    QMessageBox, QSizePolicy, QSplitter, QStatusBar, QTextEdit, QVBoxLayout, QWidget,
 )
 
 from translation_assistant._version import BUILD_DATE
@@ -117,9 +117,11 @@ class _TmRow(QWidget):
 
     def enterEvent(self, event):
         self.setStyleSheet("background: palette(highlight); color: palette(highlighted-text);")
+        super().enterEvent(event)
 
     def leaveEvent(self, event):
         self.setStyleSheet("")
+        super().leaveEvent(event)
 
 
 class TranslationAssistantWidget(QWidget):

@@ -720,9 +720,8 @@ class TestTmRow:
         received = []
         row = _TmRow("Hello world", "Doc A, 2026-01-01")
         row.clicked.connect(received.append)
-        from PySide6.QtCore import QPoint
-        from PySide6.QtGui import QMouseEvent
         from PySide6.QtCore import Qt, QPointF
+        from PySide6.QtGui import QMouseEvent
         event = QMouseEvent(
             QMouseEvent.Type.MouseButtonPress,
             QPointF(1, 1), QPointF(1, 1),
