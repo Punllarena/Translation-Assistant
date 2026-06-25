@@ -845,3 +845,37 @@ class TestProgressBar:
     def test_progress_bar_hidden_when_no_doc(self, win):
         # Show progress is True by default, but no doc open → hidden
         assert not win._progress_bar.isVisible()
+
+
+class TestPanelLabelCounts:
+    def test_has_translation_label(self, win):
+        assert hasattr(win, "_translation_label")
+
+    def test_translation_label_default_text(self, win):
+        assert "Translation" in win._translation_label.text()
+
+    def test_translation_label_shows_word_count_after_load(self, win):
+        content = _sep_file("%Hello\n", "Hello world\n")
+        win.load_content(content)
+        assert "2 words" in win._translation_label.text()
+
+    def test_translation_label_zero_words_when_empty(self, win):
+        _load(win, "%Hello\n")
+        assert "0 words" in win._translation_label.text()
+
+    def test_source_label_includes_line_count(self, win):
+        win.load_content("%A\n%B\n%C\n---SEPERATOR---\n", title="Doc", chapter_title="Ch1")
+        assert "· 3 lines" in win._source_label.text()
+
+    def test_source_label_includes_title_and_lines(self, win):
+        win.load_content("%A\n---SEPERATOR---\n", title="Doc", chapter_title="Chapter 1")
+        label = win._source_label.text()
+        assert "Chapter 1" in label
+        assert "lines" in label
+
+    def test_translation_label_resets_on_db_import(self, win):
+        _load(win, "%Hello\n")
+        win._translated_line.setPlainText("Bonjour")
+        # Simulate db import reset
+        win._translation_label.setText("Translation")
+        assert win._translation_label.text() == "Translation"

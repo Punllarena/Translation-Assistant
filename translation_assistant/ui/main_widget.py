@@ -416,7 +416,15 @@ class TranslationAssistantWidget(QWidget):
         self._translated_line.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         self._translated_line.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._translated_line.customContextMenuRequested.connect(self._on_translated_context_menu)
-        self._splitter.addWidget(_labeled("Translation", self._translated_line))
+        self._translation_label = QLabel("Translation")
+        self._translation_label.setStyleSheet("font-size: 9pt; color: gray; padding: 1px 4px;")
+        _tl_wrapper = QWidget()
+        _tl_vbox = QVBoxLayout(_tl_wrapper)
+        _tl_vbox.setContentsMargins(0, 0, 0, 0)
+        _tl_vbox.setSpacing(0)
+        _tl_vbox.addWidget(self._translation_label)
+        _tl_vbox.addWidget(self._translated_line)
+        self._splitter.addWidget(_tl_wrapper)
         self._spell_highlighter = SpellHighlighter(self._translated_line.document())
 
         self._review_bottom = ReviewTextEdit()
@@ -447,6 +455,7 @@ class TranslationAssistantWidget(QWidget):
             widget.installEventFilter(self)
 
         self._translated_line.textChanged.connect(self._on_translation_text_changed)
+        self._translated_line.textChanged.connect(self._update_translation_label)
 
     def _setup_statusbar(self) -> None:
         self._status_bar = QStatusBar()
@@ -652,11 +661,14 @@ class TranslationAssistantWidget(QWidget):
         _doc_display = _doc_meta.get("chapter_title") or _doc_meta.get("title") or ""
         self._doc_title = _doc_display
         self._refresh_window_title()
-        self._source_label.setText(f"Source — {_doc_display}" if _doc_display else "Source (read-only)")
+        n = len(self._raw_lines)
+        _title_part = f"Source — {self._doc_title}" if self._doc_title else "Source"
+        self._source_label.setText(f"{_title_part} · {n} lines")
         _has_series = bool(_doc_meta.get("series_title", ""))
         self.action_export_md_tl_series.setEnabled(_has_series)
         self.action_export_md_ruby_series.setEnabled(_has_series)
         self._translated_line.setFocus()
+        self._update_translation_label()
         self._start_clipboard_timer()
         self._restart_autosave_timer()
         self._update_stats_label()
@@ -731,6 +743,7 @@ class TranslationAssistantWidget(QWidget):
         self.source_sentence_changed.emit(raw.lstrip("%$").strip())
         self._update_tm_panel()
         self._parse_label.setVisible(False)
+        self._update_translation_label()
 
     def _update_tm_panel(self) -> None:
         while self._tm_layout.count():
@@ -779,6 +792,11 @@ class TranslationAssistantWidget(QWidget):
         minutes = self._settings.auto_save
         text = f"Autosave: {minutes}m" if minutes > 0 else "Autosave: off"
         self._autosave_label.setText(text)
+
+    def _update_translation_label(self) -> None:
+        text = self._translated_line.toPlainText()
+        words = len(text.split()) if text.strip() else 0
+        self._translation_label.setText(f"Translation · {words} words")
 
     def _on_set_autosave(self) -> None:
         from PySide6.QtWidgets import QInputDialog
@@ -1263,6 +1281,7 @@ class TranslationAssistantWidget(QWidget):
         self._raw_line.clear()
         self._translated_line.clear()
         self._source_label.setText("Source (read-only)")
+        self._translation_label.setText("Translation")
         self._doc_title = ""
         self._refresh_window_title()
         self.action_save.setEnabled(False)
