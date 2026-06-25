@@ -76,7 +76,7 @@ def _sanitize_filename(name: str) -> str:
 
 
 class _PublishWorker(QThread):
-    finished = Signal(dict)
+    succeeded = Signal(dict)
     error = Signal(str)
 
     def __init__(self, endpoint_url: str, payload: dict, parent=None) -> None:
@@ -88,7 +88,7 @@ class _PublishWorker(QThread):
         from translation_assistant.wp_publisher import publish, WPPublishError
         try:
             result = publish(self._endpoint_url, self._payload)
-            self.finished.emit(result)
+            self.succeeded.emit(result)
         except WPPublishError as exc:
             self.error.emit(exc.message)
         except Exception as exc:
@@ -1378,7 +1378,7 @@ class TranslationAssistantWidget(QWidget):
 
         self.action_publish_wp.setEnabled(False)
         self._publish_worker = _PublishWorker(endpoint_url, payload, parent=self)
-        self._publish_worker.finished.connect(self._on_publish_done)
+        self._publish_worker.succeeded.connect(self._on_publish_done)
         self._publish_worker.error.connect(self._on_publish_error)
         self._publish_worker.start()
 
