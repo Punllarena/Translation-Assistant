@@ -8,7 +8,7 @@ from pathlib import Path
 from PySide6.QtCore import QEvent, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QAction, QFont, QKeyEvent, QTextCursor
 from PySide6.QtWidgets import (
-    QApplication, QFileDialog, QInputDialog, QLabel, QMenu,
+    QApplication, QFileDialog, QFrame, QInputDialog, QLabel, QMenu,
     QMessageBox, QPushButton, QSizePolicy, QSplitter, QStatusBar, QTextEdit, QVBoxLayout, QWidget,
 )
 
@@ -92,6 +92,34 @@ class _ClickableLabel(QLabel):
     def mousePressEvent(self, event):
         self.clicked.emit()
         super().mousePressEvent(event)
+
+
+class _TmRow(QWidget):
+    clicked = Signal(str)
+
+    def __init__(self, translation: str, meta: str, parent=None):
+        super().__init__(parent)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._translation = translation
+        vbox = QVBoxLayout(self)
+        vbox.setContentsMargins(4, 3, 4, 3)
+        vbox.setSpacing(1)
+        tl = QLabel(translation)
+        tl.setWordWrap(True)
+        vbox.addWidget(tl)
+        meta_lbl = QLabel(meta)
+        meta_lbl.setStyleSheet("font-size: 8pt; color: gray;")
+        vbox.addWidget(meta_lbl)
+
+    def mousePressEvent(self, event):
+        self.clicked.emit(self._translation)
+        super().mousePressEvent(event)
+
+    def enterEvent(self, event):
+        self.setStyleSheet("background: palette(highlight); color: palette(highlighted-text);")
+
+    def leaveEvent(self, event):
+        self.setStyleSheet("")
 
 
 class TranslationAssistantWidget(QWidget):
@@ -700,17 +728,17 @@ class TranslationAssistantWidget(QWidget):
             return
 
         self._tm_wrapper.setVisible(True)
-        for m in matches:
+        for i, m in enumerate(matches):
             date_str = m["updated_at"][:10] if m.get("updated_at") else ""
-            label = f"{m['translated_text']}  —  {m['doc_title']}, {date_str}"
-            btn = QPushButton(label)
-            btn.setFlat(True)
-            btn.setStyleSheet("text-align: left; padding: 2px 4px;")
-            translation = m["translated_text"]
-            btn.clicked.connect(
-                lambda checked, t=translation: self._translated_line.setPlainText(t)
-            )
-            self._tm_layout.addWidget(btn)
+            meta = f"{m['doc_title']}, {date_str}"
+            row = _TmRow(m["translated_text"], meta)
+            row.clicked.connect(self._translated_line.setPlainText)
+            self._tm_layout.addWidget(row)
+            if i < len(matches) - 1:
+                sep = QFrame()
+                sep.setFrameShape(QFrame.Shape.HLine)
+                sep.setStyleSheet("color: palette(mid);")
+                self._tm_layout.addWidget(sep)
 
     def _update_progress_visibility(self) -> None:
         visible = self._settings.show_progress and self._doc_id is not None

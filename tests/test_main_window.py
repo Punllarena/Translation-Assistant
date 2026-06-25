@@ -712,3 +712,23 @@ class TestFontSize:
     def test_font_smaller_in_shortcut_registry(self, win):
         keys = [entry[0] for entry in win._shortcut_registry]
         assert "font_smaller" in keys
+
+
+class TestTmRow:
+    def test_tm_row_emits_clicked_with_translation(self, qapp):
+        from translation_assistant.ui.main_widget import _TmRow
+        received = []
+        row = _TmRow("Hello world", "Doc A, 2026-01-01")
+        row.clicked.connect(received.append)
+        from PySide6.QtCore import QPoint
+        from PySide6.QtGui import QMouseEvent
+        from PySide6.QtCore import Qt, QPointF
+        event = QMouseEvent(
+            QMouseEvent.Type.MouseButtonPress,
+            QPointF(1, 1), QPointF(1, 1),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        row.mousePressEvent(event)
+        assert received == ["Hello world"]
