@@ -46,8 +46,8 @@ def _make_db() -> Database:
 @pytest.fixture
 def win(qapp, tmp_path):
     settings = _make_settings(tmp_path)
-    from translation_assistant.ui.main_window import MainWindow
-    w = MainWindow(_settings=settings, _db=_make_db())
+    from translation_assistant.ui.main_widget import TranslationAssistantWidget
+    w = TranslationAssistantWidget(_settings=settings, _db=_make_db())
     yield w
     w.destroy()
 
@@ -232,7 +232,7 @@ class TestParseNavigationEndToEnd:
 class TestProgressAccuracy:
     def test_zero_percent_at_load(self, win):
         win.load_content(_sep("%A\n%B\n%C\n"))
-        assert "0%" in win._completion_label.text()
+        assert win._progress_bar.value() == 0
 
     def test_hundred_percent_all_translated(self, win):
         content = _sep("%A\n%B\n", "done\ndone\n")

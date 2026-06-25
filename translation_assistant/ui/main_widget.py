@@ -9,7 +9,7 @@ from PySide6.QtCore import QEvent, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QAction, QFont, QKeyEvent, QTextCursor
 from PySide6.QtWidgets import (
     QApplication, QFileDialog, QFrame, QInputDialog, QLabel, QMenu,
-    QMessageBox, QSizePolicy, QSplitter, QStatusBar, QTextEdit, QVBoxLayout, QWidget,
+    QMessageBox, QProgressBar, QSizePolicy, QSplitter, QStatusBar, QTextEdit, QVBoxLayout, QWidget,
 )
 
 from translation_assistant._version import BUILD_DATE
@@ -453,7 +453,11 @@ class TranslationAssistantWidget(QWidget):
         layout = self.layout()
         layout.addWidget(self._status_bar)
 
-        self._completion_label = QLabel()
+        self._progress_bar = QProgressBar()
+        self._progress_bar.setRange(0, 100)
+        self._progress_bar.setFormat("%p%")
+        self._progress_bar.setMaximumWidth(120)
+        self._progress_bar.setTextVisible(True)
         self._line_label = QLabel()
         self._word_label = QLabel()
         self._parse_label = QLabel("")
@@ -463,7 +467,7 @@ class TranslationAssistantWidget(QWidget):
         self._filesaved_label = QLabel("")
         self._stats_label = _ClickableLabel("")
         self._stats_label.clicked.connect(self._on_stats)
-        self._status_bar.addWidget(self._completion_label)
+        self._status_bar.addWidget(self._progress_bar)
         self._status_bar.addWidget(self._line_label)
         self._status_bar.addWidget(self._word_label)
         self._status_bar.addWidget(self._parse_label)
@@ -635,7 +639,7 @@ class TranslationAssistantWidget(QWidget):
         self._line_label.setText(f"Line: {p + 1}/{n}")
         pct, wc = calculate_progress(raw_lines, translated_lines)
         self._tl_complete = pct
-        self._completion_label.setText(f"{pct}% Complete")
+        self._progress_bar.setValue(pct)
         self._word_label.setText(f"{wc} Words")
 
         self.action_save.setEnabled(True)
@@ -718,7 +722,7 @@ class TranslationAssistantWidget(QWidget):
         self._line_label.setText(f"Line: {p + 1}/{n}")
         pct, wc = calculate_progress(self._raw_lines, self._translated_lines)
         self._tl_complete = pct
-        self._completion_label.setText(f"{pct}% Complete")
+        self._progress_bar.setValue(pct)
         self._word_label.setText(f"{wc} Words")
         self._translated_line.setFocus()
         self._start_clipboard_timer()
@@ -762,7 +766,7 @@ class TranslationAssistantWidget(QWidget):
 
     def _update_progress_visibility(self) -> None:
         visible = self._settings.show_progress and self._doc_id is not None
-        self._completion_label.setVisible(visible)
+        self._progress_bar.setVisible(visible)
         self._line_label.setVisible(visible)
         self._word_label.setVisible(visible)
 
@@ -861,7 +865,7 @@ class TranslationAssistantWidget(QWidget):
             from translation_assistant.core import calculate_progress
             pct, wc = calculate_progress(self._raw_lines, self._translated_lines)
             self._tl_complete = pct
-            self._completion_label.setText(f"{pct}% Complete")
+            self._progress_bar.setValue(pct)
             self._word_label.setText(f"{wc} Words")
 
         if write_file:

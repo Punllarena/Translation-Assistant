@@ -141,7 +141,7 @@ class TestLoadContent:
 
     def test_progress_starts_at_zero(self, win):
         _load(win, "%A\n%B\n")
-        assert "0%" in win._completion_label.text()
+        assert win._progress_bar.value() == 0
 
 
 # ---------------------------------------------------------------------------
@@ -586,19 +586,19 @@ class TestProgressDisplay:
         content = _sep_file("%A\n%B\n", "done\n\n")
         win.load_content(content)
         win._navigate_forward()
-        assert "50%" in win._completion_label.text()
+        assert win._progress_bar.value() == 50
 
     def test_progress_hidden_when_setting_off(self, win):
         win._settings.show_progress = False
         win._update_progress_visibility()
-        assert win._completion_label.isHidden()
+        assert win._progress_bar.isHidden()
         assert win._line_label.isHidden()
 
     def test_progress_shown_when_setting_on_and_doc_loaded(self, win):
         _load(win, "%Hello\n")
         win._settings.show_progress = True
         win._update_progress_visibility()
-        assert not win._completion_label.isHidden()
+        assert not win._progress_bar.isHidden()
 
 
 # ---------------------------------------------------------------------------
@@ -815,3 +815,33 @@ class TestParseCounter:
         win._advance_parse()  # moves to 0
         win._retreat_parse()  # moves back to -1
         assert win._parse_label.isHidden()
+
+
+class TestProgressBar:
+    def test_has_progress_bar(self, win):
+        assert hasattr(win, "_progress_bar")
+
+    def test_no_completion_label(self, win):
+        assert not hasattr(win, "_completion_label")
+
+    def test_progress_bar_format(self, win):
+        from PySide6.QtWidgets import QProgressBar
+        assert isinstance(win._progress_bar, QProgressBar)
+        assert win._progress_bar.format() == "%p%"
+
+    def test_progress_bar_range(self, win):
+        assert win._progress_bar.minimum() == 0
+        assert win._progress_bar.maximum() == 100
+
+    def test_progress_bar_value_after_load(self, win):
+        _load(win, "%A\n")
+        assert win._progress_bar.value() == 0  # nothing translated yet
+
+    def test_progress_bar_value_updates_on_navigation(self, win):
+        content = _sep_file("%A\n%B\n", "Alpha\nBeta\n")
+        win.load_content(content)
+        assert win._progress_bar.value() == 100
+
+    def test_progress_bar_hidden_when_no_doc(self, win):
+        # Show progress is True by default, but no doc open → hidden
+        assert not win._progress_bar.isVisible()
