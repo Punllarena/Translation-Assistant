@@ -34,15 +34,15 @@ Two new columns, added via idempotent migration (existing pattern in `db.py`):
 |---|---|---|
 | `series_slug` | `TEXT NOT NULL DEFAULT ''` | URL-safe series identifier (e.g. `sword-of-the-wanderer`) |
 | `series_title_short` | `TEXT NOT NULL DEFAULT ''` | Short title for post title (e.g. `SotW`) |
-| `wp_api_key` | `TEXT NOT NULL DEFAULT ''` | API key for this series (per-series supports multi-author) |
 
 ### 2. New `AppSettings` fields
 
 | Key | Type | Purpose |
 |---|---|---|
 | `wp_endpoint_url` | `str` | Full URL to WP REST endpoint (e.g. `https://mysite.com/wp-json/ta-publisher/v1/publish`) |
+| `wp_api_key` | `str` | API key generated from WP Admin → Settings → TA Publisher |
 
-Stored via existing `AppSettings` pattern (`QSettings("joeglens", "TranslationAssistant")`).
+Stored via existing `AppSettings` pattern (`QSettings("joeglens", "TranslationAssistant")`). Global — one key per TA install, one WP author.
 
 ### 3. New module: `translation_assistant/wp_publisher.py`
 
@@ -66,17 +66,17 @@ Pure Python (no Qt). Contains:
 
 #### A. Series Manager dialog (`dlg_series.py`)
 
-Add three fields to the existing Series Manager:
+Add two fields to the existing Series Manager:
 - **Series Slug** — text input, auto-populates from series title on first open (slugified), user can override
 - **Short Title** — text input
-- **WP API Key** — text input (masked, `QLineEdit.EchoMode.Password`)
 
 Saved to `series_profiles` on dialog accept.
 
-#### B. Settings dialog (`dlg_setup.py` or new `dlg_wp_settings.py`)
+#### B. Settings dialog (`dlg_wp_settings.py`)
 
-Add a **WordPress** section (or new dialog under Preferences menu):
+New dialog under Preferences menu — **WordPress Settings**:
 - **Endpoint URL** — text input, saved to `AppSettings.wp_endpoint_url`
+- **API Key** — text input (masked, `QLineEdit.EchoMode.Password`), saved to `AppSettings.wp_api_key`
 - **Test Connection** button — sends `POST` with empty body, expects a 400 response (confirms endpoint reachable)
 
 #### C. Menu action
@@ -89,9 +89,9 @@ Add a **WordPress** section (or new dialog under Preferences menu):
 #### D. `_on_publish_wp()` in `main_widget.py`
 
 Flow:
-1. Check `AppSettings.wp_endpoint_url` set — if not, show dialog to configure
+1. Check `AppSettings.wp_endpoint_url` and `wp_api_key` set — if not, open WP Settings dialog
 2. Load series meta from `series_profiles` for the current document's series
-3. Check `series_slug`, `series_title_short`, `wp_api_key` set — if any missing, open Series Manager to fill them
+3. Check `series_slug`, `series_title_short` set — if missing, open Series Manager to fill them
 4. Load lines via `db.get_lines(self._doc_id)`
 5. Check at least one non-empty `translated_text` exists — if not, show error "No translated lines to publish"
 6. Build payload via `wp_publisher.build_payload()`
@@ -108,7 +108,7 @@ From `build_payload(doc_meta, series_meta, lines)`:
 
 ```python
 {
-    "api_key":            series_meta["wp_api_key"],
+    "api_key":            api_key,          # from AppSettings.wp_api_key
     "series_title":       doc_meta["series_title"],
     "series_slug":        series_meta["series_slug"],
     "series_title_short": series_meta["series_title_short"],
@@ -156,7 +156,7 @@ Placed in `wp_publisher.py`. User can override in Series Manager.
 | Endpoint URL not set | Prompt to open WP Settings |
 | Series fields incomplete | Prompt to open Series Manager |
 | No translated lines | Warning dialog, no request sent |
-| HTTP 401 | "Invalid API key — check Series Manager" |
+| HTTP 401 | "Invalid API key — check WordPress Settings" |
 | HTTP 400 | Show WP error message |
 | HTTP 409 / `created: false` | "Chapter already published. Page: {url}" (not an error) |
 | Connection timeout / error | "Could not reach {url}. Check endpoint setting." |
@@ -168,10 +168,10 @@ Placed in `wp_publisher.py`. User can override in Series Manager.
 
 | File | Change |
 |---|---|
-| `translation_assistant/db.py` | Add `series_slug`, `series_title_short`, `wp_api_key` columns to `series_profiles` via idempotent migration |
-| `translation_assistant/settings.py` | Add `wp_endpoint_url` getter/setter |
+| `translation_assistant/db.py` | Add `series_slug`, `series_title_short` columns to `series_profiles` via idempotent migration |
+| `translation_assistant/settings.py` | Add `wp_endpoint_url`, `wp_api_key` getter/setter |
 | `translation_assistant/wp_publisher.py` | New module: payload builder, HTTP publish, WPPublishError |
-| `translation_assistant/ui/dlg_series.py` | Add slug, short title, API key fields |
+| `translation_assistant/ui/dlg_series.py` | Add slug and short title fields |
 | `translation_assistant/ui/main_widget.py` | Add `action_publish_wp`, `_on_publish_wp()`, QThread worker |
 | `translation_assistant/ui/combined_window.py` | Wire menu action + WP Settings entry |
 | `translation_assistant/ui/dlg_wp_settings.py` | New dialog for endpoint URL + test connection |
