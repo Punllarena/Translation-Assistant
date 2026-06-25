@@ -718,3 +718,21 @@ def test_wp_settings_dialog_saves_on_accept(qapp, tmp_settings):
         dlg._on_save()
     assert tmp_settings.wp_endpoint_url == "https://example.com/wp-json/ta-publisher/v1/publish"
     assert tmp_settings.wp_api_key == "my-api-key"
+
+
+# ---------------------------------------------------------------------------
+# SeriesManagerDialog — WP Fields button
+# ---------------------------------------------------------------------------
+
+def test_series_manager_has_wp_fields_button(qapp, mem_db):
+    from translation_assistant.ui.dlg_series import SeriesManagerDialog
+    dlg = SeriesManagerDialog(mem_db)
+    assert hasattr(dlg, "_set_wp_btn")
+    dlg.reject()
+
+
+def test_series_manager_wp_btn_disabled_with_no_selection(qapp, mem_db):
+    from translation_assistant.ui.dlg_series import SeriesManagerDialog
+    dlg = SeriesManagerDialog(mem_db)
+    assert not dlg._set_wp_btn.isEnabled()
+    dlg.reject()

@@ -49,11 +49,15 @@ class SeriesManagerDialog(QDialog):
         self._fetch_btn = QPushButton("Fetch new chapters…")
         self._fetch_btn.setEnabled(False)
         self._fetch_btn.clicked.connect(self._on_fetch)
+        self._set_wp_btn = QPushButton("Set WP Fields…")
+        self._set_wp_btn.setEnabled(False)
+        self._set_wp_btn.clicked.connect(self._on_set_wp_fields)
         close_btn = QPushButton("Close")
         close_btn.clicked.connect(self.accept)
         btn_row.addWidget(self._new_series_btn)
         btn_row.addWidget(self._set_url_btn)
         btn_row.addWidget(self._fetch_btn)
+        btn_row.addWidget(self._set_wp_btn)
         btn_row.addWidget(close_btn)
         layout.addLayout(btn_row)
 
@@ -79,6 +83,7 @@ class SeriesManagerDialog(QDialog):
     def _on_row_changed(self, row: int) -> None:
         s = self._current_series()
         self._set_url_btn.setEnabled(s is not None)
+        self._set_wp_btn.setEnabled(s is not None)
         self._fetch_btn.setEnabled(s is not None and bool(s["url"]))
 
     def _on_set_url(self) -> None:
@@ -104,6 +109,37 @@ class SeriesManagerDialog(QDialog):
         dlg = FetchSeriesDialog(self._db, s["title"], s["url"], parent=self)
         dlg.exec()
         self._load()
+
+    def _on_set_wp_fields(self) -> None:
+        s = self._current_series()
+        if s is None:
+            return
+        from translation_assistant.wp_publisher import slugify
+        meta = self._db.get_series_wp_meta(s["title"])
+        current_slug = meta["series_slug"] or slugify(s["title"])
+        current_short = meta["series_title_short"]
+
+        from PySide6.QtWidgets import QDialog, QDialogButtonBox, QFormLayout, QLineEdit, QVBoxLayout
+        from PySide6.QtCore import Qt
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"WP Fields — {s['title']}")
+        dlg.setWindowFlags(dlg.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
+        layout = QVBoxLayout(dlg)
+        form = QFormLayout()
+        slug_edit = QLineEdit(current_slug)
+        slug_edit.setPlaceholderText("url-safe-slug")
+        short_edit = QLineEdit(current_short)
+        short_edit.setPlaceholderText("Abbreviation")
+        form.addRow("Series Slug:", slug_edit)
+        form.addRow("Short Title:", short_edit)
+        layout.addLayout(form)
+        btns = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
+        btns.accepted.connect(dlg.accept)
+        btns.rejected.connect(dlg.reject)
+        layout.addWidget(btns)
+
+        if dlg.exec():
+            self._db.set_series_wp_meta(s["title"], slug_edit.text().strip(), short_edit.text().strip())
 
     def _on_new_series(self) -> None:
         from translation_assistant.ui.dlg_new_series import NewSeriesDialog
