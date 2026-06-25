@@ -175,6 +175,26 @@ class AppSettings:
         else:
             self._qs.setValue("LastDocId", value)
 
+    # --- WordPress endpoint URL ---
+
+    @property
+    def wp_endpoint_url(self) -> str:
+        return self._qs.value("WPEndpointUrl", "")
+
+    @wp_endpoint_url.setter
+    def wp_endpoint_url(self, value: str) -> None:
+        self._qs.setValue("WPEndpointUrl", value)
+
+    # --- WordPress API key ---
+
+    @property
+    def wp_api_key(self) -> str:
+        return self._qs.value("WPApiKey", "")
+
+    @wp_api_key.setter
+    def wp_api_key(self, value: str) -> None:
+        self._qs.setValue("WPApiKey", value)
+
     def save(self) -> None:
         """Flush settings to disk immediately."""
         self._qs.sync()

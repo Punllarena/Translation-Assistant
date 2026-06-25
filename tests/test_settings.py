@@ -177,6 +177,28 @@ def test_last_doc_id_none_clears(qapp, tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# WordPress settings
+# ---------------------------------------------------------------------------
+
+def test_wp_endpoint_url_default(tmp_settings):
+    assert tmp_settings.wp_endpoint_url == ""
+
+
+def test_wp_endpoint_url_roundtrip(tmp_settings):
+    tmp_settings.wp_endpoint_url = "https://mysite.com/wp-json/ta-publisher/v1/publish"
+    assert tmp_settings.wp_endpoint_url == "https://mysite.com/wp-json/ta-publisher/v1/publish"
+
+
+def test_wp_api_key_default(tmp_settings):
+    assert tmp_settings.wp_api_key == ""
+
+
+def test_wp_api_key_roundtrip(tmp_settings):
+    tmp_settings.wp_api_key = "secret123"
+    assert tmp_settings.wp_api_key == "secret123"
+
+
+# ---------------------------------------------------------------------------
 # Keyboard shortcuts
 # ---------------------------------------------------------------------------
 
