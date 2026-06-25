@@ -114,6 +114,13 @@ class Database:
             )
         self._conn.commit()
 
+        for col in ("series_slug", "series_title_short"):
+            if col not in sp_existing:
+                self._conn.execute(
+                    f"ALTER TABLE series_profiles ADD COLUMN {col} TEXT NOT NULL DEFAULT ''"
+                )
+        self._conn.commit()
+
         # Idempotent column migration for source_url on documents
         doc_existing = {r[1] for r in self._conn.execute("PRAGMA table_info(documents)").fetchall()}
         if "source_url" not in doc_existing:
@@ -326,6 +333,26 @@ class Database:
             "INSERT INTO series_profiles (series_title, syosetu_url) VALUES (?, ?) "
             "ON CONFLICT(series_title) DO UPDATE SET syosetu_url = excluded.syosetu_url",
             (series_title, url),
+        )
+        self._conn.commit()
+
+    def get_series_wp_meta(self, series_title: str) -> dict:
+        row = self._conn.execute(
+            "SELECT series_slug, series_title_short, syosetu_url "
+            "FROM series_profiles WHERE series_title = ?",
+            (series_title,),
+        ).fetchone()
+        if row is None:
+            return {"series_slug": "", "series_title_short": "", "syosetu_url": ""}
+        return dict(row)
+
+    def set_series_wp_meta(self, series_title: str, series_slug: str, series_title_short: str) -> None:
+        self._conn.execute(
+            "INSERT INTO series_profiles (series_title, series_slug, series_title_short) "
+            "VALUES (?, ?, ?) ON CONFLICT(series_title) DO UPDATE SET "
+            "series_slug = excluded.series_slug, "
+            "series_title_short = excluded.series_title_short",
+            (series_title, series_slug, series_title_short),
         )
         self._conn.commit()
 

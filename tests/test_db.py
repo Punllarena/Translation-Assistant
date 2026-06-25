@@ -672,6 +672,33 @@ def test_set_series_url_empty_clears(db):
 
 
 # ---------------------------------------------------------------------------
+# Series WordPress metadata
+# ---------------------------------------------------------------------------
+
+def test_series_wp_meta_defaults(db):
+    db.set_series_profile("MySeries", "p1")
+    meta = db.get_series_wp_meta("MySeries")
+    assert meta["series_slug"] == ""
+    assert meta["series_title_short"] == ""
+    assert meta["syosetu_url"] == ""
+
+
+def test_set_series_wp_meta(db):
+    db.set_series_profile("MySeries", "p1")
+    db.set_series_wp_meta("MySeries", "my-series", "MS")
+    meta = db.get_series_wp_meta("MySeries")
+    assert meta["series_slug"] == "my-series"
+    assert meta["series_title_short"] == "MS"
+
+
+def test_series_wp_meta_unknown_series(db):
+    meta = db.get_series_wp_meta("NonExistent")
+    assert meta["series_slug"] == ""
+    assert meta["series_title_short"] == ""
+    assert meta["syosetu_url"] == ""
+
+
+# ---------------------------------------------------------------------------
 # Series chapters (existing series_order values)
 # ---------------------------------------------------------------------------
 
