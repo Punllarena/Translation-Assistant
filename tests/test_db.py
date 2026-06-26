@@ -699,6 +699,38 @@ def test_series_wp_meta_unknown_series(db):
 
 
 # ---------------------------------------------------------------------------
+# Series WordPress password settings
+# ---------------------------------------------------------------------------
+
+def test_get_series_wp_password_settings_defaults(db):
+    result = db.get_series_wp_password_settings("Unknown Series")
+    assert result == {"wp_password_enabled": None, "wp_unlock_after": -1}
+
+
+def test_set_series_wp_password_settings_enabled(db):
+    db.set_series_wp_password_settings("My Series", "1", 5)
+    result = db.get_series_wp_password_settings("My Series")
+    assert result["wp_password_enabled"] == "1"
+    assert result["wp_unlock_after"] == 5
+
+
+def test_set_series_wp_password_settings_disabled(db):
+    db.set_series_wp_password_settings("My Series", "0", -1)
+    result = db.get_series_wp_password_settings("My Series")
+    assert result["wp_password_enabled"] == "0"
+    assert result["wp_unlock_after"] == -1
+
+
+def test_set_series_wp_password_settings_inherit(db):
+    # First set something, then clear to inherit
+    db.set_series_wp_password_settings("My Series", "1", 5)
+    db.set_series_wp_password_settings("My Series", None, -1)
+    result = db.get_series_wp_password_settings("My Series")
+    assert result["wp_password_enabled"] is None
+    assert result["wp_unlock_after"] == -1
+
+
+# ---------------------------------------------------------------------------
 # Series chapters (existing series_order values)
 # ---------------------------------------------------------------------------
 

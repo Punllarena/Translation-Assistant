@@ -121,6 +121,16 @@ class Database:
                 )
         self._conn.commit()
 
+        for col, defn in [
+            ("wp_password_enabled", "TEXT DEFAULT NULL"),
+            ("wp_unlock_after",     "INTEGER NOT NULL DEFAULT -1"),
+        ]:
+            if col not in sp_existing:
+                self._conn.execute(
+                    f"ALTER TABLE series_profiles ADD COLUMN {col} {defn}"
+                )
+        self._conn.commit()
+
         # Idempotent column migration for source_url on documents
         doc_existing = {r[1] for r in self._conn.execute("PRAGMA table_info(documents)").fetchall()}
         if "source_url" not in doc_existing:
@@ -353,6 +363,35 @@ class Database:
             "series_slug = excluded.series_slug, "
             "series_title_short = excluded.series_title_short",
             (series_title, series_slug, series_title_short),
+        )
+        self._conn.commit()
+
+    def get_series_wp_password_settings(self, series_title: str) -> dict:
+        row = self._conn.execute(
+            "SELECT wp_password_enabled, wp_unlock_after "
+            "FROM series_profiles WHERE series_title = ?",
+            (series_title,),
+        ).fetchone()
+        if row is None:
+            return {"wp_password_enabled": None, "wp_unlock_after": -1}
+        return {
+            "wp_password_enabled": row["wp_password_enabled"],
+            "wp_unlock_after": row["wp_unlock_after"] if row["wp_unlock_after"] is not None else -1,
+        }
+
+    def set_series_wp_password_settings(
+        self,
+        series_title: str,
+        enabled: str | None,
+        unlock_after: int,
+    ) -> None:
+        self._conn.execute(
+            "INSERT INTO series_profiles (series_title, wp_password_enabled, wp_unlock_after) "
+            "VALUES (?, ?, ?) "
+            "ON CONFLICT(series_title) DO UPDATE SET "
+            "wp_password_enabled = excluded.wp_password_enabled, "
+            "wp_unlock_after = excluded.wp_unlock_after",
+            (series_title, enabled, unlock_after),
         )
         self._conn.commit()
 
