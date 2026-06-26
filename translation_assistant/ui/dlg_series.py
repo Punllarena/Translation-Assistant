@@ -119,7 +119,10 @@ class SeriesManagerDialog(QDialog):
         current_slug = meta["series_slug"] or slugify(s["title"])
         current_short = meta["series_title_short"]
 
-        from PySide6.QtWidgets import QDialog, QDialogButtonBox, QFormLayout, QLineEdit, QVBoxLayout
+        from PySide6.QtWidgets import (
+            QComboBox, QDialog, QDialogButtonBox, QFormLayout,
+            QLineEdit, QSpinBox, QVBoxLayout,
+        )
         from PySide6.QtCore import Qt
         dlg = QDialog(self)
         dlg.setWindowTitle(f"WP Fields — {s['title']}")
@@ -132,6 +135,29 @@ class SeriesManagerDialog(QDialog):
         short_edit.setPlaceholderText("Abbreviation")
         form.addRow("Series Slug:", slug_edit)
         form.addRow("Short Title:", short_edit)
+
+        pw_meta = self._db.get_series_wp_password_settings(s["title"])
+        pw_enabled_val = pw_meta["wp_password_enabled"]  # "1", "0", or None
+        unlock_after_val = pw_meta["wp_unlock_after"]    # int or -1
+
+        pw_combo = QComboBox()
+        pw_combo.addItems(["Use global", "Always on", "Always off"])
+        if pw_enabled_val == "1":
+            pw_combo.setCurrentIndex(1)
+        elif pw_enabled_val == "0":
+            pw_combo.setCurrentIndex(2)
+        else:
+            pw_combo.setCurrentIndex(0)
+        form.addRow("Password protection:", pw_combo)
+
+        unlock_spin = QSpinBox()
+        unlock_spin.setRange(1, 99)
+        unlock_spin.setValue(unlock_after_val if unlock_after_val > 0 else 3)
+        unlock_spin.setEnabled(pw_combo.currentIndex() == 1)
+        pw_combo.currentIndexChanged.connect(
+            lambda idx: unlock_spin.setEnabled(idx == 1)
+        )
+        form.addRow("Keep locked:", unlock_spin)
         layout.addLayout(form)
         btns = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
         btns.accepted.connect(dlg.accept)
@@ -140,6 +166,10 @@ class SeriesManagerDialog(QDialog):
 
         if dlg.exec():
             self._db.set_series_wp_meta(s["title"], slug_edit.text().strip(), short_edit.text().strip())
+            idx = pw_combo.currentIndex()
+            enabled_out = ("1" if idx == 1 else "0" if idx == 2 else None)
+            unlock_out = unlock_spin.value() if idx == 1 else -1
+            self._db.set_series_wp_password_settings(s["title"], enabled_out, unlock_out)
 
     def _on_new_series(self) -> None:
         from translation_assistant.ui.dlg_new_series import NewSeriesDialog
