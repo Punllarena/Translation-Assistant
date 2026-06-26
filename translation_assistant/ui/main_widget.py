@@ -177,6 +177,10 @@ class TranslationAssistantWidget(QWidget):
         # Progress
         self._tl_complete: int = 0
 
+        # Last-publish password state (set in _on_publish_wp, read in _on_publish_done)
+        self._last_pw: str | None = None
+        self._last_unlock_idx: int | None = None
+
         self._build_actions()
         self._build_shortcut_registry()
         self._setup_central_widget()
@@ -1341,6 +1345,26 @@ class TranslationAssistantWidget(QWidget):
         series_title = doc_meta["series_title"]
         series_meta = self._db.get_series_wp_meta(series_title)
 
+        from translation_assistant.wp_publisher import compute_password_fields
+        pw_settings = self._db.get_series_wp_password_settings(series_title)
+        pw_enabled_raw = pw_settings["wp_password_enabled"]
+        pw_enabled = (
+            pw_enabled_raw == "1"
+            if pw_enabled_raw is not None
+            else self._settings.wp_password_enabled
+        )
+        unlock_after = (
+            pw_settings["wp_unlock_after"]
+            if pw_settings["wp_unlock_after"] != -1
+            else self._settings.wp_unlock_after
+        )
+        self._last_pw = None
+        self._last_unlock_idx = None
+        if pw_enabled:
+            self._last_pw, self._last_unlock_idx = compute_password_fields(
+                doc_meta["series_order"], unlock_after
+            )
+
         if not series_meta["series_slug"] or not series_meta["series_title_short"]:
             from translation_assistant.ui.dlg_series import SeriesManagerDialog
             QMessageBox.information(
@@ -1360,7 +1384,11 @@ class TranslationAssistantWidget(QWidget):
             return
 
         try:
-            payload = build_payload(doc_meta, series_meta, lines, api_key=api_key)
+            payload = build_payload(
+                doc_meta, series_meta, lines, api_key=api_key,
+                password=self._last_pw,
+                unlock_chapter_index=self._last_unlock_idx,
+            )
         except ValueError as exc:
             QMessageBox.warning(self, "Payload Error", str(exc))
             return
@@ -1381,13 +1409,46 @@ class TranslationAssistantWidget(QWidget):
         self._publish_worker.start()
 
     def _on_publish_done(self, result: dict) -> None:
+        from PySide6.QtWidgets import (
+            QDialog, QDialogButtonBox, QFormLayout, QLabel, QLineEdit, QVBoxLayout,
+        )
+        from PySide6.QtCore import Qt
+
+        already = result.get("created") is False
         page_url = result.get("page_url", "")
         post_url = result.get("post_url", "")
-        if result.get("created") is False:
-            msg = f"Already published.\nPage: {page_url}"
-        else:
-            msg = f"Published!\nPage: {page_url}\nPost: {post_url}"
-        QMessageBox.information(self, "WordPress Publish", msg)
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("WordPress Publish")
+        dlg.setWindowFlags(dlg.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
+        dlg.setMinimumWidth(420)
+        layout = QVBoxLayout(dlg)
+
+        status_label = QLabel("Already published." if already else "Published!")
+        layout.addWidget(status_label)
+
+        form = QFormLayout()
+        if page_url:
+            form.addRow("Page:", QLabel(f'<a href="{page_url}">{page_url}</a>'))
+        if post_url and not already:
+            form.addRow("Post:", QLabel(f'<a href="{post_url}">{post_url}</a>'))
+        layout.addLayout(form)
+
+        if not already and self._last_pw:
+            pw_edit = QLineEdit(self._last_pw)
+            pw_edit.setReadOnly(True)
+            pw_edit.selectAll()
+            layout.addWidget(QLabel("Password (copy this):"))
+            layout.addWidget(pw_edit)
+
+        if self._last_unlock_idx is not None:
+            layout.addWidget(QLabel(f"Chapter {self._last_unlock_idx} is now unlocked."))
+
+        btns = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
+        btns.accepted.connect(dlg.accept)
+        layout.addWidget(btns)
+
+        dlg.exec()
         self.action_publish_wp.setEnabled(True)
 
     def _on_publish_error(self, message: str) -> None:
