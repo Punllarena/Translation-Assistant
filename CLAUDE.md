@@ -55,7 +55,6 @@ translation_assistant/
 ├── migration.py         # one-time CSV/LEX → SQLite importer (run_startup_migration)
 ├── scraper.py           # syosetu.com FetchWorker (QThread)
 ├── spellcheck.py        # QSyntaxHighlighter subclass using pyenchant
-├── tts.py               # stub (pyttsx3 wired but menu items disabled; TTS deferred)
 └── ui/
     ├── combined_window.py      # CombinedMainWindow — THE running QMainWindow
     ├── main_widget.py          # TranslationAssistantWidget — all TA logic as QWidget
