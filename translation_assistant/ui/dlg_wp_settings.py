@@ -61,6 +61,8 @@ class WPSettingsDialog(QDialog):
         import json
         import urllib.request
         from urllib.error import URLError, HTTPError
+        from translation_assistant.wp_publisher import normalize_endpoint_url
+        url = normalize_endpoint_url(url)
         try:
             data = json.dumps({}).encode()
             req = urllib.request.Request(

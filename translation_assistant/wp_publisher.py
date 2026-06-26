@@ -53,7 +53,18 @@ def build_payload(doc_meta: dict, series_meta: dict, lines: list[dict], api_key:
     return payload
 
 
+_ENDPOINT_PATH = "/wp-json/ta-publisher/v1/publish"
+
+
+def normalize_endpoint_url(url: str) -> str:
+    url = url.rstrip("/")
+    if not url.endswith(_ENDPOINT_PATH):
+        url += _ENDPOINT_PATH
+    return url
+
+
 def publish(endpoint_url: str, payload: dict, timeout: int = 15) -> dict:
+    endpoint_url = normalize_endpoint_url(endpoint_url)
     data = json.dumps(payload).encode()
     req = urllib.request.Request(
         endpoint_url,
