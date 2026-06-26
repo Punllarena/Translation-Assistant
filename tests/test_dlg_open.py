@@ -490,6 +490,29 @@ class TestOpenDocumentDialog:
         _select_series(dlg, "Novel A")
         assert tmp_settings.open_dialog_last_series == "Novel A"
 
+    def test_filter_clears_when_switching_series(self, qapp, mem_db):
+        mem_db.create_document("Ch1", series_title="A", chapter_title="Alpha")
+        mem_db.create_document("Ch2", series_title="B", chapter_title="Beta")
+        dlg = OpenDocumentDialog(mem_db)
+        _select_series(dlg, "A")
+        dlg._filter_edit.setText("Alpha")
+        assert dlg._filter_edit.text() == "Alpha"
+        _select_series(dlg, "B")
+        assert dlg._filter_edit.text() == ""
+
+    def test_sort_resets_when_switching_series(self, qapp, mem_db):
+        mem_db.create_document("C1", series_title="A", series_order=1, chapter_title="C1")
+        mem_db.create_document("C2", series_title="B", series_order=1, chapter_title="C2")
+        dlg = OpenDocumentDialog(mem_db)
+        _select_series(dlg, "A")
+        dlg._sort_chapters(3)  # sort by Last Edited
+        assert dlg._sort_col == 3
+        _select_series(dlg, "B")
+        assert dlg._sort_col == 0  # reset to default
+        assert dlg._sort_asc is True
+        assert "▲" in dlg._tree.headerItem().text(0)  # column 0 has arrow
+        assert "▲" not in dlg._tree.headerItem().text(3)  # Last Edited has no arrow
+
 
 class TestEditSourceDialog:
     def test_loads_raw_text_stripping_prefix(self, qapp, mem_db):

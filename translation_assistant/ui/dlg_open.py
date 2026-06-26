@@ -7,7 +7,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
     QDialog, QFormLayout, QHBoxLayout, QHeaderView, QLineEdit,
-    QListWidget, QListWidgetItem, QMenu, QMessageBox, QPushButton, QSpinBox,
+    QListWidget, QListWidgetItem, QMenu, QMessageBox, QPlainTextEdit, QPushButton, QSpinBox,
     QSplitter, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
@@ -127,10 +127,6 @@ class OpenDocumentDialog(QDialog):
             btn_row.addWidget(btn)
         outer.addLayout(btn_row)
 
-    # ------------------------------------------------------------------
-    # Stub methods — implemented in Tasks 3–5
-    # ------------------------------------------------------------------
-
     def _load_series(self) -> None:
         self._series_list.clear()
         docs = self._db.list_documents()
@@ -151,6 +147,8 @@ class OpenDocumentDialog(QDialog):
             self._series_list.addItem(item)
 
     def _load_chapters(self, series_raw: str) -> None:
+        self._sort_col = 0  # reset to default on series switch
+        self._sort_asc = True
         self._tree.clear()
         self._doc_ids.clear()
         self._source_urls.clear()
@@ -203,6 +201,7 @@ class OpenDocumentDialog(QDialog):
             self._source_urls.clear()
             return
         series_raw = current.data(Qt.ItemDataRole.UserRole)
+        self._filter_edit.setText("")  # spec: filter clears on series switch
         self._load_chapters(series_raw)
         if self._settings:
             self._settings.open_dialog_last_series = series_raw
@@ -539,7 +538,6 @@ class _EditSourceDialog(QDialog):
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(6)
 
-        from PySide6.QtWidgets import QPlainTextEdit
         self._editor = QPlainTextEdit()
         editor_font = QFont("monospace")
         editor_font.setPointSize(10)
