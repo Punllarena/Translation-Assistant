@@ -14,7 +14,7 @@ Add per-chapter password protection to the WordPress publish flow. When enabled 
 - Chapter N+1 and beyond: published with a password.
 - When publishing chapter X (X > N), unlock chapter X−N if and only if X−N > N (i.e. X > 2N). This means the unlock list starts only once the window fills up.
 - Example (N=5): chapters 1–5 free, ch6 first locked, ch11 published → ch6 unlocked (5 locked: 7–11).
-- Password is auto-generated per chapter using `secrets.token_urlsafe(8)`. Never stored.
+- Password is auto-generated per chapter using `secrets.choice` over `string.ascii_letters + string.digits`, 12 characters. Never stored.
 - After publish, success dialog shows the password in a selectable/copyable field, plus which chapter (if any) was unlocked.
 - Settings are per-series with global defaults. Series can inherit global, override on, or override off.
 
@@ -58,6 +58,9 @@ def set_series_wp_password_settings(
 
 ```python
 import secrets
+import string
+
+_ALPHANUM = string.ascii_letters + string.digits
 
 def compute_password_fields(
     chapter_index: int, unlock_after: int
@@ -65,7 +68,7 @@ def compute_password_fields(
     """Returns (password, unlock_chapter_index). Either may be None."""
     if chapter_index == 0 or chapter_index <= unlock_after:
         return None, None
-    password = secrets.token_urlsafe(8)
+    password = "".join(secrets.choice(_ALPHANUM) for _ in range(12))
     unlock_idx = chapter_index - unlock_after
     return password, (unlock_idx if unlock_idx > unlock_after else None)
 ```

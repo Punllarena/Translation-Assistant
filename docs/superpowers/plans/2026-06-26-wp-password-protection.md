@@ -88,6 +88,14 @@ def test_compute_password_fields_password_is_random():
     assert pw1 != pw2
 
 
+def test_compute_password_fields_password_is_alphanumeric():
+    import string
+    pw, _ = compute_password_fields(5, 3)
+    assert pw is not None
+    assert len(pw) == 12
+    assert all(c in string.ascii_letters + string.digits for c in pw)
+
+
 def test_build_payload_includes_password_and_unlock():
     doc_meta = {"series_title": "T", "series_order": 7, "chapter_title": "Ch7"}
     series_meta = {"series_slug": "t", "series_title_short": "T", "syosetu_url": ""}
@@ -117,10 +125,13 @@ Expected: `ImportError` or `TypeError` — `compute_password_fields` doesn't exi
 
 - [ ] **Step 3: Implement `compute_password_fields` and update `build_payload`**
 
-Open `translation_assistant/wp_publisher.py`. Add `import secrets` at the top (after existing imports). Then add this function before `build_payload`:
+Open `translation_assistant/wp_publisher.py`. Add `import secrets` and `import string` at the top (after existing imports). Then add this function before `build_payload`:
 
 ```python
 import secrets
+import string
+
+_ALPHANUM = string.ascii_letters + string.digits
 
 
 def compute_password_fields(
@@ -128,7 +139,7 @@ def compute_password_fields(
 ) -> tuple[str | None, int | None]:
     if chapter_index == 0 or chapter_index <= unlock_after:
         return None, None
-    password = secrets.token_urlsafe(8)
+    password = "".join(secrets.choice(_ALPHANUM) for _ in range(12))
     unlock_idx = chapter_index - unlock_after
     return password, (unlock_idx if unlock_idx > unlock_after else None)
 ```
