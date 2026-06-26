@@ -63,7 +63,14 @@ def publish(endpoint_url: str, payload: dict, timeout: int = 15) -> dict:
     )
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return json.loads(resp.read())
+            body = resp.read()
+            try:
+                return json.loads(body)
+            except json.JSONDecodeError:
+                raise WPPublishError(
+                    f"Server returned non-JSON response: {body[:200]!r}",
+                    status_code=None,
+                )
     except HTTPError as exc:
         if exc.code == 409:
             try:
