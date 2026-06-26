@@ -30,6 +30,25 @@ def test_build_chapter_body_all_empty():
     lines = [{"translated_text": ""}, {"translated_text": "   "}]
     assert build_chapter_body(lines) == ""
 
+def test_build_chapter_body_merges_continuations():
+    lines = [
+        {"prefix": "%", "translated_text": "「That makes it sound like all we do is sex."},
+        {"prefix": "$", "translated_text": "That's not our relationship」"},
+        {"prefix": "%", "translated_text": "Mikiri shows a wide smile."},
+    ]
+    result = build_chapter_body(lines)
+    assert result == (
+        "<p>「That makes it sound like all we do is sex. That's not our relationship」</p>\n"
+        "<p>Mikiri shows a wide smile.</p>"
+    )
+
+def test_get_first_line_skips_continuation():
+    lines = [
+        {"prefix": "$", "translated_text": "orphan continuation"},
+        {"prefix": "%", "translated_text": "Real first"},
+    ]
+    assert get_first_line(lines) == "Real first"
+
 def test_get_first_line_returns_first_nonempty():
     lines = [
         {"translated_text": ""},

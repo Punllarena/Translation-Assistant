@@ -21,13 +21,27 @@ def slugify(text: str) -> str:
 
 
 def build_chapter_body(lines: list[dict]) -> str:
-    parts = [f"<p>{ln['translated_text']}</p>" for ln in lines if ln["translated_text"].strip()]
+    parts = []
+    i = 0
+    while i < len(lines):
+        ln = lines[i]
+        if ln.get("prefix") == "$":
+            i += 1
+            continue
+        group = [ln["translated_text"]]
+        i += 1
+        while i < len(lines) and lines[i].get("prefix") == "$":
+            group.append(lines[i]["translated_text"])
+            i += 1
+        text = " ".join(t for t in group if t.strip())
+        if text:
+            parts.append(f"<p>{text}</p>")
     return "\n".join(parts)
 
 
 def get_first_line(lines: list[dict]) -> str:
     for ln in lines:
-        if ln["translated_text"].strip():
+        if ln.get("prefix") != "$" and ln["translated_text"].strip():
             return ln["translated_text"]
     return ""
 
