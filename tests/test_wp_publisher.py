@@ -193,3 +193,34 @@ def test_build_payload_omits_password_fields_when_none():
     payload = build_payload(doc_meta, series_meta, lines, "key")
     assert "password" not in payload
     assert "unlock_chapter_index" not in payload
+
+
+# ---------------------------------------------------------------------------
+# resolve_wp_password_enabled — series override vs. global fallback
+# ---------------------------------------------------------------------------
+
+from translation_assistant.wp_publisher import resolve_wp_password_enabled
+
+
+def test_publish_wp_password_resolution_series_on():
+    """Series override "1" → enabled regardless of global setting."""
+    pw_settings = {"wp_password_enabled": "1", "wp_unlock_after": -1}
+    assert resolve_wp_password_enabled(pw_settings, global_enabled=False) is True
+
+
+def test_publish_wp_password_resolution_series_off():
+    """Series override "0" → disabled regardless of global setting."""
+    pw_settings = {"wp_password_enabled": "0", "wp_unlock_after": -1}
+    assert resolve_wp_password_enabled(pw_settings, global_enabled=True) is False
+
+
+def test_publish_wp_password_resolution_inherit_global_on():
+    """Series override None → falls back to global=True."""
+    pw_settings = {"wp_password_enabled": None, "wp_unlock_after": -1}
+    assert resolve_wp_password_enabled(pw_settings, global_enabled=True) is True
+
+
+def test_publish_wp_password_resolution_inherit_global_off():
+    """Series override None → falls back to global=False."""
+    pw_settings = {"wp_password_enabled": None, "wp_unlock_after": -1}
+    assert resolve_wp_password_enabled(pw_settings, global_enabled=False) is False

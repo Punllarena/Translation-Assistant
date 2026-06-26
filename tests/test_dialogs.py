@@ -721,6 +721,8 @@ def test_wp_settings_dialog_saves_on_accept(qapp, tmp_settings):
         dlg._on_save()
     assert tmp_settings.wp_endpoint_url == "https://example.com/wp-json/ta-publisher/v1/publish"
     assert tmp_settings.wp_api_key == "my-api-key"
+    assert tmp_settings.wp_password_enabled == False
+    assert tmp_settings.wp_unlock_after == 3
 
 
 # ---------------------------------------------------------------------------

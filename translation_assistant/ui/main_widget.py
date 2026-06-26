@@ -1345,14 +1345,9 @@ class TranslationAssistantWidget(QWidget):
         series_title = doc_meta["series_title"]
         series_meta = self._db.get_series_wp_meta(series_title)
 
-        from translation_assistant.wp_publisher import compute_password_fields
+        from translation_assistant.wp_publisher import compute_password_fields, resolve_wp_password_enabled
         pw_settings = self._db.get_series_wp_password_settings(series_title)
-        pw_enabled_raw = pw_settings["wp_password_enabled"]
-        pw_enabled = (
-            pw_enabled_raw == "1"
-            if pw_enabled_raw is not None
-            else self._settings.wp_password_enabled
-        )
+        pw_enabled = resolve_wp_password_enabled(pw_settings, self._settings.wp_password_enabled)
         unlock_after = (
             pw_settings["wp_unlock_after"]
             if pw_settings["wp_unlock_after"] != -1
@@ -1445,7 +1440,7 @@ class TranslationAssistantWidget(QWidget):
             layout.addWidget(QLabel("Password (copy this):"))
             layout.addWidget(pw_edit)
 
-        if self._last_unlock_idx is not None:
+        if not already and self._last_unlock_idx is not None:
             layout.addWidget(QLabel(f"Chapter {self._last_unlock_idx} is now unlocked."))
 
         btns = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)

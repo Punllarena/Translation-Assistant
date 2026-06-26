@@ -51,6 +51,20 @@ def get_first_line(lines: list[dict]) -> str:
 _ALPHANUM = string.ascii_letters + string.digits
 
 
+def resolve_wp_password_enabled(pw_settings: dict, global_enabled: bool) -> bool:
+    """Resolve password-protection enablement for a publish operation.
+
+    ``pw_settings`` is the dict returned by
+    ``db.get_series_wp_password_settings()``.  A series-level override of
+    ``"1"`` or ``"0"`` takes precedence; ``None`` falls back to the global
+    AppSettings value.
+    """
+    pw_enabled_raw = pw_settings["wp_password_enabled"]
+    if pw_enabled_raw is not None:
+        return pw_enabled_raw == "1"
+    return global_enabled
+
+
 def compute_password_fields(
     chapter_index: int, unlock_after: int
 ) -> tuple[str | None, int | None]:
