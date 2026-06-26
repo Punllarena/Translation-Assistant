@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 from translation_assistant.db import Database
 
 _NO_SERIES = "(No Series)"
+_CHAPTER_HEADERS = ["#", "Title", "Progress", "Last Edited"]
 
 
 class OpenDocumentDialog(QDialog):
@@ -121,10 +122,59 @@ class OpenDocumentDialog(QDialog):
     # ------------------------------------------------------------------
 
     def _load_series(self) -> None:
-        pass
+        self._series_list.clear()
+        docs = self._db.list_documents()
+
+        series_counts: dict[str, int] = {}
+        for doc in docs:
+            key = doc["series_title"] or ""
+            series_counts[key] = series_counts.get(key, 0) + 1
+
+        if "" in series_counts:
+            item = QListWidgetItem(f"{_NO_SERIES} ({series_counts['']})")
+            item.setData(Qt.ItemDataRole.UserRole, "")
+            self._series_list.addItem(item)
+
+        for name in sorted(k for k in series_counts if k):
+            item = QListWidgetItem(f"{name} ({series_counts[name]})")
+            item.setData(Qt.ItemDataRole.UserRole, name)
+            self._series_list.addItem(item)
 
     def _load_chapters(self, series_raw: str) -> None:
-        pass
+        self._tree.clear()
+        self._doc_ids.clear()
+        self._source_urls.clear()
+
+        docs = self._db.list_documents()
+        docs = [d for d in docs if (d["series_title"] or "") == series_raw]
+        docs.sort(key=lambda d: (d["series_order"], d["title"]))
+
+        for doc in docs:
+            display = doc["chapter_title"] if doc["chapter_title"] else doc["title"]
+            progress_pct = doc["progress"]
+            item = QTreeWidgetItem([
+                str(doc["series_order"]),
+                display,
+                f"{progress_pct}%",
+                _fmt_date(doc.get("updated_at", "")),
+            ])
+            item.setData(0, Qt.ItemDataRole.UserRole, doc["series_order"])
+            item.setData(2, Qt.ItemDataRole.UserRole, progress_pct)
+            item.setTextAlignment(2, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+
+            if progress_pct == 0:
+                item.setForeground(2, QColor("#888888"))
+            elif progress_pct == 100:
+                item.setForeground(2, QColor("#2a8a2a"))
+            else:
+                item.setForeground(2, QColor("#c8a000"))
+
+            self._doc_ids[id(item)] = doc["id"]
+            self._source_urls[id(item)] = doc.get("source_url", "")
+            self._tree.addTopLevelItem(item)
+
+        self._apply_filter(self._filter_edit.text())
+        self._update_sort_header()
 
     def _on_series_selected(self, current, _prev) -> None:
         if current is None:
@@ -135,6 +185,9 @@ class OpenDocumentDialog(QDialog):
         self._load_chapters(current.data(Qt.ItemDataRole.UserRole))
 
     def _sort_chapters(self, col: int) -> None:
+        pass
+
+    def _update_sort_header(self) -> None:
         pass
 
     def _on_chapter_context_menu(self, pos) -> None:
