@@ -3,8 +3,8 @@ WordPress Settings dialog — endpoint URL and API key.
 """
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QDialog, QDialogButtonBox, QFormLayout, QLabel, QLineEdit,
-    QMessageBox, QPushButton, QVBoxLayout,
+    QCheckBox, QDialog, QDialogButtonBox, QFormLayout, QLabel, QLineEdit,
+    QMessageBox, QPushButton, QSpinBox, QVBoxLayout,
 )
 
 from translation_assistant.settings import AppSettings
@@ -37,6 +37,17 @@ class WPSettingsDialog(QDialog):
         self._key_edit.setPlaceholderText("API key from WP Admin → Settings → TA Publisher")
         form.addRow("API Key:", self._key_edit)
 
+        self._pw_check = QCheckBox("Enable password protection by default")
+        self._pw_check.setChecked(self._settings.wp_password_enabled)
+        form.addRow("", self._pw_check)
+
+        self._unlock_spin = QSpinBox()
+        self._unlock_spin.setRange(1, 99)
+        self._unlock_spin.setValue(self._settings.wp_unlock_after)
+        self._unlock_spin.setEnabled(self._settings.wp_password_enabled)
+        self._pw_check.toggled.connect(self._unlock_spin.setEnabled)
+        form.addRow("Keep N chapters locked:", self._unlock_spin)
+
         layout.addLayout(form)
 
         self._test_btn = QPushButton("Test Connection")
@@ -51,6 +62,8 @@ class WPSettingsDialog(QDialog):
     def _on_save(self) -> None:
         self._settings.wp_endpoint_url = self._url_edit.text().strip()
         self._settings.wp_api_key = self._key_edit.text().strip()
+        self._settings.wp_password_enabled = self._pw_check.isChecked()
+        self._settings.wp_unlock_after = self._unlock_spin.value()
         self.accept()
 
     def _on_test(self) -> None:
