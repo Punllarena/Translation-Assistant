@@ -1429,9 +1429,13 @@ class TranslationAssistantWidget(QWidget):
 
         form = QFormLayout()
         if page_url:
-            form.addRow("Page:", QLabel(f'<a href="{page_url}">{page_url}</a>'))
+            page_label = QLabel(f'<a href="{page_url}">{page_url}</a>')
+            page_label.setOpenExternalLinks(True)
+            form.addRow("Page:", page_label)
         if post_url and not already:
-            form.addRow("Post:", QLabel(f'<a href="{post_url}">{post_url}</a>'))
+            post_label = QLabel(f'<a href="{post_url}">{post_url}</a>')
+            post_label.setOpenExternalLinks(True)
+            form.addRow("Post:", post_label)
         layout.addLayout(form)
 
         if not already and self._last_pw:
