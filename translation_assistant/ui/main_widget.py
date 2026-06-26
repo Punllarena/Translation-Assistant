@@ -256,16 +256,6 @@ class TranslationAssistantWidget(QWidget):
         self.action_on_top.setChecked(self._settings.on_top)
         self.action_on_top.triggered.connect(self._on_toggle_on_top)
 
-        self.action_tts_jp = QAction("Japanese", self)
-        self.action_tts_jp.setCheckable(True)
-        self.action_tts_jp.setEnabled(False)
-        self.action_tts_jp.triggered.connect(self._on_toggle_tts_jp)
-
-        self.action_tts_cn = QAction("Chinese", self)
-        self.action_tts_cn.setCheckable(True)
-        self.action_tts_cn.setEnabled(False)
-        self.action_tts_cn.triggered.connect(self._on_toggle_tts_cn)
-
         self.action_clipboard = QAction("Copy to Clipboard", self)
         self.action_clipboard.triggered.connect(self._on_clipboard_export)
         self.action_clipboard.setShortcut("Ctrl+Shift+C")
@@ -529,7 +519,6 @@ class TranslationAssistantWidget(QWidget):
         self._update_parse_chars()
         self._load_glossary_for_profile()
         self._load_spell_dict()
-        self._try_init_tts()
         self._update_profile_label()
         last = self._settings.last_doc_id
         if last is not None:
@@ -558,22 +547,6 @@ class TranslationAssistantWidget(QWidget):
     def _load_spell_dict(self) -> None:
         words = self._db.get_custom_words(self._settings.profile_used)
         self._spell_highlighter.load_custom_words_list(words)
-
-    def _try_init_tts(self) -> None:
-        try:
-            import pyttsx3
-            engine = pyttsx3.init()
-            voices = engine.getProperty("voices")
-            for v in (voices or []):
-                name = getattr(v, "name", "")
-                if "ja" in name.lower() or "japanese" in name.lower() or "haruka" in name.lower():
-                    self.action_tts_jp.setEnabled(True)
-                elif "zh" in name.lower() or "chinese" in name.lower() or "huihui" in name.lower():
-                    self.action_tts_cn.setEnabled(True)
-            engine.stop()
-            self._tts_engine = engine
-        except Exception:
-            self._tts_engine = None
 
     # ------------------------------------------------------------------
     # Content loading
@@ -1489,24 +1462,6 @@ class TranslationAssistantWidget(QWidget):
                 flags &= ~Qt.WindowType.WindowStaysOnTopHint
             parent.setWindowFlags(flags)
             parent.show()
-
-    def _on_toggle_tts_jp(self) -> None:
-        if self.action_tts_jp.isChecked():
-            self.action_tts_cn.setChecked(False)
-            self._settings.tts = True
-            self._settings.tts_lang = 0
-        else:
-            self._settings.tts = False
-        self._settings.save()
-
-    def _on_toggle_tts_cn(self) -> None:
-        if self.action_tts_cn.isChecked():
-            self.action_tts_jp.setChecked(False)
-            self._settings.tts = True
-            self._settings.tts_lang = 1
-        else:
-            self._settings.tts = False
-        self._settings.save()
 
     def _on_about(self) -> None:
         msg = QMessageBox(self)

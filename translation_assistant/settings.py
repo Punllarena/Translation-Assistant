@@ -33,8 +33,6 @@ class AppSettings:
         "ShowProgress": True,
         "AutoSave": 5,
         "OnTop": True,
-        "TTS": False,
-        "TTSLang": 0,
         "FontSize": 12.5,
     }
 
@@ -95,26 +93,6 @@ class AppSettings:
     @on_top.setter
     def on_top(self, value: bool) -> None:
         self._qs.setValue("OnTop", value)
-
-    # --- TTS enabled ---
-
-    @property
-    def tts(self) -> bool:
-        return self._qs.value("TTS", self._DEFAULTS["TTS"], type=bool)
-
-    @tts.setter
-    def tts(self, value: bool) -> None:
-        self._qs.setValue("TTS", value)
-
-    # --- TTS language (0 = Japanese, 1 = Chinese) ---
-
-    @property
-    def tts_lang(self) -> int:
-        return self._qs.value("TTSLang", self._DEFAULTS["TTSLang"], type=int)
-
-    @tts_lang.setter
-    def tts_lang(self, value: int) -> None:
-        self._qs.setValue("TTSLang", value)
 
     # --- splitter layout state ---
 
