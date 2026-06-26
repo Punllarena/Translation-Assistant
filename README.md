@@ -25,6 +25,8 @@ A desktop tool for Japanese/Chinese → English translation work. Port of the or
 - **Setup Guide** dialog walks through MeCab and JParser installation on first launch
 - **Usage statistics** — heatmap calendar and per-day table showing lines translated (**Help → Statistics**)
 - **Ollama translator** — local LLM translation via a running Ollama instance; configurable model and system prompt; streams tokens into the aggregator panel
+- **WordPress publisher** — publish a completed chapter to a WordPress site via the REST API; configure endpoint and credentials via **File → WordPress Settings**
+- **Customizable keyboard shortcuts** — rebind any action via **Settings → Customize Shortcuts**
 
 ---
 
@@ -36,7 +38,6 @@ A desktop tool for Japanese/Chinese → English translation work. Port of the or
 |---|---|---|
 | Python | 3.11+ | |
 | PySide6 | ≥ 6.6 | Qt6 GUI |
-| pyttsx3 | ≥ 2.90 | TTS stub (deferred) |
 | pyenchant | ≥ 3.2 | Spellcheck |
 | requests | ≥ 2.28 | Syosetu scraper |
 | beautifulsoup4 | ≥ 4.12 | Syosetu scraper |
@@ -93,7 +94,7 @@ python -m translation_assistant.main
 ## Testing
 
 ```bash
-pytest            # run all 559 tests
+pytest            # run all 683 tests
 pytest -q         # quiet output
 ```
 
@@ -199,7 +200,7 @@ Add a phrase via **Settings → Phrase** (Ctrl+L) or Ctrl+J to add the selected 
 
 ## Known gaps vs the original
 
-- **TTS** — the original used `Microsoft.Speech` (Windows-only). `pyttsx3` is wired in but the menu items are disabled; `espeak-ng` on Linux has limited Japanese/Chinese voice support. TTS is a deferred feature.
+- **TTS** — the original used `Microsoft.Speech` (Windows-only). TTS is not implemented in this port; `espeak-ng` on Linux has limited Japanese/Chinese voice support.
 - **Spellcheck on Linux** requires the system `libenchant-2` and a Hunspell dictionary package installed separately (see Setup above).
 
 ---
@@ -215,7 +216,7 @@ translation_assistant/
 ├── scraper.py         # Syosetu HTTP scraper + worker threads
 ├── settings.py        # QSettings wrapper (typed getters/setters)
 ├── spellcheck.py      # QSyntaxHighlighter + pyenchant
-├── tts.py             # TTS stub
+├── wp_publisher.py    # WordPress REST API client (no Qt)
 └── ui/
     ├── combined_window.py   # QMainWindow shell (menu bar + central widget)
     ├── main_widget.py       # Main application widget (state, navigation, actions)
@@ -228,9 +229,11 @@ translation_assistant/
     ├── dlg_series_phrases.py # Series phrase suggestions dialog
     ├── dlg_stats.py         # Usage statistics (heatmap + table)
     ├── dlg_setup.py         # Setup guide dialog (MeCab / JParser)
+    ├── dlg_shortcuts.py     # Keyboard shortcut customisation dialog
     ├── dlg_phrase.py        # Add phrase dialog
     ├── dlg_profile.py       # Profile manager dialog
-    └── dlg_profile_name.py  # Profile name input dialog
+    ├── dlg_profile_name.py  # Profile name input dialog
+    └── dlg_wp_settings.py   # WordPress endpoint / credentials dialog
 ta/                          # Translation Aggregator module
 ├── config/                  # Language and translator settings
 ├── core/                    # Clipboard, filter, history, substitutions
@@ -255,5 +258,7 @@ tests/
 ├── test_main_window.py       # main widget
 ├── test_scraper.py           # scraper
 ├── test_spellcheck.py        # spellcheck
+├── test_ollama.py            # Ollama translator
+├── test_wp_publisher.py      # WordPress publisher
 └── test_integration.py       # end-to-end
 ```
