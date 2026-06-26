@@ -175,6 +175,26 @@ def test_wp_api_key_roundtrip(tmp_settings):
     assert tmp_settings.wp_api_key == "secret123"
 
 
+def test_wp_password_enabled_default(tmp_settings):
+    assert tmp_settings.wp_password_enabled is False
+
+
+def test_wp_password_enabled_roundtrip(tmp_settings):
+    tmp_settings.wp_password_enabled = True
+    assert tmp_settings.wp_password_enabled is True
+    tmp_settings.wp_password_enabled = False
+    assert tmp_settings.wp_password_enabled is False
+
+
+def test_wp_unlock_after_default(tmp_settings):
+    assert tmp_settings.wp_unlock_after == 3
+
+
+def test_wp_unlock_after_roundtrip(tmp_settings):
+    tmp_settings.wp_unlock_after = 7
+    assert tmp_settings.wp_unlock_after == 7
+
+
 # ---------------------------------------------------------------------------
 # Keyboard shortcuts
 # ---------------------------------------------------------------------------

@@ -173,6 +173,24 @@ class AppSettings:
     def wp_api_key(self, value: str) -> None:
         self._qs.setValue("WPApiKey", value)
 
+    # --- WordPress password protection defaults ---
+
+    @property
+    def wp_password_enabled(self) -> bool:
+        return self._qs.value("WPPasswordEnabled", False, type=bool)
+
+    @wp_password_enabled.setter
+    def wp_password_enabled(self, value: bool) -> None:
+        self._qs.setValue("WPPasswordEnabled", value)
+
+    @property
+    def wp_unlock_after(self) -> int:
+        return self._qs.value("WPUnlockAfter", 3, type=int)
+
+    @wp_unlock_after.setter
+    def wp_unlock_after(self, value: int) -> None:
+        self._qs.setValue("WPUnlockAfter", value)
+
     # --- Open dialog: last selected series ---
 
     @property
