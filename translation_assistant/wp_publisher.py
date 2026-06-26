@@ -3,6 +3,8 @@ WordPress publish — payload builder and HTTP client. No Qt imports.
 """
 import json
 import re
+import secrets
+import string
 import urllib.request
 from urllib.error import HTTPError, URLError
 
@@ -46,7 +48,27 @@ def get_first_line(lines: list[dict]) -> str:
     return ""
 
 
-def build_payload(doc_meta: dict, series_meta: dict, lines: list[dict], api_key: str) -> dict:
+_ALPHANUM = string.ascii_letters + string.digits
+
+
+def compute_password_fields(
+    chapter_index: int, unlock_after: int
+) -> tuple[str | None, int | None]:
+    if chapter_index == 0 or chapter_index <= unlock_after:
+        return None, None
+    password = "".join(secrets.choice(_ALPHANUM) for _ in range(12))
+    unlock_idx = chapter_index - unlock_after
+    return password, (unlock_idx if unlock_idx > unlock_after else None)
+
+
+def build_payload(
+    doc_meta: dict,
+    series_meta: dict,
+    lines: list[dict],
+    api_key: str,
+    password: str | None = None,
+    unlock_chapter_index: int | None = None,
+) -> dict:
     if not series_meta.get("series_slug"):
         raise ValueError("series_slug is required — set it in Series Manager")
     if not series_meta.get("series_title_short"):
@@ -64,6 +86,10 @@ def build_payload(doc_meta: dict, series_meta: dict, lines: list[dict], api_key:
     }
     if doc_meta["series_order"] != 0:
         payload["first_line"] = get_first_line(lines)
+    if password is not None:
+        payload["password"] = password
+    if unlock_chapter_index is not None:
+        payload["unlock_chapter_index"] = unlock_chapter_index
     return payload
 
 

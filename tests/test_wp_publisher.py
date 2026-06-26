@@ -138,3 +138,58 @@ def test_publish_409_treated_as_success():
         result = publish("https://example.com/endpoint", {"api_key": "k"})
     assert result["created"] is False
     assert result["page_url"] == "https://site.com/series/"
+
+
+import secrets as _secrets
+
+from translation_assistant.wp_publisher import compute_password_fields, build_payload
+
+
+@pytest.mark.parametrize("chapter_index,unlock_after,expect_pw,expect_unlock", [
+    (0,  3, False, None),   # synopsis — always free
+    (1,  3, False, None),   # within free window
+    (3,  3, False, None),   # boundary — still free
+    (4,  3, True,  None),   # first locked chapter, no unlock yet
+    (6,  3, True,  None),   # 6-3=3, 3>3 is False — no unlock
+    (7,  3, True,  4),      # 7-3=4, 4>3 — unlock ch4
+    (11, 5, True,  6),      # 11-5=6, 6>5 — unlock ch6
+])
+def test_compute_password_fields(chapter_index, unlock_after, expect_pw, expect_unlock):
+    pw, unlock_idx = compute_password_fields(chapter_index, unlock_after)
+    assert (pw is not None) == expect_pw
+    assert unlock_idx == expect_unlock
+    if expect_pw:
+        assert len(pw) > 0
+
+
+def test_compute_password_fields_password_is_random():
+    pw1, _ = compute_password_fields(5, 3)
+    pw2, _ = compute_password_fields(5, 3)
+    assert pw1 != pw2
+
+
+def test_compute_password_fields_password_is_alphanumeric():
+    import string
+    pw, _ = compute_password_fields(5, 3)
+    assert pw is not None
+    assert len(pw) == 12
+    assert all(c in string.ascii_letters + string.digits for c in pw)
+
+
+def test_build_payload_includes_password_and_unlock():
+    doc_meta = {"series_title": "T", "series_order": 7, "chapter_title": "Ch7"}
+    series_meta = {"series_slug": "t", "series_title_short": "T", "syosetu_url": ""}
+    lines = [{"prefix": "%", "translated_text": "Hello"}]
+    payload = build_payload(doc_meta, series_meta, lines, "key",
+                            password="abc123", unlock_chapter_index=4)
+    assert payload["password"] == "abc123"
+    assert payload["unlock_chapter_index"] == 4
+
+
+def test_build_payload_omits_password_fields_when_none():
+    doc_meta = {"series_title": "T", "series_order": 1, "chapter_title": "Ch1"}
+    series_meta = {"series_slug": "t", "series_title_short": "T", "syosetu_url": ""}
+    lines = [{"prefix": "%", "translated_text": "Hello"}]
+    payload = build_payload(doc_meta, series_meta, lines, "key")
+    assert "password" not in payload
+    assert "unlock_chapter_index" not in payload
