@@ -313,7 +313,7 @@ class TestBuildReviewText:
     def test_single_line(self):
         raw = ["%hello"]
         tl = ["world"]
-        text, offsets = build_review_text(raw, tl, 0, 0)
+        text, offsets, _ = build_review_text(raw, tl, 0, 0)
         assert "hello" in text
         assert "world" in text
         assert 0 in offsets
@@ -321,7 +321,7 @@ class TestBuildReviewText:
     def test_continuation_grouped(self):
         raw = ["%A。", "$B"]
         tl = ["trans_A", "trans_B"]
-        text, offsets = build_review_text(raw, tl, 0, 1)
+        text, offsets, _ = build_review_text(raw, tl, 0, 1)
         # Both raw pieces on same line, translations below
         lines = text.split("\n")
         assert lines[0] == "A。B"
@@ -331,14 +331,14 @@ class TestBuildReviewText:
     def test_empty_line_produces_blank(self):
         raw = ["%A", "", "%B"]
         tl = ["tA", "", "tB"]
-        text, _ = build_review_text(raw, tl, 0, 2)
+        text, _, _ = build_review_text(raw, tl, 0, 2)
         # There should be a blank line between A and B groups
         assert "\n\n" in text or text.count("\n") >= 3
 
     def test_offset_map_populated(self):
         raw = ["%hello", "%world"]
         tl = ["t1", "t2"]
-        _, offsets = build_review_text(raw, tl, 0, 1)
+        _, offsets, _ = build_review_text(raw, tl, 0, 1)
         assert 0 in offsets
         assert 1 in offsets
 
@@ -346,7 +346,7 @@ class TestBuildReviewText:
         """Cursor strictly between start and end should identify the correct line."""
         raw = ["%AB", "%CD"]
         tl = ["", ""]
-        _, offsets = build_review_text(raw, tl, 0, 1)
+        _, offsets, _ = build_review_text(raw, tl, 0, 1)
         start0, end0 = offsets[0]
         # A cursor in the middle of line 0's text should be strictly between bounds
         mid = (start0 + end0) // 2
@@ -363,11 +363,29 @@ class TestBuildReviewText:
     def test_range_subset(self):
         raw = ["%A", "%B", "%C"]
         tl = ["tA", "tB", "tC"]
-        text, offsets = build_review_text(raw, tl, 1, 2)
+        text, offsets, _ = build_review_text(raw, tl, 1, 2)
         assert "A" not in text
         assert "B" in text
         assert 0 not in offsets
         assert 1 in offsets and 2 in offsets
+
+    def test_color_ranges_translated_group(self):
+        raw = ["%Hello"]
+        tl = ["こんにちは"]
+        text, offsets, colors = build_review_text(raw, tl, 0, 0)
+        assert len(colors) == 1
+        start, end, is_translated = colors[0]
+        assert is_translated is True
+        assert start == 0
+        assert end == len(text)
+
+    def test_color_ranges_untranslated_group(self):
+        raw = ["%Hello"]
+        tl = [""]
+        text, offsets, colors = build_review_text(raw, tl, 0, 0)
+        assert len(colors) == 1
+        _, _, is_translated = colors[0]
+        assert is_translated is False
 
 
 # ---------------------------------------------------------------------------

@@ -472,7 +472,7 @@ class MainWindow(QMainWindow):
 
         n = len(raw_lines)
         if p + 1 < n:
-            bottom_text, self._bottom_map = build_review_text(
+            bottom_text, self._bottom_map, _ = build_review_text(
                 raw_lines, translated_lines, p + 1, n - 1
             )
         else:
@@ -481,7 +481,7 @@ class MainWindow(QMainWindow):
         self._review_bottom.setPlainText(bottom_text)
 
         if p > 0:
-            top_text, self._top_map = build_review_text(raw_lines, translated_lines, 0, p - 1)
+            top_text, self._top_map, _ = build_review_text(raw_lines, translated_lines, 0, p - 1)
             self._review_top.setPlainText(top_text)
 
         self._line_label.setText(f"Line: {p + 1}/{n}")
@@ -518,7 +518,7 @@ class MainWindow(QMainWindow):
         n = len(self._raw_lines)
 
         if p > 0:
-            top_text, self._top_map = build_review_text(
+            top_text, self._top_map, _ = build_review_text(
                 self._raw_lines, self._translated_lines, 0, p - 1
             )
         else:
@@ -536,7 +536,7 @@ class MainWindow(QMainWindow):
         self._replaced = replaced
 
         if p < n - 1:
-            bottom_text, self._bottom_map = build_review_text(
+            bottom_text, self._bottom_map, _ = build_review_text(
                 self._raw_lines, self._translated_lines, p + 1, n - 1
             )
         else:

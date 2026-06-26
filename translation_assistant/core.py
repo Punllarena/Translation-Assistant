@@ -306,7 +306,7 @@ def build_review_text(
     translated_lines: list[str],
     start: int,
     end: int,
-) -> tuple[str, dict[int, tuple[int, int]]]:
+) -> tuple[str, dict[int, tuple[int, int]], list[tuple[int, int, bool]]]:
     """
     Build the display string for reviewTop or reviewBottom.
 
@@ -314,8 +314,9 @@ def build_review_text(
     row as their preceding '%' line.  Their translations are appended below,
     space-separated.  Empty raw lines produce blank lines.
 
-    Returns (display_text, offset_map) where
+    Returns (display_text, offset_map, color_ranges) where
     offset_map[i] = (char_start, char_end) for line index i.
+    color_ranges[i] = (group_start, group_end, is_translated) per visual group.
     The double-click handler uses strict `char_start < cursor_pos < char_end`
     to navigate — matching the VB linenumber comparison exactly.
 
@@ -323,12 +324,14 @@ def build_review_text(
     """
     parts: list[str] = []
     offset_map: dict[int, tuple[int, int]] = {}
+    color_ranges: list[tuple[int, int, bool]] = []
     char_pos = 0
     count = start
 
     while count <= end:
         line = raw_lines[count]
         if line:
+            group_start_off = char_pos
             # Group this line with any consecutive $-continuation lines
             group_size = 0
             while True:
@@ -358,13 +361,20 @@ def build_review_text(
 
             parts.append("\n\n")
             char_pos += 2
+
+            is_translated = all(
+                bool(translated_lines[count + x].strip())
+                for x in range(group_size)
+            )
+            color_ranges.append((group_start_off, char_pos, is_translated))
+
             count += group_size
         else:
             parts.append("\n")
             char_pos += 1
             count += 1
 
-    return "".join(parts), offset_map
+    return "".join(parts), offset_map, color_ranges
 
 
 def line_has_content(raw: str) -> bool:

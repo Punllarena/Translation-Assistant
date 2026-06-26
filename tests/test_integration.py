@@ -373,7 +373,7 @@ class TestEdgeCases:
     def test_continuation_line_display_has_both_parts(self, win):
         raw_lines = ["%Head。", "$Cont。", "%Other"]
         tl_lines = ["", "", ""]
-        text, omap = build_review_text(raw_lines, tl_lines, 1, 2)
+        text, omap, _ = build_review_text(raw_lines, tl_lines, 1, 2)
         # Both parts should appear in the display
         assert "Cont" in text
         assert "Other" in text
@@ -487,7 +487,7 @@ class TestLargeFile:
         p = self._make_large_file(tmp_path, 1000)
         raw_lines, tl_lines, _ = parse_file_content(p.read_text(encoding="utf-8"))
         t0 = time.monotonic()
-        text, omap = build_review_text(raw_lines, tl_lines, 0, len(raw_lines) - 1)
+        text, omap, _ = build_review_text(raw_lines, tl_lines, 0, len(raw_lines) - 1)
         elapsed = time.monotonic() - t0
         assert len(omap) == len(raw_lines)
         assert elapsed < 5.0, f"build_review_text took {elapsed:.2f}s"
