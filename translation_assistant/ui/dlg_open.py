@@ -1,14 +1,14 @@
 """
-Document picker dialog — shows all documents grouped by series in a tree view.
+Document picker dialog — two-panel layout with series list on left, chapter tree on right.
 """
 from datetime import datetime
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
-    QComboBox, QDialog, QFormLayout, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
-    QMessageBox, QPlainTextEdit, QPushButton, QSpinBox, QSplitter, QTreeWidget, QTreeWidgetItem,
-    QVBoxLayout,
+    QDialog, QFormLayout, QHBoxLayout, QHeaderView, QLineEdit,
+    QListWidget, QListWidgetItem, QMenu, QMessageBox, QPushButton, QSpinBox,
+    QSplitter, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
 from translation_assistant.db import Database
@@ -18,9 +18,9 @@ _NO_SERIES = "(No Series)"
 
 class OpenDocumentDialog(QDialog):
     """
-    Lists documents from the DB grouped by series_title.
-    Ungrouped documents appear under "(No Series)".
-    User selects a leaf item and clicks Open (or double-clicks).
+    Lists documents from the DB in a two-panel layout.
+    Left panel: series list. Right panel: chapter tree (flat, 4 cols).
+    User selects a chapter and clicks Open (or double-clicks).
     """
 
     def __init__(self, db: Database, parent=None, *, current_doc_id: int | None = None) -> None:
@@ -31,62 +31,64 @@ class OpenDocumentDialog(QDialog):
         self._source_urls: dict[int, str] = {}
         self._refetch_worker = None
         self._setup_ui()
-        self._load_documents()
+        self._load_series()
         if current_doc_id is not None:
             self._select_doc(current_doc_id)
+        elif self._series_list.count():
+            self._series_list.setCurrentRow(0)
 
     def _setup_ui(self) -> None:
         self.setWindowTitle("Open Document")
-        self.setMinimumSize(680, 400)
+        self.setMinimumSize(780, 460)
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(6)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(10, 10, 10, 10)
+        outer.setSpacing(6)
 
-        top_row = QHBoxLayout()
         self._filter_edit = QLineEdit()
-        self._filter_edit.setPlaceholderText("Filter by title…")
+        self._filter_edit.setPlaceholderText("Filter chapters…")
         self._filter_edit.textChanged.connect(self._apply_filter)
-        top_row.addWidget(self._filter_edit)
+        outer.addWidget(self._filter_edit)
 
-        self._sort_combo = QComboBox()
-        self._sort_combo.addItems([
-            "Series Order",
-            "Last Edited",
-            "Progress ↑",
-            "Progress ↓",
-            "Title A→Z",
-        ])
-        self._sort_combo.currentIndexChanged.connect(self._load_documents)
-        top_row.addWidget(self._sort_combo)
-        layout.addLayout(top_row)
+        self._splitter = QSplitter(Qt.Orientation.Horizontal)
+
+        self._series_list = QListWidget()
+        self._series_list.setFixedWidth(220)
+        self._series_list.currentItemChanged.connect(self._on_series_selected)
+        self._series_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._series_list.customContextMenuRequested.connect(self._on_series_context_menu)
+        self._splitter.addWidget(self._series_list)
+
+        right = QWidget()
+        right_layout = QVBoxLayout(right)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(0)
 
         self._tree = QTreeWidget()
-        self._tree.setColumnCount(3)
-        self._tree.setHeaderLabels(["Title", "Progress", "Last Edited"])
-        self._tree.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        self._tree.header().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        self._tree.setColumnCount(4)
+        self._tree.setHeaderLabels(["#", "Title", "Progress", "Last Edited"])
+        self._tree.header().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        self._tree.header().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self._tree.header().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self._tree.header().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        self._tree.header().setSectionsClickable(True)
+        self._tree.header().sectionClicked.connect(self._sort_chapters)
         self._tree.setSelectionBehavior(QTreeWidget.SelectionBehavior.SelectRows)
         self._tree.setEditTriggers(QTreeWidget.EditTrigger.NoEditTriggers)
-        self._tree.currentItemChanged.connect(self._on_selection_changed)
+        self._tree.currentItemChanged.connect(self._on_chapter_selection_changed)
         self._tree.itemDoubleClicked.connect(self._on_item_double_clicked)
-        self._tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self._tree.customContextMenuRequested.connect(self._on_context_menu)
         self._tree.itemActivated.connect(self._on_item_activated)
+        self._tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._tree.customContextMenuRequested.connect(self._on_chapter_context_menu)
+        right_layout.addWidget(self._tree)
 
-        self._splitter = QSplitter(Qt.Orientation.Vertical)
-        self._splitter.addWidget(self._tree)
+        self._splitter.addWidget(right)
+        self._splitter.setStretchFactor(1, 1)
+        outer.addWidget(self._splitter)
 
-        self._preview = QPlainTextEdit()
-        self._preview.setReadOnly(True)
-        preview_font = QFont("monospace")
-        preview_font.setPointSize(9)
-        self._preview.setFont(preview_font)
-        self._splitter.addWidget(self._preview)
-        self._splitter.setSizes([300, 80])
-        layout.addWidget(self._splitter)
+        self._sort_col = 0
+        self._sort_asc = True
 
         btn_row = QHBoxLayout()
         self._open_btn = QPushButton("Open")
@@ -109,92 +111,81 @@ class OpenDocumentDialog(QDialog):
         cancel_btn = QPushButton("Cancel")
         cancel_btn.clicked.connect(self.reject)
         btn_row.addStretch()
-        btn_row.addWidget(self._open_btn)
-        btn_row.addWidget(self._edit_btn)
-        btn_row.addWidget(self._edit_source_btn)
-        btn_row.addWidget(self._delete_btn)
-        btn_row.addWidget(self._refetch_btn)
-        btn_row.addWidget(cancel_btn)
-        layout.addLayout(btn_row)
+        for btn in (self._open_btn, self._edit_btn, self._edit_source_btn,
+                    self._delete_btn, self._refetch_btn, cancel_btn):
+            btn_row.addWidget(btn)
+        outer.addLayout(btn_row)
 
-    def _load_documents(self) -> None:
-        self._tree.clear()
-        self._doc_ids.clear()
-        self._source_urls.clear()
+    # ------------------------------------------------------------------
+    # Stub methods — implemented in Tasks 3–5
+    # ------------------------------------------------------------------
 
-        docs = self._db.list_documents()
-        if not docs:
+    def _load_series(self) -> None:
+        pass
+
+    def _load_chapters(self, series_raw: str) -> None:
+        pass
+
+    def _on_series_selected(self, current, _prev) -> None:
+        if current is None:
+            self._tree.clear()
+            self._doc_ids.clear()
+            self._source_urls.clear()
             return
+        self._load_chapters(current.data(Qt.ItemDataRole.UserRole))
 
-        groups: dict[str, QTreeWidgetItem] = {}
-        group_counts: dict[str, int] = {}
+    def _sort_chapters(self, col: int) -> None:
+        pass
 
-        idx = self._sort_combo.currentIndex() if hasattr(self, "_sort_combo") else 0
-        _display = lambda d: d["chapter_title"] if d["chapter_title"] else d["title"]
-        if idx == 1:  # Last Edited
-            docs_sorted = sorted(docs, key=lambda d: d["updated_at"] or "", reverse=True)
-        elif idx == 2:  # Progress ↑
-            docs_sorted = sorted(docs, key=lambda d: (d["progress"], d["series_title"] or _NO_SERIES, d["series_order"]))
-        elif idx == 3:  # Progress ↓
-            docs_sorted = sorted(docs, key=lambda d: (-d["progress"], d["series_title"] or _NO_SERIES, d["series_order"]))
-        elif idx == 4:  # Title A→Z
-            docs_sorted = sorted(docs, key=lambda d: (d["series_title"] or _NO_SERIES, _display(d)))
-        else:  # Series Order (default)
-            docs_sorted = sorted(docs, key=lambda d: (d["series_title"] or _NO_SERIES, d["series_order"]))
+    def _on_chapter_context_menu(self, pos) -> None:
+        pass
 
-        for doc in docs_sorted:
-            series = doc["series_title"] or _NO_SERIES
-            if series not in groups:
-                group_item = QTreeWidgetItem(self._tree, [series, "", ""])
-                group_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
-                font = group_item.font(0)
-                font.setBold(True)
-                group_item.setFont(0, font)
-                groups[series] = group_item
-                group_counts[series] = 0
+    def _on_series_context_menu(self, pos) -> None:
+        pass
 
-            display = doc["chapter_title"] if doc["chapter_title"] else doc["title"]
-            progress = f"{doc['progress']}%"
-            last_edited = _fmt_date(doc.get("updated_at", ""))
-            leaf = QTreeWidgetItem(groups[series], [display, progress, last_edited])
-            leaf.setTextAlignment(1, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+    def _current_series_raw(self) -> str | None:
+        item = self._series_list.currentItem()
+        return item.data(Qt.ItemDataRole.UserRole) if item else None
 
-            pct = doc["progress"]
-            if pct == 0:
-                leaf.setForeground(1, QColor("#888888"))
-            elif pct == 100:
-                leaf.setForeground(1, QColor("#2a8a2a"))
-            else:
-                leaf.setForeground(1, QColor("#c8a000"))
+    def _restore_series(self, series_raw: str | None) -> None:
+        if series_raw is None:
+            if self._series_list.count():
+                self._series_list.setCurrentRow(0)
+            return
+        for i in range(self._series_list.count()):
+            if self._series_list.item(i).data(Qt.ItemDataRole.UserRole) == series_raw:
+                self._series_list.setCurrentRow(i)
+                return
+        if self._series_list.count():
+            self._series_list.setCurrentRow(0)
 
-            self._doc_ids[id(leaf)] = doc["id"]
-            self._source_urls[id(leaf)] = doc.get("source_url", "")
-            group_counts[series] += 1
-
-        for series, group_item in groups.items():
-            count = group_counts[series]
-            group_item.setText(0, f"{series} ({count})")
-
-        self._tree.expandAll()
+    # ------------------------------------------------------------------
+    # Core navigation / selection
+    # ------------------------------------------------------------------
 
     def _select_doc(self, doc_id: int) -> None:
-        root = self._tree.invisibleRootItem()
-        for i in range(root.childCount()):
-            group = root.child(i)
-            for j in range(group.childCount()):
-                leaf = group.child(j)
-                if self._doc_ids.get(id(leaf)) == doc_id:
-                    self._tree.setCurrentItem(leaf)
-                    self._tree.scrollToItem(leaf)
-                    return
+        try:
+            doc = self._db.get_document(doc_id)
+        except ValueError:
+            return
+        series_raw = doc["series_title"] or ""
+        # Select the series (triggers _load_chapters)
+        for i in range(self._series_list.count()):
+            if self._series_list.item(i).data(Qt.ItemDataRole.UserRole) == series_raw:
+                self._series_list.setCurrentRow(i)
+                break
+        # Find chapter in (now-loaded) tree
+        for i in range(self._tree.topLevelItemCount()):
+            item = self._tree.topLevelItem(i)
+            if self._doc_ids.get(id(item)) == doc_id:
+                self._tree.setCurrentItem(item)
+                self._tree.scrollToItem(item)
+                return
 
     def _current_leaf(self) -> QTreeWidgetItem | None:
-        item = self._tree.currentItem()
-        if item is None or item.childCount() > 0:
-            return None
-        return item
+        return self._tree.currentItem()
 
-    def _on_selection_changed(self) -> None:
+    def _on_chapter_selection_changed(self) -> None:
         leaf = self._current_leaf()
         is_leaf = leaf is not None
         self._open_btn.setEnabled(is_leaf)
@@ -204,13 +195,9 @@ class OpenDocumentDialog(QDialog):
         has_url = is_leaf and bool(self._source_urls.get(id(leaf), ""))
         self._refetch_btn.setEnabled(has_url)
 
-        if not is_leaf:
-            self._preview.setPlainText("")
-        else:
-            doc_id = self._doc_ids[id(leaf)]
-            rows = self._db.get_lines(doc_id)
-            lines = [r["raw_text"] for r in rows if r["raw_text"]][:8]
-            self._preview.setPlainText("\n".join(lines))
+    # ------------------------------------------------------------------
+    # Button handlers
+    # ------------------------------------------------------------------
 
     def _on_open(self) -> None:
         leaf = self._current_leaf()
@@ -223,7 +210,7 @@ class OpenDocumentDialog(QDialog):
         leaf = self._current_leaf()
         if leaf is None:
             return
-        title = leaf.text(0)
+        title = leaf.text(1)
         answer = QMessageBox.question(
             self,
             "Delete Document",
@@ -233,13 +220,12 @@ class OpenDocumentDialog(QDialog):
         )
         if answer != QMessageBox.StandardButton.Yes:
             return
-        doc_id = self._doc_ids.pop(id(leaf))
-        self._db.delete_document(doc_id)
-        group = leaf.parent()
-        group.removeChild(leaf)
-        if group.childCount() == 0:
-            self._tree.invisibleRootItem().removeChild(group)
-        self._on_selection_changed()
+        doc_id = self._doc_ids.pop(id(leaf), None)
+        if doc_id is not None:
+            self._db.delete_document(doc_id)
+        series_raw = self._current_series_raw()
+        self._load_series()
+        self._restore_series(series_raw)
 
     def _on_edit(self) -> None:
         leaf = self._current_leaf()
@@ -261,9 +247,11 @@ class OpenDocumentDialog(QDialog):
         if leaf is None:
             return
         doc_id = self._doc_ids[id(leaf)]
-        dlg = _EditSourceDialog(doc_id, leaf.text(0), self._db, parent=self)
+        dlg = _EditSourceDialog(doc_id, leaf.text(1), self._db, parent=self)
         if dlg.exec() == QDialog.DialogCode.Accepted:
-            self._load_documents()
+            series_raw = self._current_series_raw()
+            self._load_series()
+            self._restore_series(series_raw)
             self._select_doc(doc_id)
 
     def _on_refetch(self) -> None:
@@ -305,14 +293,17 @@ class OpenDocumentDialog(QDialog):
         self._db.replace_raw_content(doc_id, raw_lines)
         self._refetch_worker = None
         self._refetch_btn.setText("Re-fetch")
-        self._load_documents()
+        series_raw = self._current_series_raw()
+        self._load_series()
+        self._restore_series(series_raw)
+        self._select_doc(doc_id)
         QMessageBox.information(self, "Re-fetch", "Content re-fetched successfully.")
 
     def _on_refetch_error(self, msg: str) -> None:
         from PySide6.QtWidgets import QMessageBox
         self._refetch_worker = None
         self._refetch_btn.setText("Re-fetch")
-        self._on_selection_changed()
+        self._on_chapter_selection_changed()
         QMessageBox.warning(self, "Re-fetch Failed", f"Error: {msg}")
 
     def closeEvent(self, event) -> None:
@@ -327,33 +318,18 @@ class OpenDocumentDialog(QDialog):
             series_order=series_order,
             chapter_title=chapter_title,
         )
-        self._load_documents()
+        series_raw = self._current_series_raw()
+        self._load_series()
+        self._restore_series(series_raw)
+        self._select_doc(doc_id)
 
     def _on_item_activated(self, item: QTreeWidgetItem, _col: int) -> None:
-        if item.childCount() > 0:
-            return
         self._selected_doc_id = self._doc_ids[id(item)]
         self.accept()
 
     def _on_item_double_clicked(self, item: QTreeWidgetItem, _col: int) -> None:
-        if item.childCount() > 0:
-            return
         self._selected_doc_id = self._doc_ids[id(item)]
         self.accept()
-
-    def _on_context_menu(self, pos) -> None:
-        item = self._tree.itemAt(pos)
-        if item is None:
-            return
-        if item.childCount() == 0:
-            item = item.parent()
-        if item is None or item.text(0).startswith(_NO_SERIES):
-            return
-        from PySide6.QtWidgets import QMenu
-        menu = QMenu(self)
-        action = menu.addAction("Manage Series…")
-        if menu.exec(self._tree.viewport().mapToGlobal(pos)) == action:
-            self._open_series_manager()
 
     def _open_series_manager(self) -> None:
         from translation_assistant.ui.dlg_series import SeriesManagerDialog
@@ -362,17 +338,10 @@ class OpenDocumentDialog(QDialog):
 
     def _apply_filter(self, text: str) -> None:
         query = text.strip().lower()
-        root = self._tree.invisibleRootItem()
-        for i in range(root.childCount()):
-            group = root.child(i)
-            any_visible = False
-            for j in range(group.childCount()):
-                leaf = group.child(j)
-                match = not query or query in leaf.text(0).lower()
-                leaf.setHidden(not match)
-                if match:
-                    any_visible = True
-            group.setHidden(not any_visible)
+        for i in range(self._tree.topLevelItemCount()):
+            item = self._tree.topLevelItem(i)
+            match = not query or query in item.text(1).lower()
+            item.setHidden(not match)
 
     @property
     def selected_doc_id(self) -> int | None:
@@ -444,6 +413,7 @@ class _EditSourceDialog(QDialog):
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(6)
 
+        from PySide6.QtWidgets import QPlainTextEdit
         self._editor = QPlainTextEdit()
         editor_font = QFont("monospace")
         editor_font.setPointSize(10)
