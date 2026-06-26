@@ -31,9 +31,12 @@ class OpenDocumentDialog(QDialog):
         3: lambda item: item.text(3),
     }
 
-    def __init__(self, db: Database, parent=None, *, current_doc_id: int | None = None) -> None:
+    def __init__(self, db: Database, parent=None, *,
+                 current_doc_id: int | None = None,
+                 settings=None) -> None:
         super().__init__(parent)
         self._db = db
+        self._settings = settings
         self._selected_doc_id: int | None = None
         self._doc_ids: dict[int, int] = {}  # id(QTreeWidgetItem) → doc_id
         self._source_urls: dict[int, str] = {}
@@ -42,8 +45,8 @@ class OpenDocumentDialog(QDialog):
         self._load_series()
         if current_doc_id is not None:
             self._select_doc(current_doc_id)
-        elif self._series_list.count():
-            self._series_list.setCurrentRow(0)
+        else:
+            self._restore_initial_series()
 
     def _setup_ui(self) -> None:
         self.setWindowTitle("Open Document")
@@ -183,13 +186,26 @@ class OpenDocumentDialog(QDialog):
         self._apply_filter(self._filter_edit.text())
         self._update_sort_header()
 
+    def _restore_initial_series(self) -> None:
+        last = self._settings.open_dialog_last_series if self._settings else ""
+        if last:
+            for i in range(self._series_list.count()):
+                if self._series_list.item(i).data(Qt.ItemDataRole.UserRole) == last:
+                    self._series_list.setCurrentRow(i)
+                    return
+        if self._series_list.count():
+            self._series_list.setCurrentRow(0)
+
     def _on_series_selected(self, current, _prev) -> None:
         if current is None:
             self._tree.clear()
             self._doc_ids.clear()
             self._source_urls.clear()
             return
-        self._load_chapters(current.data(Qt.ItemDataRole.UserRole))
+        series_raw = current.data(Qt.ItemDataRole.UserRole)
+        self._load_chapters(series_raw)
+        if self._settings:
+            self._settings.open_dialog_last_series = series_raw
 
     def _sort_chapters(self, col: int) -> None:
         if self._sort_col == col:

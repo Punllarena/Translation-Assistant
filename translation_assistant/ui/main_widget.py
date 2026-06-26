@@ -1125,7 +1125,11 @@ class TranslationAssistantWidget(QWidget):
     def _on_open(self) -> None:
         from translation_assistant.ui.dlg_open import OpenDocumentDialog
         with self._topmost_suspended():
-            dlg = OpenDocumentDialog(self._db, parent=self, current_doc_id=self._doc_id)
+            dlg = OpenDocumentDialog(
+                self._db, parent=self,
+                current_doc_id=self._doc_id,
+                settings=self._settings,
+            )
             if dlg.exec() and dlg.selected_doc_id is not None:
                 self.open_document(dlg.selected_doc_id)
 

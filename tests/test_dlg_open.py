@@ -8,6 +8,7 @@ tree item is a chapter.
 import sqlite3
 import pytest
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QDialog
 from translation_assistant.db import Database
 from translation_assistant.ui.dlg_open import OpenDocumentDialog
@@ -471,6 +472,23 @@ class TestOpenDocumentDialog:
         dlg._series_list.setCurrentRow(0)
         with patch.object(QMenu, "exec", return_value=None):
             dlg._on_series_context_menu(QPoint(0, 0))
+
+    def test_last_series_restored_on_open(self, qapp, mem_db, tmp_settings):
+        from unittest.mock import MagicMock
+        mem_db.create_document("Ch1", series_title="Novel A", chapter_title="Ch1")
+        mem_db.create_document("Ch2", series_title="Novel B", chapter_title="Ch2")
+        tmp_settings.open_dialog_last_series = "Novel B"
+        dlg = OpenDocumentDialog(mem_db, settings=tmp_settings)
+        selected = dlg._series_list.currentItem()
+        assert selected is not None
+        assert selected.data(Qt.ItemDataRole.UserRole) == "Novel B"
+
+    def test_series_selection_saved_to_settings(self, qapp, mem_db, tmp_settings):
+        mem_db.create_document("Ch1", series_title="Novel A", chapter_title="Ch1")
+        mem_db.create_document("Ch2", series_title="Novel B", chapter_title="Ch2")
+        dlg = OpenDocumentDialog(mem_db, settings=tmp_settings)
+        _select_series(dlg, "Novel A")
+        assert tmp_settings.open_dialog_last_series == "Novel A"
 
 
 class TestEditSourceDialog:
