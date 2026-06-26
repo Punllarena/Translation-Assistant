@@ -416,11 +416,12 @@ class TestNewFileDialog:
         dlg._on_fetch_done("", "Content only.")
         assert dlg._chapter_edit.text() == "Already Set"
 
-    def test_on_fetch_done_puts_title_in_fetch_box(self, qapp, mem_db):
+    def test_on_fetch_done_puts_content_in_fetch_box_title_in_chapter_edit(self, qapp, mem_db):
         dlg = NewFileDialog(mem_db)
         dlg._on_fetch_done("Chapter Title", "Body text.")
-        assert "Chapter Title" in dlg._fetch_box.toPlainText()
+        assert "Chapter Title" not in dlg._fetch_box.toPlainText()
         assert "Body text." in dlg._fetch_box.toPlainText()
+        assert dlg._chapter_edit.text() == "Chapter Title"
 
     def test_source_url_property_returns_url_on_fetch_tab(self, qapp, mem_db):
         dlg = NewFileDialog(mem_db)
@@ -439,7 +440,7 @@ class TestNewFileDialog:
 # ---------------------------------------------------------------------------
 
 class TestFetchSeriesDialog:
-    def test_on_chapter_done_prepends_title_to_raw_content(self, qapp, mem_db):
+    def test_on_chapter_done_stores_title_as_metadata_not_raw_content(self, qapp, mem_db):
         from unittest.mock import patch
         from translation_assistant.ui.dlg_fetch_series import FetchSeriesDialog
 
@@ -448,8 +449,10 @@ class TestFetchSeriesDialog:
 
         dlg._on_chapter_done(1, "第一話　始まり", "本文です。", "https://ncode.syosetu.com/n1234ab/1/")
 
-        lines = mem_db.get_lines(mem_db.list_documents()[0]["id"])
-        assert lines[0]["raw_text"] == "第一話　始まり"
+        doc = mem_db.list_documents()[0]
+        assert doc["chapter_title"] == "第一話　始まり"
+        lines = mem_db.get_lines(doc["id"])
+        assert all("第一話　始まり" not in ln["raw_text"] for ln in lines)
 
     def test_on_chapter_done_no_title_does_not_prepend_blank(self, qapp, mem_db):
         from unittest.mock import patch

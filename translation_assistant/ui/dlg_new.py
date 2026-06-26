@@ -174,8 +174,7 @@ class NewFileDialog(QDialog):
         self._worker.start()
 
     def _on_fetch_done(self, title: str, content: str) -> None:
-        combined = f"{title}\n\n{content}" if title else content
-        self._fetch_box.setPlainText(combined)
+        self._fetch_box.setPlainText(content)
         if title:
             self._chapter_edit.setText(title)
         self._fetch_status.setText("Done")

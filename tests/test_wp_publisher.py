@@ -84,7 +84,7 @@ def test_build_payload_chapter():
     assert payload["series_title_short"] == "SotW"
     assert payload["series_link"] == "https://ncode.syosetu.com/n1234ab/"
     assert payload["chapter_index"] == 1
-    assert payload["chapter_title"] == "The Beginning"
+    assert payload["chapter_title"] == "SotW The Beginning"
     assert payload["chapter_body"] == "<p>Hello</p>\n<p>World</p>"
     assert payload["first_line"] == "Hello"
 

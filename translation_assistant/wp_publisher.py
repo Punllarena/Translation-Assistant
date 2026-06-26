@@ -59,7 +59,7 @@ def build_payload(doc_meta: dict, series_meta: dict, lines: list[dict], api_key:
         "series_title_short": series_meta["series_title_short"],
         "series_link":        series_meta["syosetu_url"],
         "chapter_index":      doc_meta["series_order"],
-        "chapter_title":      doc_meta["chapter_title"],
+        "chapter_title":      f"{series_meta['series_title_short']} {doc_meta['chapter_title']}",
         "chapter_body":       build_chapter_body(lines),
     }
     if doc_meta["series_order"] != 0:
