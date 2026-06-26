@@ -215,10 +215,43 @@ class OpenDocumentDialog(QDialog):
             self._tree.headerItem().setText(col, label + arrow)
 
     def _on_chapter_context_menu(self, pos) -> None:
-        pass
+        item = self._tree.itemAt(pos)
+        if item is None:
+            return
+        self._tree.setCurrentItem(item)
+        menu = QMenu(self)
+        act_open = menu.addAction("Open")
+        menu.addSeparator()
+        act_edit = menu.addAction("Edit…")
+        act_edit_src = menu.addAction("Edit Source…")
+        menu.addSeparator()
+        act_refetch = menu.addAction("Re-fetch")
+        act_refetch.setEnabled(bool(self._source_urls.get(id(item), "")))
+        menu.addSeparator()
+        act_delete = menu.addAction("Delete")
+        chosen = menu.exec(self._tree.viewport().mapToGlobal(pos))
+        if chosen == act_open:
+            self._on_open()
+        elif chosen == act_edit:
+            self._on_edit()
+        elif chosen == act_edit_src:
+            self._on_edit_source()
+        elif chosen == act_refetch:
+            self._on_refetch()
+        elif chosen == act_delete:
+            self._on_delete()
 
     def _on_series_context_menu(self, pos) -> None:
-        pass
+        item = self._series_list.itemAt(pos)
+        if item is None:
+            return
+        series_raw = item.data(Qt.ItemDataRole.UserRole)
+        if series_raw == "":
+            return  # no menu for (No Series)
+        menu = QMenu(self)
+        act = menu.addAction("Manage Series…")
+        if menu.exec(self._series_list.viewport().mapToGlobal(pos)) == act:
+            self._open_series_manager()
 
     def _current_series_raw(self) -> str | None:
         item = self._series_list.currentItem()
