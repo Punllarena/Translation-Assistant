@@ -222,3 +222,16 @@ def test_font_size_persists(qapp, tmp_path):
     s1.save()
     s2 = AppSettings(_qs=QSettings(ini, QSettings.Format.IniFormat))
     assert s2.font_size == 16.0
+
+
+# ---------------------------------------------------------------------------
+# open_dialog_last_series
+# ---------------------------------------------------------------------------
+
+def test_open_dialog_last_series_default(tmp_settings):
+    assert tmp_settings.open_dialog_last_series == ""
+
+
+def test_open_dialog_last_series_roundtrip(tmp_settings):
+    tmp_settings.open_dialog_last_series = "My Novel"
+    assert tmp_settings.open_dialog_last_series == "My Novel"

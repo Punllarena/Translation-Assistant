@@ -173,6 +173,16 @@ class AppSettings:
     def wp_api_key(self, value: str) -> None:
         self._qs.setValue("WPApiKey", value)
 
+    # --- Open dialog: last selected series ---
+
+    @property
+    def open_dialog_last_series(self) -> str:
+        return self._qs.value("OpenDialogLastSeries", "")
+
+    @open_dialog_last_series.setter
+    def open_dialog_last_series(self, value: str) -> None:
+        self._qs.setValue("OpenDialogLastSeries", value)
+
     def save(self) -> None:
         """Flush settings to disk immediately."""
         self._qs.sync()
