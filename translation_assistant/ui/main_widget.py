@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, Qt, QThread, QTimer, Signal, Slot
-from PySide6.QtGui import QAction, QFont, QKeyEvent, QTextCursor
+from PySide6.QtGui import QAction, QColor, QFont, QKeyEvent, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import (
     QApplication, QFileDialog, QFrame, QInputDialog, QLabel, QMenu,
     QMessageBox, QProgressBar, QSizePolicy, QSplitter, QStatusBar, QTextEdit, QVBoxLayout, QWidget,
@@ -631,17 +631,20 @@ class TranslationAssistantWidget(QWidget):
 
         n = len(raw_lines)
         if p + 1 < n:
-            bottom_text, self._bottom_map, _ = build_review_text(
+            bottom_text, self._bottom_map, _bottom_colors = build_review_text(
                 raw_lines, translated_lines, p + 1, n - 1
             )
         else:
-            bottom_text = ""
-            self._bottom_map = {}
+            bottom_text, self._bottom_map, _bottom_colors = "", {}, []
         self._review_bottom.setPlainText(bottom_text)
+        self._apply_review_colors(self._review_bottom, _bottom_colors)
 
         if p > 0:
-            top_text, self._top_map, _ = build_review_text(raw_lines, translated_lines, 0, p - 1)
+            top_text, self._top_map, _top_colors = build_review_text(
+                raw_lines, translated_lines, 0, p - 1
+            )
             self._review_top.setPlainText(top_text)
+            self._apply_review_colors(self._review_top, _top_colors)
 
         self._line_label.setText(f"Line: {p + 1}/{n}")
         pct, wc = calculate_progress(raw_lines, translated_lines)
@@ -700,12 +703,13 @@ class TranslationAssistantWidget(QWidget):
         n = len(self._raw_lines)
 
         if p > 0:
-            top_text, self._top_map, _ = build_review_text(
+            top_text, self._top_map, _top_colors = build_review_text(
                 self._raw_lines, self._translated_lines, 0, p - 1
             )
         else:
-            top_text, self._top_map = "", {}
+            top_text, self._top_map, _top_colors = "", {}, []
         self._review_top.setPlainText(top_text)
+        self._apply_review_colors(self._review_top, _top_colors)
         self._review_top.moveCursor(QTextCursor.MoveOperation.End)
 
         display, sentences, replaced = replace_and_parse(
@@ -720,12 +724,13 @@ class TranslationAssistantWidget(QWidget):
         self._replaced = replaced
 
         if p < n - 1:
-            bottom_text, self._bottom_map, _ = build_review_text(
+            bottom_text, self._bottom_map, _bottom_colors = build_review_text(
                 self._raw_lines, self._translated_lines, p + 1, n - 1
             )
         else:
-            bottom_text, self._bottom_map = "", {}
+            bottom_text, self._bottom_map, _bottom_colors = "", {}, []
         self._review_bottom.setPlainText(bottom_text)
+        self._apply_review_colors(self._review_bottom, _bottom_colors)
         cursor = self._review_bottom.textCursor()
         cursor.movePosition(QTextCursor.MoveOperation.Start)
         self._review_bottom.setTextCursor(cursor)
@@ -775,6 +780,22 @@ class TranslationAssistantWidget(QWidget):
                 sep.setFrameShape(QFrame.Shape.HLine)
                 sep.setStyleSheet("color: palette(mid);")
                 self._tm_layout.addWidget(sep)
+
+    def _apply_review_colors(
+        self, widget: "QTextEdit", ranges: list[tuple[int, int, bool]]
+    ) -> None:
+        if not ranges:
+            return
+        doc = widget.document()
+        translated_color = QColor(100, 200, 100, 60)
+        untranslated_color = QColor(220, 80, 80, 60)
+        fmt = QTextCharFormat()
+        for start, end, is_translated in ranges:
+            fmt.setBackground(translated_color if is_translated else untranslated_color)
+            cursor = QTextCursor(doc)
+            cursor.setPosition(start)
+            cursor.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
+            cursor.mergeCharFormat(fmt)
 
     def _update_progress_visibility(self) -> None:
         visible = self._settings.show_progress and self._doc_id is not None
