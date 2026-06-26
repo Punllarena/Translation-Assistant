@@ -24,6 +24,13 @@ class OpenDocumentDialog(QDialog):
     User selects a chapter and clicks Open (or double-clicks).
     """
 
+    _SORT_KEYS = {
+        0: lambda item: item.data(0, Qt.ItemDataRole.UserRole) or 0,
+        1: lambda item: item.text(1).lower(),
+        2: lambda item: item.data(2, Qt.ItemDataRole.UserRole) or 0,
+        3: lambda item: item.text(3),
+    }
+
     def __init__(self, db: Database, parent=None, *, current_doc_id: int | None = None) -> None:
         super().__init__(parent)
         self._db = db
@@ -68,7 +75,7 @@ class OpenDocumentDialog(QDialog):
 
         self._tree = QTreeWidget()
         self._tree.setColumnCount(4)
-        self._tree.setHeaderLabels(["#", "Title", "Progress", "Last Edited"])
+        self._tree.setHeaderLabels(_CHAPTER_HEADERS)
         self._tree.header().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         self._tree.header().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self._tree.header().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
@@ -185,10 +192,27 @@ class OpenDocumentDialog(QDialog):
         self._load_chapters(current.data(Qt.ItemDataRole.UserRole))
 
     def _sort_chapters(self, col: int) -> None:
-        pass
+        if self._sort_col == col:
+            self._sort_asc = not self._sort_asc
+        else:
+            self._sort_col = col
+            self._sort_asc = True
+        count = self._tree.topLevelItemCount()
+        items = [self._tree.takeTopLevelItem(0) for _ in range(count)]
+        key_fn = self._SORT_KEYS.get(col, lambda item: item.text(1).lower())
+        items.sort(key=key_fn, reverse=not self._sort_asc)
+        for item in items:
+            self._tree.addTopLevelItem(item)
+        self._update_sort_header()
 
     def _update_sort_header(self) -> None:
-        pass
+        headers = _CHAPTER_HEADERS
+        for col, label in enumerate(headers):
+            if col == self._sort_col:
+                arrow = " ▲" if self._sort_asc else " ▼"
+            else:
+                arrow = ""
+            self._tree.headerItem().setText(col, label + arrow)
 
     def _on_chapter_context_menu(self, pos) -> None:
         pass
