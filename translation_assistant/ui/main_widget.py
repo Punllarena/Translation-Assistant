@@ -177,9 +177,10 @@ class TranslationAssistantWidget(QWidget):
         # Progress
         self._tl_complete: int = 0
 
-        # Last-publish password state (set in _on_publish_wp, read in _on_publish_done)
+        # Last-publish password/schedule state (set in _on_publish_wp, read in _on_publish_done)
         self._last_pw: str | None = None
         self._last_unlock_idx: int | None = None
+        self._last_scheduled_date: str | None = None
 
         self._build_actions()
         self._build_shortcut_registry()
@@ -327,6 +328,7 @@ class TranslationAssistantWidget(QWidget):
             ("open",           "Open",                      self.action_open,           "Ctrl+O"),
             ("save",           "Save",                      self.action_save,           "Ctrl+S"),
             ("profile",        "Profile",                   self.action_profile,        "Ctrl+P"),
+            ("publish_wp",     "Publish to WordPress",      self.action_publish_wp,     "Ctrl+Shift+W"),
             ("phrase",         "Phrase",                    self.action_phrase,         "Ctrl+L"),
             ("go_to_line",     "Go to Line",                self.action_go_to_line,     "Ctrl+G"),
             ("clipboard",      "Copy to Clipboard",         self.action_clipboard,      "Ctrl+Shift+C"),
@@ -1378,23 +1380,46 @@ class TranslationAssistantWidget(QWidget):
             QMessageBox.warning(self, "Nothing to Publish", "No translated lines to publish.")
             return
 
+        chapter_label = "Synopsis" if doc_meta["series_order"] == 0 else f"Chapter {doc_meta['series_order']}"
+
+        from PySide6.QtWidgets import QCheckBox, QDateTimeEdit, QDialog, QDialogButtonBox, QVBoxLayout
+        from PySide6.QtCore import QDateTime, Qt as _Qt
+
+        confirm_dlg = QDialog(self)
+        confirm_dlg.setWindowTitle("Publish to WordPress")
+        confirm_dlg.setWindowFlags(confirm_dlg.windowFlags() & ~_Qt.WindowType.WindowContextHelpButtonHint)
+        _cl = QVBoxLayout(confirm_dlg)
+        _cl.addWidget(QLabel(f'Publish <b>{doc_meta["chapter_title"]}</b> ({chapter_label}) to WordPress?'))
+        schedule_cb = QCheckBox("Schedule for later")
+        _cl.addWidget(schedule_cb)
+        dte = QDateTimeEdit(QDateTime.currentDateTime().addSecs(3600))
+        dte.setCalendarPopup(True)
+        dte.setDisplayFormat("yyyy-MM-dd HH:mm")
+        dte.setEnabled(False)
+        schedule_cb.toggled.connect(dte.setEnabled)
+        _cl.addWidget(dte)
+        _btns = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        _btns.accepted.connect(confirm_dlg.accept)
+        _btns.rejected.connect(confirm_dlg.reject)
+        _cl.addWidget(_btns)
+        if not confirm_dlg.exec():
+            return
+
+        self._last_scheduled_date = None
+        if schedule_cb.isChecked():
+            from datetime import timezone as _tz
+            _local = dte.dateTime().toPython()
+            self._last_scheduled_date = _local.astimezone(_tz.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
         try:
             payload = build_payload(
                 doc_meta, series_meta, lines, api_key=api_key,
                 password=self._last_pw,
                 unlock_chapter_index=self._last_unlock_idx,
+                scheduled_date=self._last_scheduled_date,
             )
         except ValueError as exc:
             QMessageBox.warning(self, "Payload Error", str(exc))
-            return
-
-        chapter_label = "Synopsis" if doc_meta["series_order"] == 0 else f"Chapter {doc_meta['series_order']}"
-        confirm = QMessageBox.question(
-            self,
-            "Publish to WordPress",
-            f"Publish <b>{doc_meta['chapter_title']}</b> ({chapter_label}) to WordPress?",
-        )
-        if confirm != QMessageBox.StandardButton.Yes:
             return
 
         self.action_publish_wp.setEnabled(False)
@@ -1419,7 +1444,7 @@ class TranslationAssistantWidget(QWidget):
         dlg.setMinimumWidth(420)
         layout = QVBoxLayout(dlg)
 
-        status_label = QLabel("Already published." if already else "Published!")
+        status_label = QLabel("Already published." if already else ("Scheduled!" if self._last_scheduled_date else "Published!"))
         layout.addWidget(status_label)
 
         form = QFormLayout()

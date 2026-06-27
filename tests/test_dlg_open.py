@@ -457,11 +457,13 @@ class TestOpenDocumentDialog:
         assert hasattr(dlg, "_series_list")
 
     def test_chapter_context_menu_no_crash_no_selection(self, qapp, mem_db):
+        from unittest.mock import patch
         from PySide6.QtCore import QPoint
+        from PySide6.QtWidgets import QMenu
         mem_db.create_document("Doc")
         dlg = OpenDocumentDialog(mem_db)
-        # No current item; menu should silently do nothing
-        dlg._on_chapter_context_menu(QPoint(0, 0))
+        with patch.object(QMenu, "exec", return_value=None):
+            dlg._on_chapter_context_menu(QPoint(0, 0))
 
     def test_series_context_menu_no_crash_for_named_series(self, qapp, mem_db):
         from unittest.mock import patch

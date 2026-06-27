@@ -82,6 +82,7 @@ def build_payload(
     api_key: str,
     password: str | None = None,
     unlock_chapter_index: int | None = None,
+    scheduled_date: str | None = None,
 ) -> dict:
     if not series_meta.get("series_slug"):
         raise ValueError("series_slug is required — set it in Series Manager")
@@ -104,6 +105,8 @@ def build_payload(
         payload["password"] = password
     if unlock_chapter_index is not None:
         payload["unlock_chapter_index"] = unlock_chapter_index
+    if scheduled_date is not None:
+        payload["publish_date"] = scheduled_date
     return payload
 
 
