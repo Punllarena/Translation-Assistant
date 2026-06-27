@@ -30,13 +30,16 @@ class SourcePanel(QWidget):
         toolbar.setContentsMargins(0, 0, 0, 0)
 
         self._translate_btn = QPushButton("▶▶ Translate All")
+        self._translate_btn.setObjectName("TranslateAllBtn")
         self._translate_btn.clicked.connect(self._on_translate)
         toolbar.addWidget(self._translate_btn)
 
         toolbar.addSpacing(8)
 
         self._src_combo = QComboBox()
+        self._src_combo.setObjectName("LangSource")
         self._dst_combo = QComboBox()
+        self._dst_combo.setObjectName("LangTarget")
         names = display_names()
         for name, lang in names:
             self._src_combo.addItem(name, lang)
@@ -47,6 +50,13 @@ class SourcePanel(QWidget):
         self._dst_combo.currentIndexChanged.connect(self._on_lang_changed)
 
         toolbar.addWidget(self._src_combo)
+
+        self._swap_btn = QPushButton("⇄")
+        self._swap_btn.setObjectName("LangSwap")
+        self._swap_btn.setToolTip("Swap source and target languages")
+        self._swap_btn.clicked.connect(self._on_swap)
+        toolbar.addWidget(self._swap_btn)
+
         toolbar.addWidget(self._dst_combo)
 
         toolbar.addSpacing(8)
@@ -74,6 +84,7 @@ class SourcePanel(QWidget):
 
         # Source text input
         self._text_edit = QTextEdit()
+        self._text_edit.setObjectName("AggSourceText")
         self._text_edit.setPlaceholderText("Paste Japanese text here…")
         self._text_edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self._text_edit.setMaximumHeight(120)
@@ -84,6 +95,12 @@ class SourcePanel(QWidget):
             if combo.itemData(i) == lang:
                 combo.setCurrentIndex(i)
                 return
+
+    def _on_swap(self) -> None:
+        src_idx = self._src_combo.currentIndex()
+        dst_idx = self._dst_combo.currentIndex()
+        self._src_combo.setCurrentIndex(dst_idx)
+        self._dst_combo.setCurrentIndex(src_idx)
 
     def _on_translate(self) -> None:
         text = self._text_edit.toPlainText().strip()

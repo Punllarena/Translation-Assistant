@@ -2,7 +2,9 @@
 Application entry point.
 """
 import sys
+from pathlib import Path
 
+from PySide6.QtGui import QFontDatabase
 from PySide6.QtWidgets import QApplication
 
 from translation_assistant.db import Database
@@ -10,11 +12,28 @@ from translation_assistant.migration import run_startup_migration
 from translation_assistant.settings import AppSettings, _get_app_root
 from translation_assistant.ui.combined_window import CombinedMainWindow
 
+_RESOURCES = Path(__file__).parent / "resources"
+
+
+def _load_qss() -> str:
+    p = _RESOURCES / "style.qss"
+    return p.read_text(encoding="utf-8") if p.exists() else ""
+
+
+def _load_fonts() -> None:
+    fonts_dir = _RESOURCES / "fonts"
+    if fonts_dir.is_dir():
+        for ttf in fonts_dir.glob("*.ttf"):
+            QFontDatabase.addApplicationFont(str(ttf))
+
 
 def main() -> None:
     app = QApplication(sys.argv)
     app.setApplicationName("Translation Assistant")
     app.setOrganizationName("joeglens")
+
+    _load_fonts()
+    app.setStyleSheet(_load_qss())
 
     settings = AppSettings()
     db = Database(settings.db_path)

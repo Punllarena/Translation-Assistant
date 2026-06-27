@@ -375,12 +375,13 @@ class TranslationAssistantWidget(QWidget):
             vbox.setContentsMargins(0, 0, 0, 0)
             vbox.setSpacing(0)
             lbl = QLabel(title)
-            lbl.setStyleSheet("font-size: 9pt; color: gray; padding: 1px 4px;")
+            lbl.setObjectName("PanelLabel")
             vbox.addWidget(lbl)
             vbox.addWidget(inner)
             return w
 
         self._review_top = ReviewTextEdit()
+        self._review_top.setObjectName("ContextAbove")
         self._review_top.setReadOnly(True)
         self._review_top.setFont(font)
         self._review_top.setPlaceholderText(
@@ -395,13 +396,14 @@ class TranslationAssistantWidget(QWidget):
         self._splitter.addWidget(_labeled("Context (Above)", self._review_top))
 
         self._raw_line = QTextEdit()
+        self._raw_line.setObjectName("SourceText")
         self._raw_line.setReadOnly(True)
         self._raw_line.setFont(font)
         self._raw_line.setMinimumHeight(40)
         self._raw_line.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         self._raw_line.setPlaceholderText("No document open — File → New or Ctrl+O")
         self._source_label = QLabel("Source (read-only)")
-        self._source_label.setStyleSheet("font-size: 9pt; color: gray; padding: 1px 4px;")
+        self._source_label.setObjectName("PanelLabel")
         _source_wrapper = QWidget()
         _sw_vbox = QVBoxLayout(_source_wrapper)
         _sw_vbox.setContentsMargins(0, 0, 0, 0)
@@ -421,7 +423,7 @@ class TranslationAssistantWidget(QWidget):
         _tw_vbox.setContentsMargins(0, 0, 0, 0)
         _tw_vbox.setSpacing(0)
         _tm_lbl = _ClickableLabel("TM Matches")
-        _tm_lbl.setStyleSheet("font-size: 9pt; color: gray; padding: 1px 4px;")
+        _tm_lbl.setObjectName("PanelLabel")
         _tm_lbl.clicked.connect(self._toggle_tm_panel)
         _tw_vbox.addWidget(_tm_lbl)
         _tw_vbox.addWidget(self._tm_panel)
@@ -429,6 +431,7 @@ class TranslationAssistantWidget(QWidget):
         self._splitter.addWidget(self._tm_wrapper)
 
         self._translated_line = QTextEdit()
+        self._translated_line.setObjectName("TranslationText")
         self._translated_line.setFont(font)
         self._translated_line.setMinimumHeight(40)
         self._translated_line.setAcceptRichText(False)
@@ -437,7 +440,7 @@ class TranslationAssistantWidget(QWidget):
         self._translated_line.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._translated_line.customContextMenuRequested.connect(self._on_translated_context_menu)
         self._translation_label = QLabel("Translation")
-        self._translation_label.setStyleSheet("font-size: 9pt; color: gray; padding: 1px 4px;")
+        self._translation_label.setObjectName("PanelLabel")
         _tl_wrapper = QWidget()
         _tl_vbox = QVBoxLayout(_tl_wrapper)
         _tl_vbox.setContentsMargins(0, 0, 0, 0)
@@ -448,6 +451,7 @@ class TranslationAssistantWidget(QWidget):
         self._spell_highlighter = SpellHighlighter(self._translated_line.document())
 
         self._review_bottom = ReviewTextEdit()
+        self._review_bottom.setObjectName("ContextBelow")
         self._review_bottom.setReadOnly(True)
         self._review_bottom.setFont(font)
         self._review_bottom.setPlaceholderText(

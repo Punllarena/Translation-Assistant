@@ -31,6 +31,7 @@ class TranslationPanel(QWidget):
         title_bar.setContentsMargins(0, 0, 0, 0)
 
         self._enable_cb = QCheckBox(self._translator.name)
+        self._enable_cb.setObjectName("EngineCheckbox")
         self._enable_cb.setChecked(True)
         self._enable_cb.stateChanged.connect(self._on_toggle)
         title_bar.addWidget(self._enable_cb)
@@ -38,10 +39,13 @@ class TranslationPanel(QWidget):
         title_bar.addStretch()
 
         self._status_label = QLabel("")
+        self._status_label.setObjectName("EngineStatus")
+        self._status_label.setProperty("state", "idle")
         self._status_label.setAlignment(Qt.AlignmentFlag.AlignRight)
         title_bar.addWidget(self._status_label)
 
         self._translate_btn = QPushButton("▶")
+        self._translate_btn.setObjectName("EngineRunBtn")
         self._translate_btn.setFixedWidth(28)
         self._translate_btn.setToolTip(f"Translate with {self._translator.name}")
         self._translate_btn.clicked.connect(self._on_single_translate)
@@ -51,6 +55,7 @@ class TranslationPanel(QWidget):
 
         # Output text area
         self._output = QTextEdit()
+        self._output.setObjectName("AggTranslationText")
         self._output.setReadOnly(True)
         self._output.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         layout.addWidget(self._output)
@@ -72,26 +77,32 @@ class TranslationPanel(QWidget):
         self._current_src = src
         self._current_dst = dst
 
+    def _set_status(self, state: str, text: str) -> None:
+        self._status_label.setText(text)
+        self._status_label.setProperty("state", state)
+        self._status_label.style().unpolish(self._status_label)
+        self._status_label.style().polish(self._status_label)
+
     def _on_ready(self, text: str) -> None:
         if text:
             if text.startswith("<html"):
                 self._output.setHtml(text)
             else:
                 self._output.setPlainText(text)
-        self._status_label.setText("✓")
+        self._set_status("ok", "✓")
 
     def _on_error(self, msg: str) -> None:
         self._output.setPlainText(f"[Error] {msg}")
-        self._status_label.setText("✗")
+        self._set_status("error", "✗")
 
     def _on_started(self) -> None:
         self._output.clear()
-        self._status_label.setText("…")
+        self._set_status("working", "…")
 
     def _on_chunk(self, token: str) -> None:
         self._output.moveCursor(QTextCursor.MoveOperation.End)
         self._output.insertPlainText(token)
-        self._status_label.setText("…")
+        self._set_status("working", "…")
 
     def _on_toggle(self, state: int) -> None:
         enabled = bool(state)
