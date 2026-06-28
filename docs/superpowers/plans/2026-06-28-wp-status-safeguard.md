@@ -24,7 +24,7 @@
 | File | Change |
 |------|--------|
 | `/home/pun/workspace/wp-dev/plugins/translation-assistant-publisher/translation-assistant-publisher.php` | Add `GET /status` route + handler |
-| `wp-dev/plugins/translation-assistant-publisher/includes/class-publisher.php` | Add `get_chapter_status()` method |
+| `/home/pun/workspace/wp-dev/plugins/translation-assistant-publisher/includes/class-publisher.php` | Add `get_chapter_status()` method |
 | `translation_assistant/wp_publisher.py` | Add `check_status()`, `import urllib.parse` |
 | `translation_assistant/db.py` | Add `wp_status`/`wp_post_url` columns, 3 new methods, update `list_documents()` |
 | `translation_assistant/settings.py` | Add `wp_default_schedule_time` property |
@@ -43,8 +43,8 @@
 ### Task 1: WP Plugin — Status Endpoint
 
 **Files:**
-- Modify: `wp-dev/plugins/translation-assistant-publisher/translation-assistant-publisher.php`
-- Modify: `wp-dev/plugins/translation-assistant-publisher/includes/class-publisher.php`
+- Modify: `/home/pun/workspace/wp-dev/plugins/translation-assistant-publisher/translation-assistant-publisher.php`
+- Modify: `/home/pun/workspace/wp-dev/plugins/translation-assistant-publisher/includes/class-publisher.php`
 
 **Interfaces:**
 - Produces: `GET /wp-json/ta-publisher/v1/status?api_key=&series_slug=&chapter=N`

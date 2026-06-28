@@ -14,7 +14,7 @@ Three related features around WordPress publishing:
 
 ## 1. WP Plugin — New Status Endpoint
 
-**File:** `wp-dev/plugins/translation-assistant-publisher/translation-assistant-publisher.php`
+**File:** `/home/pun/workspace/wp-dev/plugins/translation-assistant-publisher/translation-assistant-publisher.php`
 
 Add a new REST route:
 
