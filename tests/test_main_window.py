@@ -85,6 +85,33 @@ class TestInstantiation:
         assert win._review_bottom.toPlainText() == ""
         assert "Enter" in win._review_bottom.placeholderText()
 
+    def test_exposes_context_above_panel(self, win):
+        from PySide6.QtWidgets import QWidget
+        assert isinstance(win.context_above_panel, QWidget)
+
+    def test_exposes_source_panel(self, win):
+        from PySide6.QtWidgets import QWidget
+        assert isinstance(win.source_panel, QWidget)
+
+    def test_exposes_tm_panel(self, win):
+        from PySide6.QtWidgets import QWidget
+        assert isinstance(win.tm_panel, QWidget)
+
+    def test_exposes_translation_panel(self, win):
+        from PySide6.QtWidgets import QWidget
+        assert isinstance(win.translation_panel, QWidget)
+
+    def test_exposes_context_below_panel(self, win):
+        from PySide6.QtWidgets import QWidget
+        assert isinstance(win.context_below_panel, QWidget)
+
+    def test_exposes_status_bar(self, win):
+        from PySide6.QtWidgets import QStatusBar
+        assert isinstance(win.status_bar, QStatusBar)
+
+    def test_has_no_layout(self, win):
+        assert win.layout() is None
+
 
 # ---------------------------------------------------------------------------
 # Content loading

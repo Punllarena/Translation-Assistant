@@ -9,7 +9,7 @@ from PySide6.QtCore import QEvent, Qt, QThread, QTimer, Signal, Slot
 from PySide6.QtGui import QAction, QColor, QFont, QKeyEvent, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import (
     QApplication, QFileDialog, QFrame, QInputDialog, QLabel, QMenu,
-    QMessageBox, QProgressBar, QSizePolicy, QSplitter, QStatusBar, QTextEdit, QVBoxLayout, QWidget,
+    QMessageBox, QProgressBar, QSizePolicy, QStatusBar, QTextEdit, QVBoxLayout, QWidget,
 )
 
 from translation_assistant._version import BUILD_DATE
@@ -394,20 +394,17 @@ class TranslationAssistantWidget(QWidget):
         font.setFamilies(_CJK_FAMILIES)
         font.setPointSizeF(self._settings.font_size)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(5, 5, 5, 0)
-        layout.setSpacing(0)
-
-        self._splitter = QSplitter(Qt.Orientation.Vertical)
-        self._splitter.setChildrenCollapsible(False)
-
-        def _labeled(title: str, inner: QWidget) -> QWidget:
-            w = QWidget()
+        def _labeled(title, inner: QWidget) -> QFrame:
+            w = QFrame()
+            w.setObjectName("Card")
             vbox = QVBoxLayout(w)
-            vbox.setContentsMargins(0, 0, 0, 0)
-            vbox.setSpacing(0)
-            lbl = QLabel(title)
-            lbl.setObjectName("PanelLabel")
+            vbox.setContentsMargins(8, 8, 8, 8)
+            vbox.setSpacing(4)
+            if isinstance(title, str):
+                lbl = QLabel(title)
+                lbl.setObjectName("PanelLabel")
+            else:
+                lbl = title  # already a QLabel/ClickableLabel
             vbox.addWidget(lbl)
             vbox.addWidget(inner)
             return w
@@ -425,7 +422,7 @@ class TranslationAssistantWidget(QWidget):
         self._review_top.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         self._review_top.setMinimumHeight(50)
         self._review_top.line_double_clicked.connect(self._on_review_top_double_click)
-        self._splitter.addWidget(_labeled("Context (Above)", self._review_top))
+        self._panel_ctx_above = _labeled("Context (Above)", self._review_top)
 
         self._raw_line = QTextEdit()
         self._raw_line.setObjectName("SourceText")
@@ -436,31 +433,17 @@ class TranslationAssistantWidget(QWidget):
         self._raw_line.setPlaceholderText("No document open — File → New or Ctrl+O")
         self._source_label = QLabel("Source (read-only)")
         self._source_label.setObjectName("PanelLabel")
-        _source_wrapper = QWidget()
-        _sw_vbox = QVBoxLayout(_source_wrapper)
-        _sw_vbox.setContentsMargins(0, 0, 0, 0)
-        _sw_vbox.setSpacing(0)
-        _sw_vbox.addWidget(self._source_label)
-        _sw_vbox.addWidget(self._raw_line)
-        self._splitter.addWidget(_source_wrapper)
+        self._panel_source = _labeled(self._source_label, self._raw_line)
 
         self._tm_panel = QWidget()
         self._tm_panel.setMinimumHeight(0)
         self._tm_layout = QVBoxLayout(self._tm_panel)
         self._tm_layout.setContentsMargins(2, 2, 2, 2)
         self._tm_layout.setSpacing(2)
-        self._tm_panel.setVisible(True)
-        self._tm_wrapper = QWidget()
-        _tw_vbox = QVBoxLayout(self._tm_wrapper)
-        _tw_vbox.setContentsMargins(0, 0, 0, 0)
-        _tw_vbox.setSpacing(0)
         _tm_lbl = _ClickableLabel("TM Matches")
         _tm_lbl.setObjectName("PanelLabel")
         _tm_lbl.clicked.connect(self._toggle_tm_panel)
-        _tw_vbox.addWidget(_tm_lbl)
-        _tw_vbox.addWidget(self._tm_panel)
-        self._tm_wrapper.setVisible(False)
-        self._splitter.addWidget(self._tm_wrapper)
+        self._panel_tm = _labeled(_tm_lbl, self._tm_panel)
 
         self._translated_line = QTextEdit()
         self._translated_line.setObjectName("TranslationText")
@@ -473,13 +456,7 @@ class TranslationAssistantWidget(QWidget):
         self._translated_line.customContextMenuRequested.connect(self._on_translated_context_menu)
         self._translation_label = QLabel("Translation")
         self._translation_label.setObjectName("PanelLabel")
-        _tl_wrapper = QWidget()
-        _tl_vbox = QVBoxLayout(_tl_wrapper)
-        _tl_vbox.setContentsMargins(0, 0, 0, 0)
-        _tl_vbox.setSpacing(0)
-        _tl_vbox.addWidget(self._translation_label)
-        _tl_vbox.addWidget(self._translated_line)
-        self._splitter.addWidget(_tl_wrapper)
+        self._panel_translation = _labeled(self._translation_label, self._translated_line)
         self._spell_highlighter = SpellHighlighter(self._translated_line.document())
 
         self._review_bottom = ReviewTextEdit()
@@ -492,19 +469,7 @@ class TranslationAssistantWidget(QWidget):
         self._review_bottom.setMinimumHeight(50)
         self._review_bottom.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         self._review_bottom.line_double_clicked.connect(self._on_review_bottom_double_click)
-        self._splitter.addWidget(_labeled("Context (Below)", self._review_bottom))
-
-        self._splitter.setStretchFactor(0, 1)
-        self._splitter.setStretchFactor(1, 0)
-        self._splitter.setStretchFactor(2, 0)
-        self._splitter.setStretchFactor(3, 0)
-        self._splitter.setStretchFactor(4, 0)
-
-        saved = self._settings.splitter_state
-        if saved.isEmpty() or not self._splitter.restoreState(saved):
-            self._splitter.setSizes([300, 52, 0, 52, 137])
-
-        layout.addWidget(self._splitter)
+        self._panel_ctx_below = _labeled("Context (Below)", self._review_bottom)
 
         for widget in (self._review_top, self._raw_line,
                        self._translated_line, self._review_bottom):
@@ -515,8 +480,6 @@ class TranslationAssistantWidget(QWidget):
 
     def _setup_statusbar(self) -> None:
         self._status_bar = QStatusBar()
-        layout = self.layout()
-        layout.addWidget(self._status_bar)
 
         self._progress_bar = QProgressBar()
         self._progress_bar.setRange(0, 100)
@@ -825,7 +788,7 @@ class TranslationAssistantWidget(QWidget):
                 item.widget().deleteLater()
 
         if not self._raw_lines or not self._settings.tm_visible:
-            self._tm_wrapper.setVisible(False)
+            self._panel_tm.setVisible(False)
             return
 
         p = self._array_pointer
@@ -834,10 +797,10 @@ class TranslationAssistantWidget(QWidget):
         matches = self._db.find_tm_matches(raw_text, self._doc_id)
 
         if not matches:
-            self._tm_wrapper.setVisible(False)
+            self._panel_tm.setVisible(False)
             return
 
-        self._tm_wrapper.setVisible(True)
+        self._panel_tm.setVisible(True)
         for i, m in enumerate(matches):
             date_str = m["updated_at"][:10] if m.get("updated_at") else ""
             meta = f"{m['doc_title']}, {date_str}"
@@ -1931,7 +1894,34 @@ class TranslationAssistantWidget(QWidget):
 
     def save_state(self) -> None:
         """Called by CombinedMainWindow.closeEvent."""
-        self._settings.splitter_state = self._splitter.saveState()
         self._save_current_translation()
         self._settings.last_doc_id = self._doc_id
         self._settings.save()
+
+    # ------------------------------------------------------------------
+    # Panel access (consumed by CombinedMainWindow to build layout)
+    # ------------------------------------------------------------------
+
+    @property
+    def context_above_panel(self) -> QFrame:
+        return self._panel_ctx_above
+
+    @property
+    def source_panel(self) -> QFrame:
+        return self._panel_source
+
+    @property
+    def tm_panel(self) -> QFrame:
+        return self._panel_tm
+
+    @property
+    def translation_panel(self) -> QFrame:
+        return self._panel_translation
+
+    @property
+    def context_below_panel(self) -> QFrame:
+        return self._panel_ctx_below
+
+    @property
+    def status_bar(self) -> QStatusBar:
+        return self._status_bar
