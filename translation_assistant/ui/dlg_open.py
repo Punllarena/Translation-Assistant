@@ -20,7 +20,7 @@ _CHAPTER_HEADERS = ["#", "Title", "Progress", "Last Edited", "WP"]
 class OpenDocumentDialog(QDialog):
     """
     Lists documents from the DB in a two-panel layout.
-    Left panel: series list. Right panel: chapter tree (flat, 4 cols).
+    Left panel: series list. Right panel: chapter tree (flat, 5 cols).
     User selects a chapter and clicks Open (or double-clicks).
     """
 
@@ -29,6 +29,7 @@ class OpenDocumentDialog(QDialog):
         1: lambda item: item.text(1).lower(),
         2: lambda item: item.data(2, Qt.ItemDataRole.UserRole) or 0,
         3: lambda item: item.text(3),
+        4: lambda item: item.text(4),
     }
 
     def __init__(self, db: Database, parent=None, *,

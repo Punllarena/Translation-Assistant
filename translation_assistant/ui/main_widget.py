@@ -1531,7 +1531,7 @@ class TranslationAssistantWidget(QWidget):
             }
             _status_lbl.setText(f"WP status: {_map.get(result.get('status', ''), 'Unknown')}")
             self._db.set_document_wp_status(
-                self._doc_id, result.get("status", ""), result.get("post_url")
+                self._doc_id, result.get("status") or None, result.get("post_url")
             )
             self._update_wp_status_label()
 
