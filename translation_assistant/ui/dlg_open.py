@@ -162,13 +162,19 @@ class OpenDocumentDialog(QDialog):
         for doc in docs:
             display = doc["chapter_title"] if doc["chapter_title"] else doc["title"]
             progress_pct = doc["progress"]
-            _wp_badge = {"publish": "pub", "future": "sched"}.get(doc.get("wp_status") or "", "")
+            _wp_status = doc.get("wp_status") or ""
+            _wp_badge = {"publish": "pub", "future": "sched"}.get(_wp_status, "")
+            _wp_date = doc.get("wp_date") or ""
+            if _wp_badge and _wp_date:
+                _wp_cell = f"{_wp_badge} {_fmt_wp_date(_wp_date)}"
+            else:
+                _wp_cell = _wp_badge
             item = QTreeWidgetItem([
                 str(doc["series_order"]),
                 display,
                 f"{progress_pct}%",
                 _fmt_date(doc.get("updated_at", "")),
-                _wp_badge,
+                _wp_cell,
             ])
             item.setData(0, Qt.ItemDataRole.UserRole, doc["series_order"])
             item.setData(2, Qt.ItemDataRole.UserRole, progress_pct)
@@ -581,3 +587,14 @@ def _fmt_date(iso: str) -> str:
         return dt.strftime("%Y-%m-%d %H:%M")
     except ValueError:
         return iso[:16]
+
+
+def _fmt_wp_date(iso: str) -> str:
+    """Format ISO 8601 WP date to compact M/D form."""
+    if not iso:
+        return ""
+    try:
+        dt = datetime.strptime(iso[:19], "%Y-%m-%dT%H:%M:%S")
+        return dt.strftime("%-m/%-d")
+    except ValueError:
+        return ""

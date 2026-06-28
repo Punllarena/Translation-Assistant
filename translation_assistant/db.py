@@ -144,6 +144,7 @@ class Database:
         for col, defn in [
             ("wp_status",   "TEXT DEFAULT NULL"),
             ("wp_post_url", "TEXT DEFAULT NULL"),
+            ("wp_date",     "TEXT DEFAULT NULL"),
         ]:
             if col not in wp_doc_existing:
                 self._conn.execute(f"ALTER TABLE documents ADD COLUMN {col} {defn}")
@@ -269,7 +270,7 @@ class Database:
         rows = self._conn.execute(
             """
             SELECT d.id, d.title, d.series_title, d.series_order, d.chapter_title,
-                   d.updated_at, d.last_position, d.source_url, d.wp_status,
+                   d.updated_at, d.last_position, d.source_url, d.wp_status, d.wp_date,
                    CAST(COALESCE(
                        SUM(CASE WHEN TRIM(l.raw_text) != '' AND l.translated_text != '' THEN 1 ELSE 0 END) * 100
                        / NULLIF(SUM(CASE WHEN TRIM(l.raw_text) != '' THEN 1 ELSE 0 END), 0), 0
@@ -457,19 +458,21 @@ class Database:
             raise ValueError(f"Document {doc_id} not found")
         return dict(row)
 
-    def set_document_wp_status(self, doc_id: int, status: str, post_url: str | None) -> None:
+    def set_document_wp_status(
+        self, doc_id: int, status: str, post_url: str | None, date: str | None = None
+    ) -> None:
         self._conn.execute(
-            "UPDATE documents SET wp_status = ?, wp_post_url = ? WHERE id = ?",
-            (status, post_url, doc_id),
+            "UPDATE documents SET wp_status = ?, wp_post_url = ?, wp_date = ? WHERE id = ?",
+            (status, post_url, date, doc_id),
         )
         self._conn.commit()
 
     def get_document_wp_status(self, doc_id: int) -> dict:
         row = self._conn.execute(
-            "SELECT wp_status, wp_post_url FROM documents WHERE id = ?", (doc_id,)
+            "SELECT wp_status, wp_post_url, wp_date FROM documents WHERE id = ?", (doc_id,)
         ).fetchone()
         if row is None:
-            return {"wp_status": None, "wp_post_url": None}
+            return {"wp_status": None, "wp_post_url": None, "wp_date": None}
         return dict(row)
 
     def get_wp_status_by_series_position(

@@ -1495,12 +1495,13 @@ class TranslationAssistantWidget(QWidget):
             }
             _status_lbl.setText(f"WP status: {_map.get(result.get('status', ''), 'Unknown')}")
             self._db.set_document_wp_status(
-                self._doc_id, result.get("status") or None, result.get("post_url")
+                self._doc_id, result.get("status") or None, result.get("post_url"),
+                result.get("date"),
             )
             self._update_wp_status_label()
 
-        def _on_status_err(_: str) -> None:
-            _status_lbl.setText(f"WP status: {_cached_text} (could not reach WP)")
+        def _on_status_err(msg: str) -> None:
+            _status_lbl.setText(f"WP status: {_cached_text} (cached — {msg})")
 
         _status_worker.succeeded.connect(_on_status_ok)
         _status_worker.error.connect(_on_status_err)
@@ -1546,8 +1547,10 @@ class TranslationAssistantWidget(QWidget):
         post_url = result.get("post_url", "")
 
         if not already:
+            from datetime import datetime as _dt, timezone as _tz
             wp_status_val = "future" if self._last_scheduled_date else "publish"
-            self._db.set_document_wp_status(self._doc_id, wp_status_val, post_url or None)
+            wp_date_val = self._last_scheduled_date or _dt.now(_tz.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            self._db.set_document_wp_status(self._doc_id, wp_status_val, post_url or None, wp_date_val)
             self._update_wp_status_label()
 
         dlg = QDialog(self)
