@@ -1061,7 +1061,7 @@ def test_wp_status_columns_exist(db):
 def test_get_document_wp_status_defaults_none(db):
     doc_id = db.create_document("Ch 1", series_title="S", series_order=1)
     info = db.get_document_wp_status(doc_id)
-    assert info == {"wp_status": None, "wp_post_url": None}
+    assert info == {"wp_status": None, "wp_post_url": None, "wp_date": None}
 
 
 def test_set_and_get_document_wp_status(db):
