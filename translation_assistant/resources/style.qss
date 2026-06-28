@@ -3,7 +3,7 @@ QWidget {
     background-color: #0F1117;
     color: #E8E6F0;
     font-family: 'Inter';
-    font-size: 12px;
+    font-size: 13px;
 }
 
 /* === Panels === */
@@ -11,10 +11,18 @@ QFrame {
     background: #0F1117;
 }
 
+/* === Cards === */
+QFrame#Card {
+    background: #1A1D27;
+    border: 1px solid #2E3350;
+    border-radius: 8px;
+    padding: 4px;
+}
+
 /* === Panel Labels === */
 QLabel#PanelLabel {
     font-family: 'Inter';
-    font-size: 10px;
+    font-size: 11px;
     font-weight: 500;
     letter-spacing: 2px;
     color: #8B8FA8;
@@ -31,7 +39,7 @@ QTextEdit#SourceText {
     color: #F0EDE8;
     border: none;
     font-family: 'Noto Sans JP';
-    font-size: 16px;
+    font-size: 20px;
     padding: 12px;
     selection-background-color: #3D4AB3;
 }
@@ -87,10 +95,10 @@ QSplitter::handle {
     background: #2E3350;
 }
 QSplitter::handle:horizontal {
-    width: 1px;
+    width: 6px;
 }
 QSplitter::handle:vertical {
-    height: 1px;
+    height: 6px;
 }
 
 /* === Buttons === */
