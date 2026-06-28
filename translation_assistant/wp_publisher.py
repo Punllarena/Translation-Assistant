@@ -5,8 +5,8 @@ import json
 import re
 import secrets
 import string
-import urllib.parse
 import urllib.request
+import urllib.parse
 from urllib.error import HTTPError, URLError
 
 
@@ -160,7 +160,7 @@ def check_status(
         raise WPPublishError(msg, status_code=exc.code) from exc
     except URLError as exc:
         raise WPPublishError(
-            f"Could not reach {url}: {exc.reason}", status_code=None
+            f"Could not reach {base}{_STATUS_PATH}: {exc.reason}", status_code=None
         ) from exc
 
 
