@@ -444,6 +444,7 @@ class TranslationAssistantWidget(QWidget):
         _tm_lbl.setObjectName("PanelLabel")
         _tm_lbl.clicked.connect(self._toggle_tm_panel)
         self._panel_tm = _labeled(_tm_lbl, self._tm_panel)
+        self._panel_tm.setVisible(False)
 
         self._translated_line = QTextEdit()
         self._translated_line.setObjectName("TranslationText")

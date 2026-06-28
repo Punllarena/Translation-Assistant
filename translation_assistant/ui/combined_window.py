@@ -40,6 +40,7 @@ class CombinedMainWindow(QMainWindow):
 
     def _build_workspace(self) -> None:
         ta = self._ta_widget
+        ta.setParent(self)
 
         self._left_splitter = QSplitter(Qt.Orientation.Vertical)
         self._left_splitter.setChildrenCollapsible(False)
