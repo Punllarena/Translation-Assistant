@@ -10,7 +10,7 @@ A desktop tool for Japanese/Chinese → English translation work. Port of the or
 - Organise documents into **series** with per-chapter titles and ordering
 - **Open Document** dialog groups chapters by series, shows translation progress %, last-edited timestamp, live filter, delete with confirmation, and in-place metadata editing
 - **Syosetu batch importer** — paste a series URL, pick chapters, fetch them all at once with rate limiting
-- **Translation memory** panel — suggests matching translations from previously translated lines
+- **Translation memory** panel — suggests matching translations from previously translated lines; collapsible in the 2D workspace layout
 - Displays one source line at a time; auto-copies raw text to clipboard (400 ms debounce)
 - Restores the last opened document on startup
 - Glossary phrase-substitution from per-profile entries applied before display
@@ -25,8 +25,10 @@ A desktop tool for Japanese/Chinese → English translation work. Port of the or
 - **Setup Guide** dialog walks through MeCab and JParser installation on first launch
 - **Usage statistics** — heatmap calendar and per-day table showing lines translated (**Help → Statistics**)
 - **Ollama translator** — local LLM translation via a running Ollama instance; configurable model and system prompt; streams tokens into the aggregator panel
-- **WordPress publisher** — publish a completed chapter to a WordPress site via the REST API; configure endpoint and credentials via **File → WordPress Settings**
+- **WordPress publisher** — publish a completed chapter to a WordPress site via the REST API; status check and safeguard prevent accidental re-publishing; configure via **File → WordPress Settings**
 - **Customizable keyboard shortcuts** — rebind any action via **Settings → Customize Shortcuts**
+- **Dark theme** — global QSS stylesheet with card panels and high-contrast source text
+- **2D workspace layout** — nested splitters place the TA widget, aggregator, and TM panel in a single unified window
 
 ---
 
@@ -94,7 +96,7 @@ python -m translation_assistant.main
 ## Testing
 
 ```bash
-pytest            # run all 683 tests
+pytest            # run all 739 tests
 pytest -q         # quiet output
 ```
 
