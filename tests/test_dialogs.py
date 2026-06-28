@@ -725,6 +725,35 @@ def test_wp_settings_dialog_saves_on_accept(qapp, tmp_settings):
     assert tmp_settings.wp_unlock_after == 3
 
 
+def test_wp_settings_dialog_has_schedule_time_controls(qapp, tmp_settings):
+    from translation_assistant.ui.dlg_wp_settings import WPSettingsDialog
+    dlg = WPSettingsDialog(tmp_settings)
+    assert hasattr(dlg, "_schedule_cb")
+    assert hasattr(dlg, "_schedule_time_edit")
+    dlg.reject()
+
+
+def test_wp_settings_dialog_saves_schedule_time_when_checked(qapp, tmp_settings):
+    from translation_assistant.ui.dlg_wp_settings import WPSettingsDialog
+    from PySide6.QtCore import QTime
+    dlg = WPSettingsDialog(tmp_settings)
+    dlg._schedule_cb.setChecked(True)
+    dlg._schedule_time_edit.setTime(QTime(20, 30))
+    with patch.object(dlg, "accept"):
+        dlg._on_save()
+    assert tmp_settings.wp_default_schedule_time == "20:30"
+
+
+def test_wp_settings_dialog_clears_schedule_time_when_unchecked(qapp, tmp_settings):
+    from translation_assistant.ui.dlg_wp_settings import WPSettingsDialog
+    tmp_settings.wp_default_schedule_time = "20:00"
+    dlg = WPSettingsDialog(tmp_settings)
+    dlg._schedule_cb.setChecked(False)
+    with patch.object(dlg, "accept"):
+        dlg._on_save()
+    assert tmp_settings.wp_default_schedule_time == ""
+
+
 # ---------------------------------------------------------------------------
 # SeriesManagerDialog — WP Fields button
 # ---------------------------------------------------------------------------

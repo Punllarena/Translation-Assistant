@@ -1,10 +1,10 @@
 """
 WordPress Settings dialog — endpoint URL and API key.
 """
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTime
 from PySide6.QtWidgets import (
     QCheckBox, QDialog, QDialogButtonBox, QFormLayout, QLabel, QLineEdit,
-    QMessageBox, QPushButton, QSpinBox, QVBoxLayout,
+    QMessageBox, QPushButton, QSpinBox, QTimeEdit, QVBoxLayout,
 )
 
 from translation_assistant.settings import AppSettings
@@ -48,6 +48,22 @@ class WPSettingsDialog(QDialog):
         self._pw_check.toggled.connect(self._unlock_spin.setEnabled)
         form.addRow("Keep N chapters locked:", self._unlock_spin)
 
+        sched_time = self._settings.wp_default_schedule_time
+        self._schedule_cb = QCheckBox("Set default schedule time")
+        self._schedule_cb.setChecked(bool(sched_time))
+        form.addRow("", self._schedule_cb)
+
+        self._schedule_time_edit = QTimeEdit()
+        self._schedule_time_edit.setDisplayFormat("HH:mm")
+        if sched_time:
+            h, m = map(int, sched_time.split(":"))
+            self._schedule_time_edit.setTime(QTime(h, m))
+        else:
+            self._schedule_time_edit.setTime(QTime(20, 0))
+        self._schedule_time_edit.setEnabled(bool(sched_time))
+        self._schedule_cb.toggled.connect(self._schedule_time_edit.setEnabled)
+        form.addRow("Time:", self._schedule_time_edit)
+
         layout.addLayout(form)
 
         self._test_btn = QPushButton("Test Connection")
@@ -64,6 +80,10 @@ class WPSettingsDialog(QDialog):
         self._settings.wp_api_key = self._key_edit.text().strip()
         self._settings.wp_password_enabled = self._pw_check.isChecked()
         self._settings.wp_unlock_after = self._unlock_spin.value()
+        if self._schedule_cb.isChecked():
+            self._settings.wp_default_schedule_time = self._schedule_time_edit.time().toString("HH:mm")
+        else:
+            self._settings.wp_default_schedule_time = ""
         self.accept()
 
     def _on_test(self) -> None:

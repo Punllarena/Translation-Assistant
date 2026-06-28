@@ -191,6 +191,14 @@ class AppSettings:
     def wp_unlock_after(self, value: int) -> None:
         self._qs.setValue("WPUnlockAfter", value)
 
+    @property
+    def wp_default_schedule_time(self) -> str:
+        return self._qs.value("WPDefaultScheduleTime", "")
+
+    @wp_default_schedule_time.setter
+    def wp_default_schedule_time(self, value: str) -> None:
+        self._qs.setValue("WPDefaultScheduleTime", value)
+
     # --- Open dialog: last selected series ---
 
     @property

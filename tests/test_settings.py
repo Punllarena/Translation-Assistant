@@ -195,6 +195,15 @@ def test_wp_unlock_after_roundtrip(tmp_settings):
     assert tmp_settings.wp_unlock_after == 7
 
 
+def test_wp_default_schedule_time_default(tmp_settings):
+    assert tmp_settings.wp_default_schedule_time == ""
+
+
+def test_wp_default_schedule_time_roundtrip(tmp_settings):
+    tmp_settings.wp_default_schedule_time = "20:00"
+    assert tmp_settings.wp_default_schedule_time == "20:00"
+
+
 # ---------------------------------------------------------------------------
 # Keyboard shortcuts
 # ---------------------------------------------------------------------------
