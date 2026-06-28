@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
 from translation_assistant.db import Database
 
 _NO_SERIES = "(No Series)"
-_CHAPTER_HEADERS = ["#", "Title", "Progress", "Last Edited"]
+_CHAPTER_HEADERS = ["#", "Title", "Progress", "Last Edited", "WP"]
 
 
 class OpenDocumentDialog(QDialog):
@@ -77,12 +77,13 @@ class OpenDocumentDialog(QDialog):
         right_layout.setSpacing(0)
 
         self._tree = QTreeWidget()
-        self._tree.setColumnCount(4)
+        self._tree.setColumnCount(5)
         self._tree.setHeaderLabels(_CHAPTER_HEADERS)
         self._tree.header().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         self._tree.header().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self._tree.header().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         self._tree.header().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        self._tree.header().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         self._tree.header().setSectionsClickable(True)
         self._tree.header().sectionClicked.connect(self._sort_chapters)
         self._tree.setSelectionBehavior(QTreeWidget.SelectionBehavior.SelectRows)
@@ -160,11 +161,13 @@ class OpenDocumentDialog(QDialog):
         for doc in docs:
             display = doc["chapter_title"] if doc["chapter_title"] else doc["title"]
             progress_pct = doc["progress"]
+            _wp_badge = {"publish": "pub", "future": "sched"}.get(doc.get("wp_status") or "", "")
             item = QTreeWidgetItem([
                 str(doc["series_order"]),
                 display,
                 f"{progress_pct}%",
                 _fmt_date(doc.get("updated_at", "")),
+                _wp_badge,
             ])
             item.setData(0, Qt.ItemDataRole.UserRole, doc["series_order"])
             item.setData(2, Qt.ItemDataRole.UserRole, progress_pct)

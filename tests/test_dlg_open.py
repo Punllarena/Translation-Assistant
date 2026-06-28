@@ -225,7 +225,7 @@ class TestOpenDocumentDialog:
     def test_last_edited_column_exists(self, qapp, mem_db):
         mem_db.create_document("Doc")
         dlg = OpenDocumentDialog(mem_db)
-        assert dlg._tree.columnCount() == 4
+        assert dlg._tree.columnCount() == 5
         leaf = _first_chapter(dlg)
         assert leaf is not None
         assert leaf.text(3) != ""
@@ -431,9 +431,9 @@ class TestOpenDocumentDialog:
     # New structural tests
     # ------------------------------------------------------------------
 
-    def test_chapter_tree_has_four_columns(self, qapp, mem_db):
+    def test_chapter_tree_has_five_columns(self, qapp, mem_db):
         dlg = OpenDocumentDialog(mem_db)
-        assert dlg._tree.columnCount() == 4
+        assert dlg._tree.columnCount() == 5
         assert dlg._tree.headerItem().text(0) == "#"
         assert dlg._tree.headerItem().text(1) == "Title"
 
@@ -514,6 +514,49 @@ class TestOpenDocumentDialog:
         assert dlg._sort_asc is True
         assert "▲" in dlg._tree.headerItem().text(0)  # column 0 has arrow
         assert "▲" not in dlg._tree.headerItem().text(3)  # Last Edited has no arrow
+
+
+def test_open_dialog_has_five_columns(qapp, mem_db):
+    dlg = OpenDocumentDialog(mem_db)
+    assert dlg._tree.columnCount() == 5
+    dlg.reject()
+
+
+def test_open_dialog_wp_column_shows_pub_badge(qapp, mem_db):
+    doc_id = mem_db.create_document("Ch 1", series_title="S", series_order=1, chapter_title="Ch 1")
+    mem_db.set_document_wp_status(doc_id, "publish", "https://ex.com/ch1/")
+    dlg = OpenDocumentDialog(mem_db)
+    # Select series S
+    for i in range(dlg._series_list.count()):
+        if dlg._series_list.item(i).data(Qt.ItemDataRole.UserRole) == "S":
+            dlg._series_list.setCurrentRow(i)
+            break
+    assert dlg._tree.topLevelItemCount() == 1
+    assert dlg._tree.topLevelItem(0).text(4) == "pub"
+    dlg.reject()
+
+
+def test_open_dialog_wp_column_shows_sched_badge(qapp, mem_db):
+    doc_id = mem_db.create_document("Ch 1", series_title="S", series_order=1, chapter_title="Ch 1")
+    mem_db.set_document_wp_status(doc_id, "future", None)
+    dlg = OpenDocumentDialog(mem_db)
+    for i in range(dlg._series_list.count()):
+        if dlg._series_list.item(i).data(Qt.ItemDataRole.UserRole) == "S":
+            dlg._series_list.setCurrentRow(i)
+            break
+    assert dlg._tree.topLevelItem(0).text(4) == "sched"
+    dlg.reject()
+
+
+def test_open_dialog_wp_column_blank_when_null(qapp, mem_db):
+    mem_db.create_document("Ch 1", series_title="S", series_order=1, chapter_title="Ch 1")
+    dlg = OpenDocumentDialog(mem_db)
+    for i in range(dlg._series_list.count()):
+        if dlg._series_list.item(i).data(Qt.ItemDataRole.UserRole) == "S":
+            dlg._series_list.setCurrentRow(i)
+            break
+    assert dlg._tree.topLevelItem(0).text(4) == ""
+    dlg.reject()
 
 
 class TestEditSourceDialog:
