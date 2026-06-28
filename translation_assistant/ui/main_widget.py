@@ -1485,7 +1485,11 @@ class TranslationAssistantWidget(QWidget):
         # Pre-fill schedule time from settings
         _default_time = self._settings.wp_default_schedule_time
         if _default_time:
-            _h, _m = map(int, _default_time.split(":"))
+            try:
+                _h, _m = map(int, _default_time.split(":"))
+            except (ValueError, IndexError):
+                _default_time = ""
+        if _default_time:
             _candidate = QDateTime.currentDateTime()
             _candidate.setTime(QTime(_h, _m))
             if _candidate <= QDateTime.currentDateTime():
@@ -1515,7 +1519,7 @@ class TranslationAssistantWidget(QWidget):
         _status_worker = _StatusCheckWorker(
             endpoint_url, api_key,
             series_meta["series_slug"], doc_meta["series_order"],
-            parent=confirm_dlg,
+            parent=self,
         )
 
         def _on_status_ok(result: dict) -> None:
@@ -1538,8 +1542,10 @@ class TranslationAssistantWidget(QWidget):
         _status_worker.error.connect(_on_status_err)
         _status_worker.start()
 
-        if not confirm_dlg.exec():
-            _status_worker.quit()
+        _dlg_result = confirm_dlg.exec()
+        _status_worker.quit()
+        _status_worker.wait(500)
+        if not _dlg_result:
             return
 
         self._last_scheduled_date = None

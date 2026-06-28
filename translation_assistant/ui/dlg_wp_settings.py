@@ -56,8 +56,11 @@ class WPSettingsDialog(QDialog):
         self._schedule_time_edit = QTimeEdit()
         self._schedule_time_edit.setDisplayFormat("HH:mm")
         if sched_time:
-            h, m = map(int, sched_time.split(":"))
-            self._schedule_time_edit.setTime(QTime(h, m))
+            try:
+                h, m = map(int, sched_time.split(":"))
+                self._schedule_time_edit.setTime(QTime(h, m))
+            except (ValueError, IndexError):
+                self._schedule_time_edit.setTime(QTime(20, 0))
         else:
             self._schedule_time_edit.setTime(QTime(20, 0))
         self._schedule_time_edit.setEnabled(bool(sched_time))
