@@ -95,6 +95,37 @@ class _PublishWorker(QThread):
             self.error.emit(str(exc))
 
 
+class _StatusCheckWorker(QThread):
+    succeeded = Signal(dict)
+    error = Signal(str)
+
+    def __init__(
+        self,
+        endpoint_url: str,
+        api_key: str,
+        series_slug: str,
+        chapter: int,
+        parent=None,
+    ) -> None:
+        super().__init__(parent)
+        self._endpoint_url = endpoint_url
+        self._api_key = api_key
+        self._series_slug = series_slug
+        self._chapter = chapter
+
+    def run(self) -> None:
+        from translation_assistant.wp_publisher import check_status, WPPublishError
+        try:
+            result = check_status(
+                self._endpoint_url, self._api_key, self._series_slug, self._chapter
+            )
+            self.succeeded.emit(result)
+        except WPPublishError as exc:
+            self.error.emit(exc.message)
+        except Exception as exc:
+            self.error.emit(str(exc))
+
+
 class ReviewTextEdit(QTextEdit):
     """Read-only review panel that emits the character offset on double-click."""
 
@@ -1379,6 +1410,15 @@ class TranslationAssistantWidget(QWidget):
         series_title = doc_meta["series_title"]
         series_meta = self._db.get_series_wp_meta(series_title)
 
+        prev_scheduled = False
+        if doc_meta["series_order"] > 0:
+            prev_status = self._db.get_wp_status_by_series_position(
+                doc_meta["series_title"], doc_meta["series_order"] - 1
+            )
+            prev_scheduled = (
+                prev_status is not None and prev_status.get("wp_status") == "future"
+            )
+
         from translation_assistant.wp_publisher import compute_password_fields, resolve_wp_password_enabled
         pw_settings = self._db.get_series_wp_password_settings(series_title)
         pw_enabled = resolve_wp_password_enabled(pw_settings, self._settings.wp_password_enabled)
@@ -1415,26 +1455,91 @@ class TranslationAssistantWidget(QWidget):
         chapter_label = "Synopsis" if doc_meta["series_order"] == 0 else f"Chapter {doc_meta['series_order']}"
 
         from PySide6.QtWidgets import QCheckBox, QDateTimeEdit, QDialog, QDialogButtonBox, QVBoxLayout
-        from PySide6.QtCore import QDateTime, Qt as _Qt
+        from PySide6.QtCore import QDateTime, QTime, Qt as _Qt
 
         confirm_dlg = QDialog(self)
         confirm_dlg.setWindowTitle("Publish to WordPress")
         confirm_dlg.setWindowFlags(confirm_dlg.windowFlags() & ~_Qt.WindowType.WindowContextHelpButtonHint)
         _cl = QVBoxLayout(confirm_dlg)
+
+        # Cached WP status line
+        _cached = self._db.get_document_wp_status(self._doc_id)
+        _status_text_map = {"publish": "Published", "future": "Scheduled", "draft": "Draft"}
+        _cached_text = _status_text_map.get(_cached["wp_status"] or "", "Not published")
+        _status_lbl = QLabel(f"WP status: {_cached_text}")
+        _cl.addWidget(_status_lbl)
+
         _cl.addWidget(QLabel(f'Publish <b>{doc_meta["chapter_title"]}</b> ({chapter_label}) to WordPress?'))
+
+        if prev_scheduled:
+            _warn = QLabel(
+                f"Warning: Chapter {doc_meta['series_order'] - 1} is still scheduled "
+                "and hasn't gone live yet."
+            )
+            _warn.setWordWrap(True)
+            _cl.addWidget(_warn)
+
         schedule_cb = QCheckBox("Schedule for later")
         _cl.addWidget(schedule_cb)
-        dte = QDateTimeEdit(QDateTime.currentDateTime().addSecs(3600))
+
+        # Pre-fill schedule time from settings
+        _default_time = self._settings.wp_default_schedule_time
+        if _default_time:
+            _h, _m = map(int, _default_time.split(":"))
+            _candidate = QDateTime.currentDateTime()
+            _candidate.setTime(QTime(_h, _m))
+            if _candidate <= QDateTime.currentDateTime():
+                _candidate = _candidate.addDays(1)
+            dte = QDateTimeEdit(_candidate)
+        else:
+            dte = QDateTimeEdit(QDateTime.currentDateTime().addSecs(3600))
         dte.setCalendarPopup(True)
         dte.setDisplayFormat("yyyy-MM-dd HH:mm")
         dte.setEnabled(False)
         schedule_cb.toggled.connect(dte.setEnabled)
         _cl.addWidget(dte)
-        _btns = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+
+        if prev_scheduled:
+            _btns = QDialogButtonBox()
+            _btns.addButton("Cancel", QDialogButtonBox.ButtonRole.RejectRole)
+            _btns.addButton("Publish Anyway", QDialogButtonBox.ButtonRole.AcceptRole)
+        else:
+            _btns = QDialogButtonBox(
+                QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+            )
         _btns.accepted.connect(confirm_dlg.accept)
         _btns.rejected.connect(confirm_dlg.reject)
         _cl.addWidget(_btns)
+
+        # Async status refresh
+        _status_worker = _StatusCheckWorker(
+            endpoint_url, api_key,
+            series_meta["series_slug"], doc_meta["series_order"],
+            parent=confirm_dlg,
+        )
+
+        def _on_status_ok(result: dict) -> None:
+            _map = {
+                "publish":   "Published",
+                "future":    "Scheduled",
+                "draft":     "Draft",
+                "not_found": "Not published",
+            }
+            _status_lbl.setText(f"WP status: {_map.get(result.get('status', ''), 'Unknown')}")
+            self._db.set_document_wp_status(
+                self._doc_id, result.get("status", ""), result.get("post_url")
+            )
+            self._update_wp_status_label()
+
+        def _on_status_err(_: str) -> None:
+            _status_lbl.setText(f"WP status: {_cached_text} (could not reach WP)")
+
+        _status_worker.succeeded.connect(_on_status_ok)
+        _status_worker.error.connect(_on_status_err)
+        _status_worker.start()
+
         if not confirm_dlg.exec():
+            _status_worker.quit()
             return
 
         self._last_scheduled_date = None
