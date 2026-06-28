@@ -127,3 +127,10 @@ class TestPublishWPAction:
         assert settings_menu is not None
         action_texts = [a.text() for a in settings_menu.actions()]
         assert "WordPress Settings…" in action_texts
+
+
+class TestWPStatusLabel:
+    def test_wp_status_label_in_statusbar(self, win):
+        ta = win._ta_widget
+        assert hasattr(ta, "_wp_status_label")
+        assert ta._wp_status_label.text() == ""

@@ -181,6 +181,7 @@ class TranslationAssistantWidget(QWidget):
         self._last_pw: str | None = None
         self._last_unlock_idx: int | None = None
         self._last_scheduled_date: str | None = None
+        self._wp_post_url: str | None = None
 
         self._build_actions()
         self._build_shortcut_registry()
@@ -508,8 +509,33 @@ class TranslationAssistantWidget(QWidget):
         self._status_bar.addWidget(self._autosave_label)
         self._status_bar.addPermanentWidget(self._stats_label)
         self._status_bar.addPermanentWidget(self._filesaved_label)
+        self._wp_status_label = _ClickableLabel("")
+        self._wp_status_label.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._wp_status_label.clicked.connect(self._on_wp_status_clicked)
+        self._status_bar.addPermanentWidget(self._wp_status_label)
         self._update_progress_visibility()
         self._update_autosave_label()
+
+    def _update_wp_status_label(self) -> None:
+        if self._doc_id is None:
+            self._wp_status_label.setText("")
+            self._wp_post_url = None
+            return
+        info = self._db.get_document_wp_status(self._doc_id)
+        status_map = {
+            "publish":   "WP: Published",
+            "future":    "WP: Scheduled",
+            "draft":     "WP: Draft",
+            "not_found": "WP: —",
+        }
+        self._wp_status_label.setText(status_map.get(info["wp_status"] or "", "WP: —"))
+        self._wp_post_url = info["wp_post_url"]
+
+    def _on_wp_status_clicked(self) -> None:
+        if self._wp_post_url:
+            from PySide6.QtGui import QDesktopServices
+            from PySide6.QtCore import QUrl
+            QDesktopServices.openUrl(QUrl(self._wp_post_url))
 
     def _setup_timers(self) -> None:
         self._clipboard_timer = QTimer(self)
@@ -689,6 +715,8 @@ class TranslationAssistantWidget(QWidget):
         self._set_dirty(False)
         if self._doc_id is not None:
             self._settings.add_to_recent(self._doc_id)
+
+        self._update_wp_status_label()
 
         # Emit so the Aggregator translates the first sentence on load
         raw = self._raw_lines[p]
@@ -1441,6 +1469,11 @@ class TranslationAssistantWidget(QWidget):
         already = result.get("created") is False
         page_url = result.get("page_url", "")
         post_url = result.get("post_url", "")
+
+        if not already:
+            wp_status_val = "future" if self._last_scheduled_date else "publish"
+            self._db.set_document_wp_status(self._doc_id, wp_status_val, post_url or None)
+            self._update_wp_status_label()
 
         dlg = QDialog(self)
         dlg.setWindowTitle("WordPress Publish")
