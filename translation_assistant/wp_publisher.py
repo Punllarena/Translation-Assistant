@@ -5,6 +5,7 @@ import json
 import re
 import secrets
 import string
+import urllib.parse
 import urllib.request
 from urllib.error import HTTPError, URLError
 
@@ -118,6 +119,49 @@ def normalize_endpoint_url(url: str) -> str:
     if not url.endswith(_ENDPOINT_PATH):
         url += _ENDPOINT_PATH
     return url
+
+
+_STATUS_PATH = "/wp-json/ta-publisher/v1/status"
+
+
+def check_status(
+    endpoint_url: str,
+    api_key: str,
+    series_slug: str,
+    chapter: int,
+    timeout: int = 10,
+) -> dict:
+    base = endpoint_url.rstrip("/")
+    if base.endswith(_ENDPOINT_PATH):
+        base = base[: -len(_ENDPOINT_PATH)]
+    params = urllib.parse.urlencode({
+        "api_key": api_key,
+        "series_slug": series_slug,
+        "chapter": chapter,
+    })
+    url = f"{base}{_STATUS_PATH}?{params}"
+    req = urllib.request.Request(url, method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            body = resp.read()
+            try:
+                return json.loads(body)
+            except json.JSONDecodeError:
+                raise WPPublishError(
+                    f"Server returned non-JSON response: {body[:200]!r}",
+                    status_code=None,
+                )
+    except HTTPError as exc:
+        try:
+            body = json.loads(exc.read())
+            msg = body.get("message", str(exc))
+        except Exception:
+            msg = str(exc)
+        raise WPPublishError(msg, status_code=exc.code) from exc
+    except URLError as exc:
+        raise WPPublishError(
+            f"Could not reach {url}: {exc.reason}", status_code=None
+        ) from exc
 
 
 def publish(endpoint_url: str, payload: dict, timeout: int = 15) -> dict:

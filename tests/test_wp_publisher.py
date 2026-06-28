@@ -224,3 +224,59 @@ def test_publish_wp_password_resolution_inherit_global_off():
     """Series override None → falls back to global=False."""
     pw_settings = {"wp_password_enabled": None, "wp_unlock_after": -1}
     assert resolve_wp_password_enabled(pw_settings, global_enabled=False) is False
+
+
+from translation_assistant.wp_publisher import check_status
+
+
+def test_check_status_success():
+    response_data = {"status": "future", "post_url": "https://example.com/series-c1/"}
+    mock_resp = MagicMock()
+    mock_resp.__enter__ = lambda s: s
+    mock_resp.__exit__ = MagicMock(return_value=False)
+    mock_resp.read.return_value = json.dumps(response_data).encode()
+    with patch("urllib.request.urlopen", return_value=mock_resp) as mock_open:
+        result = check_status(
+            "https://example.com/wp-json/ta-publisher/v1/publish",
+            "key123", "my-series", 1,
+        )
+    assert result == {"status": "future", "post_url": "https://example.com/series-c1/"}
+    called_url = mock_open.call_args[0][0].full_url
+    assert "/wp-json/ta-publisher/v1/status" in called_url
+    assert "series_slug=my-series" in called_url
+    assert "chapter=1" in called_url
+
+
+def test_check_status_derives_url_strips_publish_suffix():
+    mock_resp = MagicMock()
+    mock_resp.__enter__ = lambda s: s
+    mock_resp.__exit__ = MagicMock(return_value=False)
+    mock_resp.read.return_value = json.dumps({"status": "publish", "post_url": None}).encode()
+    with patch("urllib.request.urlopen", return_value=mock_resp) as mock_open:
+        check_status(
+            "https://example.com/wp-json/ta-publisher/v1/publish",
+            "k", "s", 0,
+        )
+    url = mock_open.call_args[0][0].full_url
+    assert url.startswith("https://example.com/wp-json/ta-publisher/v1/status")
+
+
+def test_check_status_401_raises():
+    exc = HTTPError("url", 401, "Unauthorized", {}, None)
+    exc.read = lambda: b'{"message": "Invalid API key"}'
+    with patch("urllib.request.urlopen", side_effect=exc):
+        with pytest.raises(WPPublishError) as info:
+            check_status(
+                "https://example.com/wp-json/ta-publisher/v1/publish",
+                "bad", "s", 1,
+            )
+    assert info.value.status_code == 401
+
+
+def test_check_status_network_error_raises():
+    with patch("urllib.request.urlopen", side_effect=URLError("refused")):
+        with pytest.raises(WPPublishError):
+            check_status(
+                "https://example.com/wp-json/ta-publisher/v1/publish",
+                "k", "s", 1,
+            )
