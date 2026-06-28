@@ -1046,3 +1046,53 @@ def test_save_lines_preserves_translated_at(db):
     db.save_lines(doc_id, current_lines)
     stats = db.get_today_stats()
     assert stats["paragraphs"] == 1
+
+
+# ---------------------------------------------------------------------------
+# WP status columns and methods (Task 3)
+# ---------------------------------------------------------------------------
+
+def test_wp_status_columns_exist(db):
+    cols = {r[1] for r in db._conn.execute("PRAGMA table_info(documents)").fetchall()}
+    assert "wp_status" in cols
+    assert "wp_post_url" in cols
+
+
+def test_get_document_wp_status_defaults_none(db):
+    doc_id = db.create_document("Ch 1", series_title="S", series_order=1)
+    info = db.get_document_wp_status(doc_id)
+    assert info == {"wp_status": None, "wp_post_url": None}
+
+
+def test_set_and_get_document_wp_status(db):
+    doc_id = db.create_document("Ch 1", series_title="S", series_order=1)
+    db.set_document_wp_status(doc_id, "future", "https://ex.com/ch1/")
+    info = db.get_document_wp_status(doc_id)
+    assert info["wp_status"] == "future"
+    assert info["wp_post_url"] == "https://ex.com/ch1/"
+
+
+def test_set_document_wp_status_can_clear_url(db):
+    doc_id = db.create_document("Ch 1", series_title="S", series_order=1)
+    db.set_document_wp_status(doc_id, "future", "https://ex.com/ch1/")
+    db.set_document_wp_status(doc_id, "publish", None)
+    assert db.get_document_wp_status(doc_id)["wp_post_url"] is None
+
+
+def test_get_wp_status_by_series_position_found(db):
+    doc_id = db.create_document("Ch 1", series_title="MySeries", series_order=1)
+    db.set_document_wp_status(doc_id, "future", "https://ex.com/ch1/")
+    result = db.get_wp_status_by_series_position("MySeries", 1)
+    assert result == {"wp_status": "future", "wp_post_url": "https://ex.com/ch1/"}
+
+
+def test_get_wp_status_by_series_position_not_found(db):
+    assert db.get_wp_status_by_series_position("NoSeries", 99) is None
+
+
+def test_list_documents_includes_wp_status(db):
+    doc_id = db.create_document("Ch 1", series_title="S", series_order=1)
+    db.set_document_wp_status(doc_id, "publish", "https://ex.com/ch1/")
+    docs = db.list_documents()
+    doc = next(d for d in docs if d["id"] == doc_id)
+    assert doc["wp_status"] == "publish"
