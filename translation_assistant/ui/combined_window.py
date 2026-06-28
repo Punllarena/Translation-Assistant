@@ -5,7 +5,7 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt, QByteArray
 from PySide6.QtGui import QIcon, QKeySequence, QAction
-from PySide6.QtWidgets import QMainWindow, QMenu, QSplitter
+from PySide6.QtWidgets import QMainWindow, QMenu, QSplitter, QVBoxLayout, QWidget
 
 from translation_assistant.settings import AppSettings
 from translation_assistant.ui.main_widget import TranslationAssistantWidget
@@ -29,20 +29,55 @@ class CombinedMainWindow(QMainWindow):
         self._ta_widget = TranslationAssistantWidget(_settings=_settings, _db=_db)
         self._agg_widget = AggregatorWidget()
 
-        self._splitter = QSplitter(Qt.Orientation.Horizontal)
-        self._splitter.addWidget(self._ta_widget)
-        self._splitter.addWidget(self._agg_widget)
-        self._splitter.setStretchFactor(0, 1)
-        self._splitter.setStretchFactor(1, 1)
-        self.setCentralWidget(self._splitter)
-
+        self._build_workspace()
+        self.setStatusBar(self._ta_widget.status_bar)
         self._setup_menubar()
         self._restore_splitter()
         self._connect_bridge()
 
-        # Apply always-on-top from TA settings on startup
         if _settings is not None and _settings.on_top:
             self.setWindowFlags(self.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
+
+    def _build_workspace(self) -> None:
+        ta = self._ta_widget
+
+        self._left_splitter = QSplitter(Qt.Orientation.Vertical)
+        self._left_splitter.setChildrenCollapsible(False)
+        self._left_splitter.addWidget(ta.context_above_panel)
+        self._left_splitter.addWidget(ta.source_panel)
+        self._left_splitter.setStretchFactor(0, 2)
+        self._left_splitter.setStretchFactor(1, 1)
+
+        self._right_splitter = QSplitter(Qt.Orientation.Vertical)
+        self._right_splitter.setChildrenCollapsible(False)
+        self._right_splitter.addWidget(self._agg_widget)
+        self._right_splitter.addWidget(ta.tm_panel)
+        self._right_splitter.setStretchFactor(0, 2)
+        self._right_splitter.setStretchFactor(1, 1)
+
+        self._mid_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self._mid_splitter.setChildrenCollapsible(False)
+        self._mid_splitter.addWidget(self._left_splitter)
+        self._mid_splitter.addWidget(self._right_splitter)
+        self._mid_splitter.setStretchFactor(0, 2)
+        self._mid_splitter.setStretchFactor(1, 1)
+
+        self._outer_splitter = QSplitter(Qt.Orientation.Vertical)
+        self._outer_splitter.setChildrenCollapsible(False)
+        self._outer_splitter.addWidget(self._mid_splitter)
+        self._outer_splitter.addWidget(ta.translation_panel)
+        self._outer_splitter.addWidget(ta.context_below_panel)
+        self._outer_splitter.setStretchFactor(0, 3)
+        self._outer_splitter.setStretchFactor(1, 2)
+        self._outer_splitter.setStretchFactor(2, 1)
+
+        # Wrap in container to provide window margins
+        container = QWidget()
+        vbox = QVBoxLayout(container)
+        vbox.setContentsMargins(12, 12, 12, 0)
+        vbox.setSpacing(0)
+        vbox.addWidget(self._outer_splitter)
+        self.setCentralWidget(container)
 
     # ------------------------------------------------------------------
     # Signal bridge
@@ -214,16 +249,35 @@ class CombinedMainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def _restore_splitter(self) -> None:
-        from PySide6.QtCore import QSettings
         qs = self._ta_widget._settings._qs
-        raw = qs.value("combined/splitter")
-        if raw:
-            self._splitter.restoreState(QByteArray.fromBase64(raw.encode()))
+        defaults_applied = False
+        for key, splitter in [
+            ("combined/splitter_outer", self._outer_splitter),
+            ("combined/splitter_mid",   self._mid_splitter),
+            ("combined/splitter_left",  self._left_splitter),
+            ("combined/splitter_right", self._right_splitter),
+        ]:
+            raw = qs.value(key)
+            if raw:
+                splitter.restoreState(QByteArray.fromBase64(raw.encode()))
+            else:
+                defaults_applied = True
+
+        if defaults_applied:
+            self._outer_splitter.setSizes([500, 200, 100])
+            self._mid_splitter.setSizes([500, 400])
+            self._left_splitter.setSizes([300, 120])
+            self._right_splitter.setSizes([300, 150])
 
     def _save_splitter(self) -> None:
         qs = self._ta_widget._settings._qs
-        state = self._splitter.saveState().toBase64().data().decode()
-        qs.setValue("combined/splitter", state)
+        for key, splitter in [
+            ("combined/splitter_outer", self._outer_splitter),
+            ("combined/splitter_mid",   self._mid_splitter),
+            ("combined/splitter_left",  self._left_splitter),
+            ("combined/splitter_right", self._right_splitter),
+        ]:
+            qs.setValue(key, splitter.saveState().toBase64().data().decode())
 
     def closeEvent(self, event) -> None:
         self._save_splitter()
