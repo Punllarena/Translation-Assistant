@@ -29,7 +29,7 @@ class SourcePanel(QWidget):
         toolbar = QHBoxLayout()
         toolbar.setContentsMargins(0, 0, 0, 0)
 
-        self._translate_btn = QPushButton("▶▶ Translate All")
+        self._translate_btn = QPushButton("▶ Translate All")
         self._translate_btn.setObjectName("TranslateAllBtn")
         self._translate_btn.clicked.connect(self._on_translate)
         toolbar.addWidget(self._translate_btn)
@@ -70,12 +70,14 @@ class SourcePanel(QWidget):
 
         toolbar.addStretch()
 
-        hist_prev = QPushButton("◀ Hist")
+        hist_prev = QPushButton("◀ History")
+        hist_prev.setObjectName("HistPrevBtn")
         hist_prev.setToolTip("Previous history entry (Ctrl+Alt+Up)")
         hist_prev.clicked.connect(self.history_prev_requested)
         toolbar.addWidget(hist_prev)
 
-        hist_next = QPushButton("Hist ▶")
+        hist_next = QPushButton("History ▶")
+        hist_next.setObjectName("HistNextBtn")
         hist_next.setToolTip("Next history entry (Ctrl+Alt+Down)")
         hist_next.clicked.connect(self.history_next_requested)
         toolbar.addWidget(hist_next)
