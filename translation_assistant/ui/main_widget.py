@@ -538,10 +538,10 @@ class TranslationAssistantWidget(QWidget):
         self._clipboard_timer.setInterval(400)
         self._clipboard_timer.timeout.connect(self._on_clipboard_timer)
 
-        self._filesaved_timer = QTimer(self)
-        self._filesaved_timer.setSingleShot(True)
-        self._filesaved_timer.setInterval(2000)
-        self._filesaved_timer.timeout.connect(lambda: self._filesaved_label.setText(""))
+        self._last_save_time: float = 0.0
+        self._autosave_tick_timer = QTimer(self)
+        self._autosave_tick_timer.setInterval(60_000)
+        self._autosave_tick_timer.timeout.connect(self._update_filesaved_label)
 
         self._autosave_timer = QTimer(self)
         self._autosave_timer.timeout.connect(self._on_autosave_timer)
@@ -677,7 +677,7 @@ class TranslationAssistantWidget(QWidget):
             self._review_top.setPlainText(top_text)
             self._apply_review_colors(self._review_top, _top_colors)
 
-        self._line_label.setText(f"Line: {p + 1}/{n}")
+        self._line_label.setText(f"Page {p + 1}/{n}")
         pct, wc = calculate_progress(raw_lines, translated_lines)
         self._tl_complete = pct
         self._progress_bar.setValue(pct)
@@ -720,9 +720,22 @@ class TranslationAssistantWidget(QWidget):
     def _save_to_db(self) -> None:
         if self._doc_id is None:
             return
+        import time
         self._db.save_lines(self._doc_id, self._lines_as_db_rows())
-        self._filesaved_label.setText("File saved....")
-        self._filesaved_timer.start()
+        self._last_save_time = time.monotonic()
+        self._update_filesaved_label()
+        self._autosave_tick_timer.start()
+
+    def _update_filesaved_label(self) -> None:
+        if self._last_save_time == 0.0:
+            self._filesaved_label.setText("")
+            return
+        import time
+        elapsed_m = int((time.monotonic() - self._last_save_time) / 60)
+        if elapsed_m < 1:
+            self._filesaved_label.setText("✓ Autosaved just now")
+        else:
+            self._filesaved_label.setText(f"✓ Autosaved {elapsed_m}m ago")
 
     # ------------------------------------------------------------------
     # UI update helpers
@@ -768,7 +781,7 @@ class TranslationAssistantWidget(QWidget):
         cursor.movePosition(QTextCursor.MoveOperation.Start)
         self._review_bottom.setTextCursor(cursor)
 
-        self._line_label.setText(f"Line: {p + 1}/{n}")
+        self._line_label.setText(f"Page {p + 1}/{n}")
         pct, wc = calculate_progress(self._raw_lines, self._translated_lines)
         self._tl_complete = pct
         self._progress_bar.setValue(pct)
@@ -932,7 +945,7 @@ class TranslationAssistantWidget(QWidget):
         if not eof:
             self._update_ui_for_pointer()
         else:
-            self._line_label.setText(f"Line: {p + 1}/{n}")
+            self._line_label.setText(f"Page {p + 1}/{n}")
             from translation_assistant.core import calculate_progress
             pct, wc = calculate_progress(self._raw_lines, self._translated_lines)
             self._tl_complete = pct
@@ -968,7 +981,7 @@ class TranslationAssistantWidget(QWidget):
             self._update_ui_for_pointer()
         else:
             n = len(self._raw_lines)
-            self._line_label.setText(f"Line: {p + 1}/{n}")
+            self._line_label.setText(f"Page {p + 1}/{n}")
 
         self._translated_line.setFocus()
 
@@ -1202,7 +1215,6 @@ class TranslationAssistantWidget(QWidget):
         self._save_to_db()
         export_txt(self._doc_id, Path(filepath), self._db)
         self._filesaved_label.setText("File exported....")
-        self._filesaved_timer.start()
 
     def _export_md_doc(self, builder) -> None:
         if not self._raw_lines:
@@ -1304,7 +1316,6 @@ class TranslationAssistantWidget(QWidget):
         self._save_to_db()
         shutil.copy2(self._settings.db_path, dest)
         self._filesaved_label.setText("Database exported.")
-        self._filesaved_timer.start()
 
     def _on_db_import(self) -> None:
         import shutil
@@ -1347,7 +1358,6 @@ class TranslationAssistantWidget(QWidget):
         self.action_publish_wp.setEnabled(False)
         self._load_glossary_for_profile()
         self._filesaved_label.setText("Database imported.")
-        self._filesaved_timer.start()
 
     def _on_manage_series(self) -> None:
         from translation_assistant.ui.dlg_series import SeriesManagerDialog

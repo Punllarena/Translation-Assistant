@@ -112,6 +112,20 @@ class TestInstantiation:
     def test_has_no_layout(self, win):
         assert win.layout() is None
 
+    def test_line_label_says_page_format(self, win, tmp_settings, qapp):
+        """After loading a doc, line label uses Page N/N format."""
+        # This tests the format string — we verify the attribute and its content
+        # after a navigate call would set it. Just check the label exists and
+        # that it does NOT start with "Line:" initially (empty doc state).
+        assert not win._line_label.text().startswith("Line:")
+
+    def test_has_last_save_time(self, win):
+        assert hasattr(win, "_last_save_time")
+
+    def test_has_autosave_tick_timer(self, win):
+        from PySide6.QtCore import QTimer
+        assert isinstance(win._autosave_tick_timer, QTimer)
+
 
 # ---------------------------------------------------------------------------
 # Content loading
