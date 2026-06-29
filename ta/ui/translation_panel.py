@@ -51,6 +51,13 @@ class TranslationPanel(QWidget):
         self._translate_btn.clicked.connect(self._on_single_translate)
         title_bar.addWidget(self._translate_btn)
 
+        self._copy_btn = QPushButton("⎘")
+        self._copy_btn.setObjectName("EngineCopyBtn")
+        self._copy_btn.setFixedWidth(28)
+        self._copy_btn.setToolTip("Copy translation to clipboard")
+        self._copy_btn.clicked.connect(self._on_copy)
+        title_bar.addWidget(self._copy_btn)
+
         layout.addLayout(title_bar)
 
         # Output text area
@@ -112,6 +119,12 @@ class TranslationPanel(QWidget):
     def _on_single_translate(self) -> None:
         if self._current_text:
             self._translator.translate(self._current_text, self._current_src, self._current_dst)
+
+    def _on_copy(self) -> None:
+        from PySide6.QtWidgets import QApplication
+        text = self._output.toPlainText().strip()
+        if text:
+            QApplication.clipboard().setText(text)
 
     @property
     def translator_name(self) -> str:
