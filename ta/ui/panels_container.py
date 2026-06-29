@@ -1,44 +1,36 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QWidget, QSplitter, QSizePolicy
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QTabWidget, QSizePolicy
 
 from ta.ui.translation_panel import TranslationPanel
 from ta.config.languages import Language
 
 
 class PanelsContainer(QWidget):
-    """Resizable 2-column splitter grid of TranslationPanels."""
+    """Tabbed container of TranslationPanels — one tab per translator."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._panels: list[TranslationPanel] = []
-        self._splitter = QSplitter(Qt.Orientation.Horizontal, self)
-        self._splitter.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
-        # Two vertical splitters as columns
-        self._col0 = QSplitter(Qt.Orientation.Vertical)
-        self._col1 = QSplitter(Qt.Orientation.Vertical)
-        self._splitter.addWidget(self._col0)
-        self._splitter.addWidget(self._col1)
+        self._tab_widget = QTabWidget()
+        self._tab_widget.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
 
-        from PySide6.QtWidgets import QVBoxLayout
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(self._splitter)
+        layout.addWidget(self._tab_widget)
 
     def add_panel(self, panel: TranslationPanel) -> None:
         self._panels.append(panel)
-        if len(self._panels) % 2 == 1:
-            self._col0.addWidget(panel)
-        else:
-            self._col1.addWidget(panel)
+        self._tab_widget.addTab(panel, panel.translator_name)
 
     def remove_panel(self, name: str) -> None:
-        for panel in self._panels:
+        for i, panel in enumerate(self._panels):
             if panel.translator_name == name:
-                panel.setParent(None)  # type: ignore
-                self._panels.remove(panel)
+                self._tab_widget.removeTab(i)
+                self._panels.pop(i)
                 break
 
     def translate_all(self, text: str, src: Language, dst: Language) -> None:
@@ -50,20 +42,9 @@ class PanelsContainer(QWidget):
             panel.set_languages(src, dst)
 
     def save_layout(self) -> dict:
-        return {
-            "horizontal": self._splitter.sizes(),
-            "col0": self._col0.sizes(),
-            "col1": self._col1.sizes(),
-        }
+        return {"tab_index": self._tab_widget.currentIndex()}
 
     def restore_layout(self, data: dict) -> None:
-        if "horizontal" in data:
-            self._splitter.setSizes(data["horizontal"])
-        if "col0" in data:
-            saved = data["col0"]
-            if len(saved) == self._col0.count():
-                self._col0.setSizes(saved)
-        if "col1" in data:
-            saved = data["col1"]
-            if len(saved) == self._col1.count():
-                self._col1.setSizes(saved)
+        idx = data.get("tab_index", 0)
+        if isinstance(idx, int) and 0 <= idx < self._tab_widget.count():
+            self._tab_widget.setCurrentIndex(idx)
