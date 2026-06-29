@@ -362,6 +362,10 @@ def build_review_text(
             parts.append("\n\n")
             char_pos += 2
 
+            sep = "─" * 30 + "\n"
+            parts.append(sep)
+            char_pos += len(sep)
+
             is_translated = all(
                 bool(translated_lines[count + x].strip())
                 for x in range(group_size)
