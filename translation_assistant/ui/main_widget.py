@@ -637,6 +637,9 @@ class TranslationAssistantWidget(QWidget):
         return lines_to_db_rows(self._raw_lines, self._translated_lines)
 
     def _finish_load(self) -> None:
+        self._last_save_time = 0.0
+        self._autosave_tick_timer.stop()
+        self._update_filesaved_label()
         from translation_assistant.core import (
             replace_and_parse, build_review_text, calculate_progress,
         )
