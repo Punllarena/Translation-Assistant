@@ -1839,7 +1839,21 @@ class TranslationAssistantWidget(QWidget):
             )
             if obj in watched and self._handle_key(event):
                 return True
+        if obj is self._raw_line and event.type() == QEvent.Type.MouseButtonPress:
+            self._show_source_word_tooltip(event)
         return super().eventFilter(obj, event)
+
+    def _show_source_word_tooltip(self, event) -> None:
+        text = self._raw_line.toPlainText()
+        if not text:
+            return
+        cursor = self._raw_line.cursorForPosition(event.pos())
+        info = self._jp_highlighter.token_info_at(text, cursor.position())
+        if info:
+            from PySide6.QtWidgets import QToolTip
+            QToolTip.showText(
+                event.globalPosition().toPoint(), info, self._raw_line
+            )
 
     def _handle_key(self, event: QKeyEvent) -> bool:
         key = event.key()
