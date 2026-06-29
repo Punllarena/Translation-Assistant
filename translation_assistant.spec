@@ -102,8 +102,8 @@ a = Analysis(
     pathex=[str(HERE)],
     binaries=_enchant_bins,
     datas=[
-        # Application icon
-        (str(HERE / "translation_assistant" / "resources" / "TA.ico"),
+        # Application resources (icon + stylesheet + fonts)
+        (str(HERE / "translation_assistant" / "resources"),
          "translation_assistant/resources"),
         # Default profiles shipped with the app
         (str(HERE / "Profile"), "Profile"),

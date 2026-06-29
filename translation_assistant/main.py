@@ -12,7 +12,11 @@ from translation_assistant.migration import run_startup_migration
 from translation_assistant.settings import AppSettings, _get_app_root
 from translation_assistant.ui.combined_window import CombinedMainWindow
 
-_RESOURCES = Path(__file__).parent / "resources"
+_RESOURCES = (
+    Path(sys._MEIPASS) / "translation_assistant" / "resources"
+    if getattr(sys, "frozen", False)
+    else Path(__file__).parent / "resources"
+)
 
 
 def _load_qss() -> str:
@@ -30,7 +34,8 @@ def _load_fonts() -> None:
 def main() -> None:
     app = QApplication(sys.argv)
     app.setApplicationName("Translation Assistant")
-    app.setOrganizationName("joeglens")
+    app.setOrganizationName("Pun")
+    app.setStyle("Fusion")
 
     _load_fonts()
     app.setStyleSheet(_load_qss())
