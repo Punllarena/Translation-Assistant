@@ -42,6 +42,7 @@ def win(qapp, tmp_path):
     """TranslationAssistantWidget backed by isolated QSettings and an in-memory DB."""
     settings = _make_settings(tmp_path)
     w = TranslationAssistantWidget(_settings=settings, _db=_make_db())
+    w.show()
     yield w
     w.destroy()
 
@@ -125,6 +126,26 @@ class TestInstantiation:
     def test_has_autosave_tick_timer(self, win):
         from PySide6.QtCore import QTimer
         assert isinstance(win._autosave_tick_timer, QTimer)
+
+    def test_ctx_above_label_has_expand_chevron(self, win, qapp):
+        """Context Above label starts with ▼ (expanded by default)."""
+        from PySide6.QtWidgets import QLabel
+        labels = win._panel_ctx_above.findChildren(QLabel)
+        texts = [lbl.text() for lbl in labels]
+        assert any(t.startswith("▼") for t in texts)
+
+    def test_ctx_below_label_has_expand_chevron(self, win, qapp):
+        """Context Below label starts with ▼ (expanded by default)."""
+        from PySide6.QtWidgets import QLabel
+        labels = win._panel_ctx_below.findChildren(QLabel)
+        texts = [lbl.text() for lbl in labels]
+        assert any(t.startswith("▼") for t in texts)
+
+    def test_ctx_above_inner_visible_by_default(self, win):
+        assert win._review_top.isVisible()
+
+    def test_ctx_below_inner_visible_by_default(self, win):
+        assert win._review_bottom.isVisible()
 
 
 # ---------------------------------------------------------------------------

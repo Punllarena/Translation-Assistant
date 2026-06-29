@@ -394,19 +394,39 @@ class TranslationAssistantWidget(QWidget):
         font.setFamilies(_CJK_FAMILIES)
         font.setPointSizeF(self._settings.font_size)
 
-        def _labeled(title, inner: QWidget) -> QFrame:
-            w = QFrame()
+        def _labeled(title, inner: QWidget, *, collapse_key: str = "") -> QFrame:
+            w = QFrame(self)
             w.setObjectName("Card")
             vbox = QVBoxLayout(w)
             vbox.setContentsMargins(8, 8, 8, 8)
             vbox.setSpacing(4)
             if isinstance(title, str):
-                lbl = QLabel(title)
+                if collapse_key:
+                    lbl = _ClickableLabel(f"▼ {title}")
+                else:
+                    lbl = QLabel(title)
                 lbl.setObjectName("PanelLabel")
             else:
-                lbl = title  # already a QLabel/ClickableLabel
+                lbl = title
             vbox.addWidget(lbl)
             vbox.addWidget(inner)
+
+            if collapse_key and isinstance(title, str):
+                collapsed = self._settings._qs.value(
+                    f"panels/{collapse_key}_collapsed", False, type=bool
+                )
+                if collapsed:
+                    inner.setVisible(False)
+                    lbl.setText(f"▶ {title}")
+
+                def _toggle(_t=title, _l=lbl, _i=inner, _k=collapse_key):
+                    vis = not _i.isVisible()
+                    _i.setVisible(vis)
+                    _l.setText(f"{'▼' if vis else '▶'} {_t}")
+                    self._settings._qs.setValue(f"panels/{_k}_collapsed", not vis)
+
+                lbl.clicked.connect(_toggle)
+
             return w
 
         self._review_top = ReviewTextEdit()
@@ -422,7 +442,7 @@ class TranslationAssistantWidget(QWidget):
         self._review_top.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         self._review_top.setMinimumHeight(50)
         self._review_top.line_double_clicked.connect(self._on_review_top_double_click)
-        self._panel_ctx_above = _labeled("Context (Above)", self._review_top)
+        self._panel_ctx_above = _labeled("Context (Above)", self._review_top, collapse_key="ctx_above")
 
         self._raw_line = QTextEdit()
         self._raw_line.setObjectName("SourceText")
@@ -470,7 +490,7 @@ class TranslationAssistantWidget(QWidget):
         self._review_bottom.setMinimumHeight(50)
         self._review_bottom.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         self._review_bottom.line_double_clicked.connect(self._on_review_bottom_double_click)
-        self._panel_ctx_below = _labeled("Context (Below)", self._review_bottom)
+        self._panel_ctx_below = _labeled("Context (Below)", self._review_bottom, collapse_key="ctx_below")
 
         for widget in (self._review_top, self._raw_line,
                        self._translated_line, self._review_bottom):
