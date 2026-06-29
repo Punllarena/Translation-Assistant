@@ -115,6 +115,7 @@ class TranslationPanel(QWidget):
         enabled = bool(state)
         self._output.setEnabled(enabled)
         self._translate_btn.setEnabled(enabled)
+        self._copy_btn.setEnabled(enabled)
 
     def _on_single_translate(self) -> None:
         if self._current_text:
