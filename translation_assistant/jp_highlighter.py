@@ -63,6 +63,8 @@ class JpSyntaxHighlighter(QSyntaxHighlighter):
                         if fmt:
                             self.setFormat(pos, len(surface), fmt)
                         pos += len(surface)
+                    else:
+                        pos += len(line)
         except Exception:
             pass
 
@@ -111,6 +113,8 @@ class JpSyntaxHighlighter(QSyntaxHighlighter):
                                 parts.append(f"<{pos_tag}>")
                             return "  ".join(parts)
                         pos = end
+                    else:
+                        pos += len(line)
         except Exception:
             pass
         return ""

@@ -245,3 +245,11 @@ class AppSettings:
             ids.remove(doc_id)
         ids.insert(0, doc_id)
         self._qs.setValue("RecentDocIds", json.dumps(ids[:10]))
+
+    # --- collapsible panel state ---
+
+    def get_panel_collapsed(self, key: str) -> bool:
+        return self._qs.value(f"panels/{key}_collapsed", False, type=bool)
+
+    def set_panel_collapsed(self, key: str, val: bool) -> None:
+        self._qs.setValue(f"panels/{key}_collapsed", val)

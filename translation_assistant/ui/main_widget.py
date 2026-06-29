@@ -413,9 +413,7 @@ class TranslationAssistantWidget(QWidget):
             vbox.addWidget(inner)
 
             if collapse_key and isinstance(title, str):
-                collapsed = self._settings._qs.value(
-                    f"panels/{collapse_key}_collapsed", False, type=bool
-                )
+                collapsed = self._settings.get_panel_collapsed(collapse_key)
                 if collapsed:
                     inner.setVisible(False)
                     lbl.setText(f"▶ {title}")
@@ -424,7 +422,7 @@ class TranslationAssistantWidget(QWidget):
                     vis = not _i.isVisible()
                     _i.setVisible(vis)
                     _l.setText(f"{'▼' if vis else '▶'} {_t}")
-                    self._settings._qs.setValue(f"panels/{_k}_collapsed", not vis)
+                    self._settings.set_panel_collapsed(_k, not vis)
 
                 lbl.clicked.connect(_toggle)
 
