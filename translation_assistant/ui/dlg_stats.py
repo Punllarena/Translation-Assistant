@@ -3,7 +3,7 @@ Usage statistics dialog — heatmap + summary + per-series breakdown.
 """
 from datetime import date, timedelta
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QFont, QPainter
 from PySide6.QtWidgets import (
     QDialog, QHBoxLayout, QLabel, QPushButton,
@@ -16,6 +16,11 @@ from translation_assistant.core import compute_streaks
 _CELL = 13
 _GAP = 2
 _STEP = _CELL + _GAP
+_LEFT = 30   # left margin for weekday labels
+_TOP = 16    # top margin for month labels
+
+_EMPTY_ENTRY = {"paragraphs": 0, "chars": 0, "en_words": 0}
+_METRIC_LABELS = {"paragraphs": "paras", "chars": "chars", "en_words": "EN words"}
 
 _COLORS = [
     QColor("#ebedf0"),
@@ -33,9 +38,12 @@ def _fmt_date(iso: str) -> str:
 class HeatmapWidget(QWidget):
     """52-week activity heatmap, GitHub style. data keyed by ISO date string."""
 
-    def __init__(self, data: dict, parent=None):
+    day_clicked = Signal(str)  # ISO date of the clicked cell
+
+    def __init__(self, data: dict, metric: str = "paragraphs", parent=None):
         super().__init__(parent)
         self._data = data
+        self._metric = metric
         self.setMouseTracking(True)
 
         today = date.today()
@@ -44,61 +52,102 @@ class HeatmapWidget(QWidget):
         self._start = this_week_sunday - timedelta(weeks=51)
         self._today = today
 
-        max_p = max((v["paragraphs"] for v in data.values()), default=0)
-        if max_p > 0:
-            q = max_p / 4
-            self._thresholds = [0, q, q * 2, q * 3, max_p]
+        self._compute_thresholds()
+        self.setFixedSize(_LEFT + 52 * _STEP + _GAP, _TOP + 7 * _STEP + _GAP)
+
+    def set_metric(self, metric: str) -> None:
+        self._metric = metric
+        self._compute_thresholds()
+        self.update()
+
+    def _compute_thresholds(self) -> None:
+        max_v = max((v[self._metric] for v in self._data.values()), default=0)
+        if max_v > 0:
+            q = max_v / 4
+            self._thresholds = [0, q, q * 2, q * 3, max_v]
         else:
             self._thresholds = [0, 1, 2, 3, 4]
-
-        self.setFixedSize(52 * _STEP + _GAP, 7 * _STEP + _GAP)
 
     def _cell_to_date(self, col: int, row: int) -> date:
         return self._start + timedelta(days=col * 7 + row)
 
-    def _intensity(self, paragraphs: int) -> int:
-        if paragraphs == 0:
+    def _pos_to_cell(self, x: float, y: float) -> tuple[int, int] | None:
+        if x < _LEFT + _GAP or y < _TOP + _GAP:
+            return None
+        col = int((x - _LEFT - _GAP) / _STEP)
+        row = int((y - _TOP - _GAP) / _STEP)
+        if 0 <= col < 52 and 0 <= row < 7:
+            return col, row
+        return None
+
+    def _intensity(self, value: int) -> int:
+        if value == 0:
             return 0
         for level in range(4, 0, -1):
-            if paragraphs >= self._thresholds[level]:
+            if value >= self._thresholds[level]:
                 return level
         return 1
 
     def paintEvent(self, _event):
         painter = QPainter(self)
+        font = self.font()
+        font.setPointSize(8)
+        painter.setFont(font)
+        painter.setPen(QColor("#767676"))
+
+        # weekday labels — row 0 is Sunday, so Mon/Wed/Fri = rows 1/3/5
+        for row, name in ((1, "Mon"), (3, "Wed"), (5, "Fri")):
+            painter.drawText(
+                0, _TOP + row * _STEP + _GAP, _LEFT - 4, _CELL,
+                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+                name,
+            )
+
+        # month labels — at each week-column whose Sunday starts a new month
+        prev_month = None
+        for col in range(52):
+            d = self._cell_to_date(col, 0)
+            if prev_month is not None and d.month != prev_month:
+                painter.drawText(_LEFT + col * _STEP + _GAP, _TOP - 4, d.strftime("%b"))
+            prev_month = d.month
+
         for col in range(52):
             for row in range(7):
                 d = self._cell_to_date(col, row)
                 if d > self._today:
                     continue
-                entry = self._data.get(d.isoformat(), {"paragraphs": 0, "chars": 0, "en_words": 0})
+                entry = self._data.get(d.isoformat(), _EMPTY_ENTRY)
                 painter.fillRect(
-                    col * _STEP + _GAP,
-                    row * _STEP + _GAP,
+                    _LEFT + col * _STEP + _GAP,
+                    _TOP + row * _STEP + _GAP,
                     _CELL,
                     _CELL,
-                    _COLORS[self._intensity(entry["paragraphs"])],
+                    _COLORS[self._intensity(entry[self._metric])],
                 )
         painter.end()
 
     def mouseMoveEvent(self, event):
-        x, y = event.position().x(), event.position().y()
-        if x < _GAP or y < _GAP:
-            QToolTip.hideText()
-            return
-        col = int((x - _GAP) / _STEP)
-        row = int((y - _GAP) / _STEP)
-        if 0 <= col < 52 and 0 <= row < 7:
-            d = self._cell_to_date(col, row)
+        cell = self._pos_to_cell(event.position().x(), event.position().y())
+        if cell is not None:
+            d = self._cell_to_date(*cell)
             if d <= self._today:
-                entry = self._data.get(d.isoformat(), {"paragraphs": 0, "chars": 0, "en_words": 0})
+                entry = self._data.get(d.isoformat(), _EMPTY_ENTRY)
+                ordered = [self._metric] + [m for m in _METRIC_LABELS if m != self._metric]
+                stats = " · ".join(f"{entry[m]:,} {_METRIC_LABELS[m]}" for m in ordered)
                 QToolTip.showText(
                     event.globalPosition().toPoint(),
-                    f"{_fmt_date(d.isoformat())}: {entry['paragraphs']} paras / {entry['chars']:,} chars",
+                    f"{_fmt_date(d.isoformat())}: {stats}",
                     self,
                 )
                 return
         QToolTip.hideText()
+
+    def mousePressEvent(self, event):
+        cell = self._pos_to_cell(event.position().x(), event.position().y())
+        if cell is not None:
+            d = self._cell_to_date(*cell)
+            if d <= self._today:
+                self.day_clicked.emit(d.isoformat())
 
 
 class StatsDialog(QDialog):
@@ -149,7 +198,7 @@ class StatsDialog(QDialog):
         layout.setSpacing(8)
 
         heatmap_data = {r["date"]: r for r in self._all_history}
-        layout.addWidget(HeatmapWidget(heatmap_data, widget))
+        layout.addWidget(HeatmapWidget(heatmap_data, parent=widget))
 
         today_label = f"Today ({_fmt_date(date.today().isoformat())})"
         periods = [

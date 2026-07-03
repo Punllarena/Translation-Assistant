@@ -602,6 +602,49 @@ def test_stats_dialog_renders_with_data(qapp):
     dlg.close()
 
 
+def test_heatmap_metric_thresholds_follow_metric(qapp):
+    from translation_assistant.ui.dlg_stats import HeatmapWidget
+    data = {"2026-07-01": {"paragraphs": 4, "chars": 400, "en_words": 40}}
+    w = HeatmapWidget(data, metric="chars")
+    assert w._thresholds[4] == 400
+    w.set_metric("paragraphs")
+    assert w._thresholds[4] == 4
+
+
+def test_heatmap_day_clicked_signal(qapp):
+    from PySide6.QtCore import QPointF, Qt
+    from PySide6.QtGui import QMouseEvent
+    from translation_assistant.ui.dlg_stats import HeatmapWidget, _LEFT, _TOP, _GAP
+    w = HeatmapWidget({})
+    received = []
+    w.day_clicked.connect(received.append)
+    # click the first cell (col 0, row 0) — 51 weeks ago Sunday, always in the past
+    pos = QPointF(_LEFT + _GAP + 2, _TOP + _GAP + 2)
+    event = QMouseEvent(
+        QMouseEvent.Type.MouseButtonPress, pos,
+        Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+    w.mousePressEvent(event)
+    assert received == [w._start.isoformat()]
+
+
+def test_heatmap_click_outside_grid_no_signal(qapp):
+    from PySide6.QtCore import QPointF, Qt
+    from PySide6.QtGui import QMouseEvent
+    from translation_assistant.ui.dlg_stats import HeatmapWidget
+    w = HeatmapWidget({})
+    received = []
+    w.day_clicked.connect(received.append)
+    event = QMouseEvent(
+        QMouseEvent.Type.MouseButtonPress, QPointF(1.0, 1.0),
+        Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+    w.mousePressEvent(event)
+    assert received == []
+
+
 # ---------------------------------------------------------------------------
 # ShortcutsDialog
 # ---------------------------------------------------------------------------
