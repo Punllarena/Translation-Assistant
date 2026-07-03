@@ -264,3 +264,12 @@ def test_open_dialog_last_series_default(tmp_settings):
 def test_open_dialog_last_series_roundtrip(tmp_settings):
     tmp_settings.open_dialog_last_series = "My Novel"
     assert tmp_settings.open_dialog_last_series == "My Novel"
+
+
+def test_default_stats_metric(tmp_settings):
+    assert tmp_settings.stats_metric == "paragraphs"
+
+
+def test_stats_metric_roundtrip(tmp_settings):
+    tmp_settings.stats_metric = "chars"
+    assert tmp_settings.stats_metric == "chars"

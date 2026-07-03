@@ -153,6 +153,16 @@ class AppSettings:
         else:
             self._qs.setValue("LastDocId", value)
 
+    # --- stats dialog highlighted metric ---
+
+    @property
+    def stats_metric(self) -> str:
+        return self._qs.value("StatsMetric", "paragraphs")
+
+    @stats_metric.setter
+    def stats_metric(self, value: str) -> None:
+        self._qs.setValue("StatsMetric", value)
+
     # --- WordPress endpoint URL ---
 
     @property
