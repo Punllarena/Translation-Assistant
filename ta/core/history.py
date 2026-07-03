@@ -30,7 +30,9 @@ class HistoryStore:
     def _load(self) -> None:
         if not self._path.exists():
             return
-        with open(self._path, encoding="utf-8") as f:
+        # errors="replace": a torn/concurrent write must not crash startup;
+        # the mangled line just fails json.loads below and is skipped
+        with open(self._path, encoding="utf-8", errors="replace") as f:
             for line in f:
                 line = line.strip()
                 if not line:
