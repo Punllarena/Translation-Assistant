@@ -1912,7 +1912,7 @@ class TranslationAssistantWidget(QWidget):
     def _on_stats(self) -> None:
         from translation_assistant.ui.dlg_stats import StatsDialog
         with self._topmost_suspended():
-            StatsDialog(self._db, self).exec()
+            StatsDialog(self._db, self._settings, self).exec()
 
     def _on_series_phrases(self) -> None:
         from translation_assistant.ui.dlg_series_phrases import SeriesPhrasesDialog, _get_series_for_doc

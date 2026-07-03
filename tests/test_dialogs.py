@@ -10,7 +10,7 @@ import pytest
 from pathlib import Path
 from unittest.mock import patch
 
-from PySide6.QtCore import QSettings
+from PySide6.QtCore import QSettings, Qt
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import QDialog, QKeySequenceEdit
 
@@ -599,6 +599,78 @@ def test_stats_dialog_renders_with_data(qapp):
     db.save_translation(doc_id, 0, "hello world")
     dlg = StatsDialog(db)
     assert dlg.windowTitle() == "Usage Statistics"
+    dlg.close()
+
+
+def _stats_db():
+    import sqlite3
+    from translation_assistant.db import Database
+    conn = sqlite3.connect(":memory:")
+    return Database(":memory:", _conn=conn)
+
+
+def test_stats_dialog_metric_switch_updates_heatmap_and_persists(qapp, tmp_settings):
+    from PySide6.QtWidgets import QComboBox
+    from translation_assistant.ui.dlg_stats import StatsDialog
+    dlg = StatsDialog(_stats_db(), tmp_settings)
+    combo = dlg.findChild(QComboBox)
+    assert combo is not None
+    combo.setCurrentIndex(1)  # "Source Chars"
+    assert dlg._metric == "chars"
+    assert dlg._heatmap._metric == "chars"
+    assert tmp_settings.stats_metric == "chars"
+    dlg.close()
+
+
+def test_stats_dialog_restores_saved_metric(qapp, tmp_settings):
+    from translation_assistant.ui.dlg_stats import StatsDialog
+    tmp_settings.stats_metric = "en_words"
+    dlg = StatsDialog(_stats_db(), tmp_settings)
+    assert dlg._metric == "en_words"
+    assert dlg._metric_combo.currentData() == "en_words"
+    dlg.close()
+
+
+def test_stats_dialog_summary_has_vs_prev_column(qapp):
+    from translation_assistant.ui.dlg_stats import StatsDialog
+    dlg = StatsDialog(_stats_db())
+    assert dlg._summary_table.columnCount() == 5
+    assert dlg._summary_table.horizontalHeaderItem(4).text() == "vs prev"
+    # empty db -> every comparison is em-dash
+    for row in range(4):
+        assert dlg._summary_table.item(row, 4).text() == "—"
+    dlg.close()
+
+
+def test_stats_dialog_daily_avg_label(qapp):
+    from translation_assistant.ui.dlg_stats import StatsDialog
+    dlg = StatsDialog(_stats_db())
+    assert dlg._avg_label.text() == "Daily avg (30d): 0.0 paragraphs"
+    dlg.close()
+
+
+def test_stats_dialog_day_click_selects_table_row(qapp):
+    from datetime import date
+    from translation_assistant.ui.dlg_stats import StatsDialog
+    db = _stats_db()
+    doc_id = db.create_document("Ch1", series_title="S")
+    db.save_lines(doc_id, [
+        {"line_number": 0, "prefix": "%", "raw_text": "あ", "translated_text": ""},
+    ])
+    db.save_translation(doc_id, 0, "hello")
+    dlg = StatsDialog(db)
+    today_iso = date.today().isoformat()
+    dlg._on_day_clicked(today_iso)
+    sel = dlg._table.selectedItems()
+    assert sel and sel[0].data(Qt.ItemDataRole.UserRole) == today_iso
+    dlg.close()
+
+
+def test_stats_dialog_day_click_out_of_window_noop(qapp):
+    from translation_assistant.ui.dlg_stats import StatsDialog
+    dlg = StatsDialog(_stats_db())
+    dlg._on_day_clicked("2020-01-01")  # must not raise
+    assert dlg._table.selectedItems() == []
     dlg.close()
 
 

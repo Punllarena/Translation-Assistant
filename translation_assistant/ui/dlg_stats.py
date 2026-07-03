@@ -6,12 +6,12 @@ from datetime import date, timedelta
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QFont, QPainter
 from PySide6.QtWidgets import (
-    QDialog, QHBoxLayout, QLabel, QPushButton,
+    QComboBox, QDialog, QHBoxLayout, QLabel, QPushButton,
     QTableWidget, QTableWidgetItem, QTabWidget,
     QToolTip, QVBoxLayout, QWidget,
 )
 
-from translation_assistant.core import compute_streaks
+from translation_assistant.core import compute_period_comparisons, compute_streaks
 
 _CELL = 13
 _GAP = 2
@@ -33,6 +33,14 @@ _COLORS = [
 
 def _fmt_date(iso: str) -> str:
     return date.fromisoformat(iso).strftime("%B %-d, %Y")
+
+
+_METRIC_CHOICES = [("Paragraphs", "paragraphs"), ("Source Chars", "chars"), ("EN Words", "en_words")]
+_METRIC_UNITS = {"paragraphs": "paragraphs", "chars": "source chars", "en_words": "EN words"}
+
+
+def _fmt_pct(pct: float | None) -> str:
+    return "—" if pct is None else f"{pct:+.0f}%"
 
 
 class HeatmapWidget(QWidget):
@@ -153,10 +161,14 @@ class HeatmapWidget(QWidget):
 class StatsDialog(QDialog):
     """Shows a 52-week heatmap + multi-period summary + per-series breakdown."""
 
-    def __init__(self, db, parent=None):
+    def __init__(self, db, settings=None, parent=None):
         super().__init__(parent)
         self._db = db
+        self._settings = settings
         self._show_days = 30
+        self._metric = settings.stats_metric if settings is not None else "paragraphs"
+        if self._metric not in _METRIC_UNITS:
+            self._metric = "paragraphs"
         self._setup_ui()
 
     def _setup_ui(self):
@@ -197,8 +209,34 @@ class StatsDialog(QDialog):
         layout = QVBoxLayout(widget)
         layout.setSpacing(8)
 
+        metric_row = QHBoxLayout()
+        metric_row.addWidget(QLabel("Metric:"))
+        self._metric_combo = QComboBox()
+        for label, key in _METRIC_CHOICES:
+            self._metric_combo.addItem(label, key)
+        self._metric_combo.setCurrentIndex(
+            next(i for i, (_, k) in enumerate(_METRIC_CHOICES) if k == self._metric)
+        )
+        self._metric_combo.currentIndexChanged.connect(self._on_metric_changed)
+        metric_row.addWidget(self._metric_combo)
+        metric_row.addStretch()
+        layout.addLayout(metric_row)
+
         heatmap_data = {r["date"]: r for r in self._all_history}
-        layout.addWidget(HeatmapWidget(heatmap_data, parent=widget))
+        self._heatmap = HeatmapWidget(heatmap_data, metric=self._metric, parent=widget)
+        self._heatmap.day_clicked.connect(self._on_day_clicked)
+        layout.addWidget(self._heatmap)
+
+        legend_row = QHBoxLayout()
+        legend_row.addStretch()
+        legend_row.addWidget(QLabel("Less"))
+        for color in _COLORS:
+            swatch = QLabel()
+            swatch.setFixedSize(_CELL, _CELL)
+            swatch.setStyleSheet(f"background-color: {color.name()};")
+            legend_row.addWidget(swatch)
+        legend_row.addWidget(QLabel("More"))
+        layout.addLayout(legend_row)
 
         today_label = f"Today ({_fmt_date(date.today().isoformat())})"
         periods = [
@@ -207,40 +245,36 @@ class StatsDialog(QDialog):
             ("Last 30 days", summary["month"]),
             ("All time",     summary["alltime"]),
         ]
-        summary_table = QTableWidget(4, 4)
-        summary_table.setHorizontalHeaderLabels(["Period", "Paragraphs", "Source Chars", "EN Words"])
-        summary_table.horizontalHeader().setStretchLastSection(True)
-        summary_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        summary_table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
-        summary_table.verticalHeader().setVisible(False)
+        self._summary_table = QTableWidget(4, 5)
+        self._summary_table.setHorizontalHeaderLabels(
+            ["Period", "Paragraphs", "Source Chars", "EN Words", "vs prev"]
+        )
+        self._summary_table.horizontalHeader().setStretchLastSection(True)
+        self._summary_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self._summary_table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
+        self._summary_table.verticalHeader().setVisible(False)
         bold_font = QFont()
         bold_font.setBold(True)
         for i, (label, data) in enumerate(periods):
             period_item = QTableWidgetItem(label)
             if i == 0:
                 period_item.setFont(bold_font)
-            summary_table.setItem(i, 0, period_item)
-            summary_table.setItem(i, 1, QTableWidgetItem(f"{data['paragraphs']:,}"))
-            summary_table.setItem(i, 2, QTableWidgetItem(f"{data['chars']:,}"))
-            summary_table.setItem(i, 3, QTableWidgetItem(f"{data['en_words']:,}"))
-        summary_table.resizeColumnsToContents()
-        summary_table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        row_h = summary_table.rowHeight(0) if summary_table.rowCount() > 0 else 22
-        summary_table.setFixedHeight(
-            summary_table.horizontalHeader().height() + 4 * row_h + 4
+            self._summary_table.setItem(i, 0, period_item)
+            self._summary_table.setItem(i, 1, QTableWidgetItem(f"{data['paragraphs']:,}"))
+            self._summary_table.setItem(i, 2, QTableWidgetItem(f"{data['chars']:,}"))
+            self._summary_table.setItem(i, 3, QTableWidgetItem(f"{data['en_words']:,}"))
+        self._summary_table.resizeColumnsToContents()
+        self._summary_table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        row_h = self._summary_table.rowHeight(0) if self._summary_table.rowCount() > 0 else 22
+        self._summary_table.setFixedHeight(
+            self._summary_table.horizontalHeader().height() + 4 * row_h + 4
         )
-        layout.addWidget(summary_table)
+        layout.addWidget(self._summary_table)
 
-        streaks = compute_streaks(self._all_history)
-        parts = [
-            f"Current streak: {streaks['current_streak']} days",
-            f"Longest streak: {streaks['longest_streak']} days",
-        ]
-        if streaks["best_day_date"]:
-            parts.append(
-                f"Best day: {_fmt_date(streaks['best_day_date'])} ({streaks['best_day_paras']:,} paras)"
-            )
-        layout.addWidget(QLabel("  ·  ".join(parts)))
+        self._streak_label = QLabel()
+        layout.addWidget(self._streak_label)
+        self._avg_label = QLabel()
+        layout.addWidget(self._avg_label)
 
         toggle_row = QHBoxLayout()
         self._toggle_btn = QPushButton("Show Last 7 Days")
@@ -254,10 +288,53 @@ class StatsDialog(QDialog):
         self._table.horizontalHeader().setStretchLastSection(True)
         self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self._table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         layout.addWidget(self._table)
 
         self._refresh_table()
+        self._refresh_metric_views()
         return widget
+
+    def _on_metric_changed(self, index: int) -> None:
+        self._metric = self._metric_combo.itemData(index)
+        if self._settings is not None:
+            self._settings.stats_metric = self._metric
+        self._heatmap.set_metric(self._metric)
+        self._refresh_metric_views()
+
+    def _refresh_metric_views(self) -> None:
+        comp = compute_period_comparisons(self._all_history, self._metric, date.today())
+        for row, key in enumerate(("today", "week", "month")):
+            self._summary_table.setItem(
+                row, 4, QTableWidgetItem(_fmt_pct(comp["periods"][key]["pct_change"]))
+            )
+        self._summary_table.setItem(3, 4, QTableWidgetItem("—"))
+
+        streaks = compute_streaks(self._all_history)
+        parts = [
+            f"Current streak: {streaks['current_streak']} days",
+            f"Longest streak: {streaks['longest_streak']} days",
+        ]
+        if self._all_history:
+            best = max(self._all_history, key=lambda r: r[self._metric])
+            if best[self._metric] > 0:
+                parts.append(
+                    f"Best day: {_fmt_date(best['date'])} "
+                    f"({best[self._metric]:,} {_METRIC_UNITS[self._metric]})"
+                )
+        self._streak_label.setText("  ·  ".join(parts))
+
+        avg = comp["daily_avg_30"]
+        avg_str = f"{avg:.1f}" if avg < 10 else f"{avg:,.0f}"
+        self._avg_label.setText(f"Daily avg (30d): {avg_str} {_METRIC_UNITS[self._metric]}")
+
+    def _on_day_clicked(self, iso: str) -> None:
+        for row in range(self._table.rowCount()):
+            item = self._table.item(row, 0)
+            if item is not None and item.data(Qt.ItemDataRole.UserRole) == iso:
+                self._table.selectRow(row)
+                self._table.scrollToItem(item)
+                return
 
     def _build_series_tab(self, series_data: list) -> QWidget:
         widget = QWidget()
@@ -304,7 +381,9 @@ class StatsDialog(QDialog):
         )
         self._table.setRowCount(len(rows))
         for i, row in enumerate(rows):
-            self._table.setItem(i, 0, QTableWidgetItem(_fmt_date(row["date"])))
+            date_item = QTableWidgetItem(_fmt_date(row["date"]))
+            date_item.setData(Qt.ItemDataRole.UserRole, row["date"])
+            self._table.setItem(i, 0, date_item)
             self._table.setItem(i, 1, QTableWidgetItem(f"{row['paragraphs']:,}"))
             self._table.setItem(i, 2, QTableWidgetItem(f"{row['chars']:,}"))
             self._table.setItem(i, 3, QTableWidgetItem(f"{row['en_words']:,}"))
