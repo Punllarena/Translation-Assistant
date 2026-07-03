@@ -1045,3 +1045,75 @@ def test_compute_streaks_longest_not_current():
     assert result["longest_streak"] == 3
     assert result["current_streak"] == 1   # gap between days_ago(16) and today
     assert result["best_day_paras"] == 10
+
+
+# ---------------------------------------------------------------------------
+# compute_period_comparisons
+# ---------------------------------------------------------------------------
+
+from translation_assistant.core import compute_period_comparisons
+
+
+def _row(iso, paras=0, chars=0, en=0):
+    return {"date": iso, "paragraphs": paras, "chars": chars, "en_words": en}
+
+
+def test_period_comparisons_today_vs_yesterday():
+    today = date(2026, 7, 3)
+    history = [_row("2026-07-03", paras=10), _row("2026-07-02", paras=5)]
+    result = compute_period_comparisons(history, "paragraphs", today)
+    t = result["periods"]["today"]
+    assert t["current"] == 10
+    assert t["previous"] == 5
+    assert t["pct_change"] == 100.0
+
+
+def test_period_comparisons_week_boundary():
+    today = date(2026, 7, 3)
+    # 2026-06-27 is day 7 back -> inside current week; 2026-06-26 is day 8 -> previous week
+    history = [_row("2026-06-27", paras=3), _row("2026-06-26", paras=7)]
+    result = compute_period_comparisons(history, "paragraphs", today)
+    w = result["periods"]["week"]
+    assert w["current"] == 3
+    assert w["previous"] == 7
+
+
+def test_period_comparisons_zero_previous_gives_none():
+    today = date(2026, 7, 3)
+    history = [_row("2026-07-03", paras=10)]
+    result = compute_period_comparisons(history, "paragraphs", today)
+    assert result["periods"]["today"]["pct_change"] is None
+
+
+def test_period_comparisons_negative_change():
+    today = date(2026, 7, 3)
+    history = [_row("2026-07-03", paras=4), _row("2026-07-02", paras=8)]
+    result = compute_period_comparisons(history, "paragraphs", today)
+    assert result["periods"]["today"]["pct_change"] == -50.0
+
+
+def test_period_comparisons_empty_history():
+    result = compute_period_comparisons([], "paragraphs", date(2026, 7, 3))
+    for key in ("today", "week", "month"):
+        p = result["periods"][key]
+        assert p["current"] == 0
+        assert p["previous"] == 0
+        assert p["pct_change"] is None
+    assert result["daily_avg_30"] == 0
+
+
+def test_period_comparisons_respects_metric():
+    today = date(2026, 7, 3)
+    history = [_row("2026-07-03", paras=1, chars=500), _row("2026-07-02", paras=1, chars=100)]
+    result = compute_period_comparisons(history, "chars", today)
+    assert result["periods"]["today"]["current"] == 500
+    assert result["periods"]["today"]["pct_change"] == 400.0
+
+
+def test_period_comparisons_daily_avg_30():
+    today = date(2026, 7, 3)
+    # 60 paras within last 30 days, plus old data that must not count
+    history = [_row("2026-07-01", paras=45), _row("2026-06-10", paras=15),
+               _row("2026-01-01", paras=999)]
+    result = compute_period_comparisons(history, "paragraphs", today)
+    assert result["daily_avg_30"] == 2.0  # 60 / 30
