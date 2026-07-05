@@ -870,25 +870,21 @@ def test_wp_settings_dialog_clears_schedule_time_when_unchecked(qapp, tmp_settin
 
 
 # ---------------------------------------------------------------------------
-# SeriesManagerDialog — WP Fields button
+# SeriesManagerDialog — context menu actions
 # ---------------------------------------------------------------------------
 
-def test_series_manager_has_wp_fields_button(qapp, mem_db):
+def test_series_manager_has_context_menu_actions(qapp, mem_db):
     from translation_assistant.ui.dlg_series import SeriesManagerDialog
     dlg = SeriesManagerDialog(mem_db)
-    assert hasattr(dlg, "_set_wp_btn")
-    dlg.reject()
-
-
-def test_series_manager_wp_btn_disabled_with_no_selection(qapp, mem_db):
-    from translation_assistant.ui.dlg_series import SeriesManagerDialog
-    dlg = SeriesManagerDialog(mem_db)
-    assert not dlg._set_wp_btn.isEnabled()
+    assert hasattr(dlg, "_set_url_action")
+    assert hasattr(dlg, "_set_wp_action")
+    assert hasattr(dlg, "_add_profile_action")
+    assert hasattr(dlg, "_import_profile_action")
     dlg.reject()
 
 
 # ---------------------------------------------------------------------------
-# SeriesManagerDialog — Add Profile button
+# SeriesManagerDialog — Add Profile action
 # ---------------------------------------------------------------------------
 
 def test_series_manager_add_profile_creates_and_links(qapp, mem_db):
@@ -896,19 +892,128 @@ def test_series_manager_add_profile_creates_and_links(qapp, mem_db):
     mem_db.set_series_url("My Series", "")
     dlg = SeriesManagerDialog(mem_db)
     dlg._table.setCurrentCell(0, 0)
-    assert dlg._add_profile_btn.isEnabled()
     dlg._on_add_profile()
     assert mem_db.get_profile_id("My Series") is not None
     assert mem_db.get_series_profile("My Series") == "My Series"
-    assert not dlg._add_profile_btn.isEnabled()
     dlg.reject()
 
 
-def test_series_manager_add_profile_disabled_when_profile_set(qapp, mem_db):
+# ---------------------------------------------------------------------------
+# SeriesManagerDialog — inline URL editing
+# ---------------------------------------------------------------------------
+
+def test_series_manager_url_edit_saves_valid_url(qapp, mem_db):
     from translation_assistant.ui.dlg_series import SeriesManagerDialog
-    mem_db.create_profile("Existing")
-    mem_db.set_series_profile("My Series", "Existing")
+    mem_db.set_series_url("My Series", "")
+    dlg = SeriesManagerDialog(mem_db)
+    dlg._table.item(0, 1).setText("https://ncode.syosetu.com/n1234ab/")
+    assert mem_db.get_series_url("My Series") == "https://ncode.syosetu.com/n1234ab/"
+    dlg.reject()
+
+
+def test_series_manager_url_edit_reverts_invalid_url(qapp, mem_db):
+    from translation_assistant.ui.dlg_series import SeriesManagerDialog
+    mem_db.set_series_url("My Series", "https://ncode.syosetu.com/n1234ab/")
+    dlg = SeriesManagerDialog(mem_db)
+    dlg._table.item(0, 1).setText("https://example.com/nope")
+    assert mem_db.get_series_url("My Series") == "https://ncode.syosetu.com/n1234ab/"
+    assert dlg._table.item(0, 1).text() == "https://ncode.syosetu.com/n1234ab/"
+    dlg.reject()
+
+
+def test_series_manager_url_edit_rejects_chapter_url(qapp, mem_db):
+    from translation_assistant.ui.dlg_series import SeriesManagerDialog
+    mem_db.set_series_url("My Series", "")
+    dlg = SeriesManagerDialog(mem_db)
+    dlg._table.item(0, 1).setText("https://ncode.syosetu.com/n1234ab/5/")
+    assert mem_db.get_series_url("My Series") == ""
+    assert dlg._table.item(0, 1).text() == ""
+    dlg.reject()
+
+
+def test_series_manager_set_url_dialog_rejects_invalid(qapp, mem_db):
+    from translation_assistant.ui.dlg_series import SeriesManagerDialog
+    mem_db.set_series_url("My Series", "https://ncode.syosetu.com/n1234ab/")
     dlg = SeriesManagerDialog(mem_db)
     dlg._table.setCurrentCell(0, 0)
-    assert not dlg._add_profile_btn.isEnabled()
+    with patch(
+        "translation_assistant.ui.dlg_series.QInputDialog.getText",
+        return_value=("https://example.com/nope", True),
+    ), patch("translation_assistant.ui.dlg_series.QMessageBox.warning") as warn:
+        dlg._on_set_url()
+    warn.assert_called_once()
+    assert mem_db.get_series_url("My Series") == "https://ncode.syosetu.com/n1234ab/"
+    dlg.reject()
+
+
+def test_series_manager_set_url_dialog_saves_valid(qapp, mem_db):
+    from translation_assistant.ui.dlg_series import SeriesManagerDialog
+    mem_db.set_series_url("My Series", "")
+    dlg = SeriesManagerDialog(mem_db)
+    dlg._table.setCurrentCell(0, 0)
+    with patch(
+        "translation_assistant.ui.dlg_series.QInputDialog.getText",
+        return_value=("https://ncode.syosetu.com/n1234ab/", True),
+    ):
+        dlg._on_set_url()
+    assert mem_db.get_series_url("My Series") == "https://ncode.syosetu.com/n1234ab/"
+    dlg.reject()
+
+
+def test_series_manager_url_edit_clears_url(qapp, mem_db):
+    from translation_assistant.ui.dlg_series import SeriesManagerDialog
+    mem_db.set_series_url("My Series", "https://ncode.syosetu.com/n1234ab/")
+    dlg = SeriesManagerDialog(mem_db)
+    dlg._table.item(0, 1).setText("")
+    assert mem_db.get_series_url("My Series") == ""
+    dlg.reject()
+
+
+def test_series_manager_only_url_column_editable(qapp, mem_db):
+    from PySide6.QtCore import Qt
+    from translation_assistant.ui.dlg_series import SeriesManagerDialog
+    mem_db.set_series_url("My Series", "")
+    dlg = SeriesManagerDialog(mem_db)
+    for col in (0, 2, 3):
+        assert not (dlg._table.item(0, col).flags() & Qt.ItemFlag.ItemIsEditable)
+    assert dlg._table.item(0, 1).flags() & Qt.ItemFlag.ItemIsEditable
+    dlg.reject()
+
+
+# ---------------------------------------------------------------------------
+# SeriesManagerDialog — Import Phrases from CSV
+# ---------------------------------------------------------------------------
+
+def test_series_manager_import_merges_into_profile(qapp, mem_db, tmp_path):
+    from translation_assistant.ui.dlg_series import SeriesManagerDialog
+    mem_db.create_profile("MyProfile")
+    mem_db.add_phrase("MyProfile", "老", "old")
+    mem_db.set_series_profile("My Series", "MyProfile")
+    csv = tmp_path / "extra.csv"
+    csv.write_text("老,elder\n魔王,demon_lord\n", encoding="utf-8")
+
+    dlg = SeriesManagerDialog(mem_db)
+    dlg._table.setCurrentCell(0, 0)
+    with patch(
+        "translation_assistant.ui.dlg_series.QFileDialog.getOpenFileName",
+        return_value=(str(csv), "CSV files (*.csv)"),
+    ), patch("translation_assistant.ui.dlg_series.QMessageBox.information"):
+        dlg._on_import_profile()
+
+    glossary = dict(mem_db.get_glossary("MyProfile"))
+    assert glossary["老"] == "elder"  # file wins on duplicates
+    assert glossary["魔王"] == "demon_lord"
+    dlg.reject()
+
+
+def test_series_manager_import_noop_without_profile(qapp, mem_db):
+    from translation_assistant.ui.dlg_series import SeriesManagerDialog
+    mem_db.set_series_url("My Series", "")
+    dlg = SeriesManagerDialog(mem_db)
+    dlg._table.setCurrentCell(0, 0)
+    with patch(
+        "translation_assistant.ui.dlg_series.QFileDialog.getOpenFileName"
+    ) as mock_open:
+        dlg._on_import_profile()
+    mock_open.assert_not_called()
     dlg.reject()

@@ -1,11 +1,17 @@
 """
 Series Manager dialog — view all series, set syosetu URL, open chapter fetcher.
 """
+from pathlib import Path
+
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QAction, QCursor
 from PySide6.QtWidgets import (
-    QDialog, QHBoxLayout, QHeaderView, QInputDialog, QPushButton,
-    QTableWidget, QTableWidgetItem, QVBoxLayout,
+    QDialog, QFileDialog, QHBoxLayout, QHeaderView, QInputDialog, QMenu,
+    QMessageBox, QPushButton, QTableWidget, QTableWidgetItem, QToolTip,
+    QVBoxLayout,
 )
+from translation_assistant.core import load_glossary
+from translation_assistant.scraper import _validate_series_url
 
 from translation_assistant.db import Database
 
@@ -14,6 +20,7 @@ class SeriesManagerDialog(QDialog):
     def __init__(self, db: Database, parent=None) -> None:
         super().__init__(parent)
         self._db = db
+        self._loading = False
         self._setup_ui()
         self._load()
 
@@ -34,45 +41,51 @@ class SeriesManagerDialog(QDialog):
         self._table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         self._table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self._table.setEditTriggers(QTableWidget.EditTrigger.DoubleClicked)
         self._table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self._table.currentCellChanged.connect(lambda row, *_: self._on_row_changed(row))
+        self._table.itemChanged.connect(self._on_item_changed)
+        self._table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._table.customContextMenuRequested.connect(self._on_context_menu)
         layout.addWidget(self._table)
+
+        self._set_url_action = QAction("Set URL…", self)
+        self._set_url_action.triggered.connect(self._on_set_url)
+        self._set_wp_action = QAction("Set WP Fields…", self)
+        self._set_wp_action.triggered.connect(self._on_set_wp_fields)
+        self._add_profile_action = QAction("Add Profile", self)
+        self._add_profile_action.triggered.connect(self._on_add_profile)
+        self._import_profile_action = QAction("Import Phrases from CSV…", self)
+        self._import_profile_action.triggered.connect(self._on_import_profile)
 
         btn_row = QHBoxLayout()
         btn_row.addStretch()
         self._new_series_btn = QPushButton("New Series…")
         self._new_series_btn.clicked.connect(self._on_new_series)
-        self._set_url_btn = QPushButton("Set URL…")
-        self._set_url_btn.setEnabled(False)
-        self._set_url_btn.clicked.connect(self._on_set_url)
         self._fetch_btn = QPushButton("Fetch new chapters…")
         self._fetch_btn.setEnabled(False)
         self._fetch_btn.clicked.connect(self._on_fetch)
-        self._set_wp_btn = QPushButton("Set WP Fields…")
-        self._set_wp_btn.setEnabled(False)
-        self._set_wp_btn.clicked.connect(self._on_set_wp_fields)
-        self._add_profile_btn = QPushButton("Add Profile")
-        self._add_profile_btn.setEnabled(False)
-        self._add_profile_btn.clicked.connect(self._on_add_profile)
         close_btn = QPushButton("Close")
         close_btn.clicked.connect(self.accept)
         btn_row.addWidget(self._new_series_btn)
-        btn_row.addWidget(self._set_url_btn)
         btn_row.addWidget(self._fetch_btn)
-        btn_row.addWidget(self._set_wp_btn)
-        btn_row.addWidget(self._add_profile_btn)
         btn_row.addWidget(close_btn)
         layout.addLayout(btn_row)
 
     def _load(self) -> None:
-        series = self._db.get_series_list_full()
-        self._table.setRowCount(len(series))
-        for row, s in enumerate(series):
-            self._table.setItem(row, 0, QTableWidgetItem(s["title"]))
-            self._table.setItem(row, 1, QTableWidgetItem(s["url"]))
-            self._table.setItem(row, 2, QTableWidgetItem(str(s["chapter_count"])))
-            self._table.setItem(row, 3, QTableWidgetItem(s["profile_name"]))
+        self._loading = True
+        try:
+            series = self._db.get_series_list_full()
+            self._table.setRowCount(len(series))
+            for row, s in enumerate(series):
+                cells = [s["title"], s["url"], str(s["chapter_count"]), s["profile_name"]]
+                for col, text in enumerate(cells):
+                    item = QTableWidgetItem(text)
+                    if col != 1:  # only the URL column is editable
+                        item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                    self._table.setItem(row, col, item)
+        finally:
+            self._loading = False
         self._on_row_changed(self._table.currentRow())
 
     def _current_series(self) -> dict | None:
@@ -87,10 +100,45 @@ class SeriesManagerDialog(QDialog):
 
     def _on_row_changed(self, row: int) -> None:
         s = self._current_series()
-        self._set_url_btn.setEnabled(s is not None)
-        self._set_wp_btn.setEnabled(s is not None)
         self._fetch_btn.setEnabled(s is not None and bool(s["url"]))
-        self._add_profile_btn.setEnabled(s is not None and not s["profile"])
+
+    def _on_context_menu(self, pos) -> None:
+        row = self._table.rowAt(pos.y())
+        if row < 0:
+            return
+        self._table.setCurrentCell(row, 0)
+        s = self._current_series()
+        if s is None:
+            return
+        self._add_profile_action.setEnabled(not s["profile"])
+        self._import_profile_action.setEnabled(bool(s["profile"]))
+        menu = QMenu(self)
+        menu.addAction(self._set_url_action)
+        menu.addAction(self._set_wp_action)
+        menu.addSeparator()
+        menu.addAction(self._add_profile_action)
+        menu.addAction(self._import_profile_action)
+        menu.exec(self._table.viewport().mapToGlobal(pos))
+
+    def _on_item_changed(self, item: QTableWidgetItem) -> None:
+        if self._loading or item.column() != 1:
+            return
+        title = self._table.item(item.row(), 0).text()
+        url = item.text().strip()
+        if url:
+            try:
+                _validate_series_url(url)
+            except ValueError as exc:
+                self._loading = True
+                item.setText(self._db.get_series_url(title))
+                self._loading = False
+                QToolTip.showText(QCursor.pos(), str(exc), self._table)
+                return
+        self._db.set_series_url(title, url)
+        self._loading = True
+        item.setText(url)
+        self._loading = False
+        self._on_row_changed(item.row())
 
     def _on_set_url(self) -> None:
         s = self._current_series()
@@ -104,7 +152,14 @@ class SeriesManagerDialog(QDialog):
         )
         if not ok:
             return
-        self._db.set_series_url(s["title"], url.strip())
+        url = url.strip()
+        if url:
+            try:
+                _validate_series_url(url)
+            except ValueError as exc:
+                QMessageBox.warning(self, "Invalid URL", str(exc))
+                return
+        self._db.set_series_url(s["title"], url)
         self._load()
 
     def _on_fetch(self) -> None:
@@ -187,6 +242,27 @@ class SeriesManagerDialog(QDialog):
             self._db.create_profile(title)
         self._db.set_series_profile(title, title)
         self._load()
+
+    def _on_import_profile(self) -> None:
+        s = self._current_series()
+        if s is None or not s["profile"]:
+            return
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Import Phrases from CSV", "", "CSV files (*.csv)"
+        )
+        if not path:
+            return
+        rows = load_glossary(Path(path))
+        if not rows:
+            QMessageBox.warning(self, "Import Phrases", "No phrases found in file.")
+            return
+        for phrase, translation in rows:
+            # add_phrase is INSERT OR REPLACE — the file wins on duplicate phrases
+            self._db.add_phrase(s["profile"], phrase, translation)
+        QMessageBox.information(
+            self, "Import Phrases",
+            f"Imported {len(rows)} phrases into profile '{s['profile']}'.",
+        )
 
     def _on_new_series(self) -> None:
         from translation_assistant.ui.dlg_new_series import NewSeriesDialog
