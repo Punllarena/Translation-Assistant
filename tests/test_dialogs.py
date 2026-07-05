@@ -885,3 +885,30 @@ def test_series_manager_wp_btn_disabled_with_no_selection(qapp, mem_db):
     dlg = SeriesManagerDialog(mem_db)
     assert not dlg._set_wp_btn.isEnabled()
     dlg.reject()
+
+
+# ---------------------------------------------------------------------------
+# SeriesManagerDialog — Add Profile button
+# ---------------------------------------------------------------------------
+
+def test_series_manager_add_profile_creates_and_links(qapp, mem_db):
+    from translation_assistant.ui.dlg_series import SeriesManagerDialog
+    mem_db.set_series_url("My Series", "")
+    dlg = SeriesManagerDialog(mem_db)
+    dlg._table.setCurrentCell(0, 0)
+    assert dlg._add_profile_btn.isEnabled()
+    dlg._on_add_profile()
+    assert mem_db.get_profile_id("My Series") is not None
+    assert mem_db.get_series_profile("My Series") == "My Series"
+    assert not dlg._add_profile_btn.isEnabled()
+    dlg.reject()
+
+
+def test_series_manager_add_profile_disabled_when_profile_set(qapp, mem_db):
+    from translation_assistant.ui.dlg_series import SeriesManagerDialog
+    mem_db.create_profile("Existing")
+    mem_db.set_series_profile("My Series", "Existing")
+    dlg = SeriesManagerDialog(mem_db)
+    dlg._table.setCurrentCell(0, 0)
+    assert not dlg._add_profile_btn.isEnabled()
+    dlg.reject()

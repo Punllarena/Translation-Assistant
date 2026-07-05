@@ -52,12 +52,16 @@ class SeriesManagerDialog(QDialog):
         self._set_wp_btn = QPushButton("Set WP Fields…")
         self._set_wp_btn.setEnabled(False)
         self._set_wp_btn.clicked.connect(self._on_set_wp_fields)
+        self._add_profile_btn = QPushButton("Add Profile")
+        self._add_profile_btn.setEnabled(False)
+        self._add_profile_btn.clicked.connect(self._on_add_profile)
         close_btn = QPushButton("Close")
         close_btn.clicked.connect(self.accept)
         btn_row.addWidget(self._new_series_btn)
         btn_row.addWidget(self._set_url_btn)
         btn_row.addWidget(self._fetch_btn)
         btn_row.addWidget(self._set_wp_btn)
+        btn_row.addWidget(self._add_profile_btn)
         btn_row.addWidget(close_btn)
         layout.addLayout(btn_row)
 
@@ -78,6 +82,7 @@ class SeriesManagerDialog(QDialog):
         return {
             "title": self._table.item(row, 0).text(),
             "url": self._table.item(row, 1).text(),
+            "profile": self._table.item(row, 3).text(),
         }
 
     def _on_row_changed(self, row: int) -> None:
@@ -85,6 +90,7 @@ class SeriesManagerDialog(QDialog):
         self._set_url_btn.setEnabled(s is not None)
         self._set_wp_btn.setEnabled(s is not None)
         self._fetch_btn.setEnabled(s is not None and bool(s["url"]))
+        self._add_profile_btn.setEnabled(s is not None and not s["profile"])
 
     def _on_set_url(self) -> None:
         s = self._current_series()
@@ -170,6 +176,17 @@ class SeriesManagerDialog(QDialog):
             enabled_out = ("1" if idx == 1 else "0" if idx == 2 else None)
             unlock_out = unlock_spin.value() if idx == 1 else -1
             self._db.set_series_wp_password_settings(s["title"], enabled_out, unlock_out)
+
+    def _on_add_profile(self) -> None:
+        # Same semantics as NewSeriesDialog's "Create new profile" checkbox
+        s = self._current_series()
+        if s is None or s["profile"]:
+            return
+        title = s["title"]
+        if self._db.get_profile_id(title) is None:
+            self._db.create_profile(title)
+        self._db.set_series_profile(title, title)
+        self._load()
 
     def _on_new_series(self) -> None:
         from translation_assistant.ui.dlg_new_series import NewSeriesDialog
