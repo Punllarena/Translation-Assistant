@@ -1117,3 +1117,25 @@ def test_period_comparisons_daily_avg_30():
                _row("2026-01-01", paras=999)]
     result = compute_period_comparisons(history, "paragraphs", today)
     assert result["daily_avg_30"] == 2.0  # 60 / 30
+
+
+# ---------------------------------------------------------------------------
+# natural_key
+# ---------------------------------------------------------------------------
+
+from translation_assistant.core import natural_key
+
+
+def test_natural_key_numeric_order():
+    titles = ["ch10", "ch2", "ch1"]
+    assert sorted(titles, key=natural_key) == ["ch1", "ch2", "ch10"]
+
+
+def test_natural_key_case_insensitive():
+    assert sorted(["B", "a"], key=natural_key) == ["a", "B"]
+
+
+def test_natural_key_mixed_and_plain():
+    titles = ["Chapter 12 - End", "Chapter 2 - Start", "Prologue"]
+    assert sorted(titles, key=natural_key) == [
+        "Chapter 2 - Start", "Chapter 12 - End", "Prologue"]

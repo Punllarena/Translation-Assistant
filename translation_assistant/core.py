@@ -670,3 +670,12 @@ def compute_period_comparisons(history: list[dict], metric: str, today: date) ->
 
     daily_avg_30 = _total(today - timedelta(days=29), today) / 30
     return {"periods": periods, "daily_avg_30": daily_avg_30}
+
+
+# ---------------------------------------------------------------------------
+# Sorting
+# ---------------------------------------------------------------------------
+
+def natural_key(s: str) -> list:
+    """Sort key that orders embedded numbers numerically ('ch2' < 'ch10')."""
+    return [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", s)]

@@ -9,9 +9,16 @@ import sqlite3
 import pytest
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QDialog
+from PySide6.QtWidgets import QDialog, QMenu
 from translation_assistant.db import Database
 from translation_assistant.ui.dlg_open import OpenDocumentDialog
+
+
+class _NoExecMenu(QMenu):
+    """QMenu whose exec() never opens a real (blocking) menu."""
+
+    def exec(self, *args, **kwargs):
+        return None
 
 
 @pytest.fixture
@@ -459,20 +466,21 @@ class TestOpenDocumentDialog:
     def test_chapter_context_menu_no_crash_no_selection(self, qapp, mem_db):
         from unittest.mock import patch
         from PySide6.QtCore import QPoint
-        from PySide6.QtWidgets import QMenu
         mem_db.create_document("Doc")
         dlg = OpenDocumentDialog(mem_db)
-        with patch.object(QMenu, "exec", return_value=None):
+        # patch.object(QMenu, "exec") does not work: shiboken resolves builtin
+        # methods on the C++ wrapper, bypassing the patched class attribute,
+        # so a real blocking menu would open. Swap the class in the module.
+        with patch("translation_assistant.ui.dlg_open.QMenu", _NoExecMenu):
             dlg._on_chapter_context_menu(QPoint(0, 0))
 
     def test_series_context_menu_no_crash_for_named_series(self, qapp, mem_db):
         from unittest.mock import patch
         from PySide6.QtCore import QPoint
-        from PySide6.QtWidgets import QMenu
         mem_db.create_document("Ch", series_title="Novel", chapter_title="Ch")
         dlg = OpenDocumentDialog(mem_db)
         dlg._series_list.setCurrentRow(0)
-        with patch.object(QMenu, "exec", return_value=None):
+        with patch("translation_assistant.ui.dlg_open.QMenu", _NoExecMenu):
             dlg._on_series_context_menu(QPoint(0, 0))
 
     def test_last_series_restored_on_open(self, qapp, mem_db, tmp_settings):
@@ -597,3 +605,48 @@ class TestEditSourceDialog:
         dlg._on_save()
         lines = mem_db.get_lines(doc_id)
         assert lines[0]["translated_text"] == "Bonjour"
+
+
+# ---------------------------------------------------------------------------
+# Persisted reordering (renumber by title + drag-drop persist)
+# ---------------------------------------------------------------------------
+
+class TestReorder:
+    def _make_dlg(self, mem_db, qapp):
+        a = mem_db.create_document("f1", series_title="S", series_order=1,
+                                   chapter_title="Chapter 10")
+        b = mem_db.create_document("f2", series_title="S", series_order=2,
+                                   chapter_title="Chapter 2")
+        c = mem_db.create_document("f3", series_title="S", series_order=3,
+                                   chapter_title="Chapter 1")
+        dlg = OpenDocumentDialog(mem_db)
+        _select_series(dlg, "S")
+        return dlg, (a, b, c)
+
+    def test_renumber_by_title_natural_sort(self, qapp, mem_db):
+        dlg, (a, b, c) = self._make_dlg(mem_db, qapp)
+        dlg._renumber_by_title()
+        assert mem_db.get_document(c)["series_order"] == 1  # Chapter 1
+        assert mem_db.get_document(b)["series_order"] == 2  # Chapter 2
+        assert mem_db.get_document(a)["series_order"] == 3  # Chapter 10
+        assert _chapter_titles(dlg) == ["Chapter 1", "Chapter 2", "Chapter 10"]
+
+    def test_persist_tree_order_saves_visual_order(self, qapp, mem_db):
+        dlg, (a, b, c) = self._make_dlg(mem_db, qapp)
+        # simulate a drag: move last item to the top
+        item = dlg._tree.takeTopLevelItem(2)
+        dlg._tree.insertTopLevelItem(0, item)
+        dlg._persist_tree_order()
+        assert mem_db.get_document(c)["series_order"] == 1
+        assert mem_db.get_document(a)["series_order"] == 2
+        assert mem_db.get_document(b)["series_order"] == 3
+        # '#' column refreshed to match
+        nums = [dlg._tree.topLevelItem(i).text(0) for i in range(3)]
+        assert nums == ["1", "2", "3"]
+
+    def test_drag_drop_mode_enabled(self, qapp, mem_db):
+        dlg, _ = self._make_dlg(mem_db, qapp)
+        from PySide6.QtWidgets import QTreeWidget
+        assert dlg._tree.dragDropMode() == QTreeWidget.DragDropMode.InternalMove
+        item = dlg._tree.topLevelItem(0)
+        assert not (item.flags() & Qt.ItemFlag.ItemIsDropEnabled)

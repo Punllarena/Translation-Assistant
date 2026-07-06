@@ -306,6 +306,14 @@ class Database:
         )
         self._conn.commit()
 
+    def set_series_orders(self, pairs: list[tuple[int, int]]) -> None:
+        """Bulk-update series_order. pairs: (doc_id, series_order)."""
+        self._conn.executemany(
+            "UPDATE documents SET series_order=? WHERE id=?",
+            [(order, doc_id) for doc_id, order in pairs],
+        )
+        self._conn.commit()
+
     def get_series_list(self) -> list[str]:
         rows = self._conn.execute(
             """

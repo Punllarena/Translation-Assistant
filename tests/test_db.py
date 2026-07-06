@@ -1096,3 +1096,13 @@ def test_list_documents_includes_wp_status(db):
     docs = db.list_documents()
     doc = next(d for d in docs if d["id"] == doc_id)
     assert doc["wp_status"] == "publish"
+
+
+def test_set_series_orders_bulk_update(db):
+    a = db.create_document("A", series_title="S", series_order=1)
+    b = db.create_document("B", series_title="S", series_order=2)
+    c = db.create_document("C", series_title="S", series_order=3)
+    db.set_series_orders([(a, 3), (b, 1), (c, 2)])
+    assert db.get_document(a)["series_order"] == 3
+    assert db.get_document(b)["series_order"] == 1
+    assert db.get_document(c)["series_order"] == 2

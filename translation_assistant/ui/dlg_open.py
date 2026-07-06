@@ -11,10 +11,24 @@ from PySide6.QtWidgets import (
     QSplitter, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
+from translation_assistant.core import natural_key
 from translation_assistant.db import Database
 
 _NO_SERIES = "(No Series)"
 _CHAPTER_HEADERS = ["#", "Title", "Progress", "Last Edited", "WP"]
+
+
+class _ChapterTree(QTreeWidget):
+    """QTreeWidget that notifies after an internal drag-drop reorder."""
+
+    def __init__(self, on_reordered, parent=None) -> None:
+        super().__init__(parent)
+        self._on_reordered = on_reordered
+
+    def dropEvent(self, event) -> None:
+        super().dropEvent(event)
+        if event.isAccepted():
+            self._on_reordered()
 
 
 class OpenDocumentDialog(QDialog):
@@ -77,8 +91,9 @@ class OpenDocumentDialog(QDialog):
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(0)
 
-        self._tree = QTreeWidget()
+        self._tree = _ChapterTree(self._persist_tree_order)
         self._tree.setColumnCount(5)
+        self._tree.setDragDropMode(QTreeWidget.DragDropMode.InternalMove)
         self._tree.setHeaderLabels(_CHAPTER_HEADERS)
         self._tree.header().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         self._tree.header().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
@@ -178,6 +193,8 @@ class OpenDocumentDialog(QDialog):
             ])
             item.setData(0, Qt.ItemDataRole.UserRole, doc["series_order"])
             item.setData(2, Qt.ItemDataRole.UserRole, progress_pct)
+            # drops land between rows, never nest under an item
+            item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsDropEnabled)
             item.setTextAlignment(2, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
             if progress_pct == 0:
@@ -239,6 +256,33 @@ class OpenDocumentDialog(QDialog):
                 arrow = ""
             self._tree.headerItem().setText(col, label + arrow)
 
+    def _persist_tree_order(self) -> None:
+        """Save the current visual order as series_order 1..N (drag-drop)."""
+        pairs = []
+        for i in range(self._tree.topLevelItemCount()):
+            item = self._tree.topLevelItem(i)
+            doc_id = self._doc_ids.get(id(item))
+            if doc_id is None:
+                continue
+            order = i + 1
+            pairs.append((doc_id, order))
+            item.setText(0, str(order))
+            item.setData(0, Qt.ItemDataRole.UserRole, order)
+        self._db.set_series_orders(pairs)
+        self._sort_col = 0  # drag defines the new canonical order
+        self._sort_asc = True
+        self._update_sort_header()
+
+    def _renumber_by_title(self) -> None:
+        """Rewrite series_order 1..N by natural title sort."""
+        items = [self._tree.topLevelItem(i) for i in range(self._tree.topLevelItemCount())]
+        items.sort(key=lambda it: natural_key(it.text(1)))
+        pairs = [(self._doc_ids[id(it)], i + 1) for i, it in enumerate(items)]
+        self._db.set_series_orders(pairs)
+        series_raw = self._current_series_raw()
+        if series_raw is not None:
+            self._load_chapters(series_raw)
+
     def _on_chapter_context_menu(self, pos) -> None:
         item = self._tree.itemAt(pos)
         if item is None:
@@ -252,6 +296,7 @@ class OpenDocumentDialog(QDialog):
         menu.addSeparator()
         act_refetch = menu.addAction("Re-fetch")
         act_refetch.setEnabled(bool(self._source_urls.get(id(item), "")))
+        act_renumber = menu.addAction("Renumber by Title")
         menu.addSeparator()
         act_delete = menu.addAction("Delete")
         chosen = menu.exec(self._tree.viewport().mapToGlobal(pos))
@@ -263,6 +308,8 @@ class OpenDocumentDialog(QDialog):
             self._on_edit_source()
         elif chosen == act_refetch:
             self._on_refetch()
+        elif chosen == act_renumber:
+            self._renumber_by_title()
         elif chosen == act_delete:
             self._on_delete()
 
@@ -383,6 +430,9 @@ class OpenDocumentDialog(QDialog):
             return
         doc_id = self._doc_ids[id(leaf)]
         dlg = _EditSourceDialog(doc_id, leaf.text(1), self._db, parent=self)
+        if self._settings:
+            from translation_assistant.ui import remember_dialog_geometry
+            remember_dialog_geometry(dlg, self._settings, "dlg_edit_source")
         if dlg.exec() == QDialog.DialogCode.Accepted:
             series_raw = self._current_series_raw()
             self._load_series()
