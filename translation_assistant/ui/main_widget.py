@@ -6,72 +6,20 @@ import re
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, Qt, QThread, QTimer, Signal, Slot
-from PySide6.QtGui import QAction, QColor, QFont, QKeyEvent, QTextCharFormat, QTextCursor
+from PySide6.QtGui import QAction, QFont, QKeyEvent, QTextCursor
 from PySide6.QtWidgets import (
     QApplication, QFileDialog, QFrame, QInputDialog, QLabel, QMenu,
-    QMessageBox, QProgressBar, QSizePolicy, QStatusBar, QTextEdit, QVBoxLayout, QWidget,
+    QMessageBox, QProgressBar, QStatusBar, QTextEdit, QVBoxLayout, QWidget,
 )
 
 from translation_assistant._version import BUILD_DATE
 from translation_assistant.settings import AppSettings
 from translation_assistant.ui import remember_dialog_geometry
+from translation_assistant.ui.card_list import CardListView, SERIF_FAMILIES
 from translation_assistant.jp_highlighter import JpSyntaxHighlighter
 from translation_assistant.spellcheck import SpellHighlighter
 
-_CJK_FAMILIES = ["Microsoft YaHei", "Noto Sans CJK SC", "WenQuanYi Micro Hei", "sans-serif"]
 _PUNCTUATIONS = ["「」", "『』", "【】", "…", "〜", "〈〉", "《》", "ー", "♡"]
-
-_HELP_TOP = (
-    "HOW TO USE:\n"
-    "Creating New File for Translations:\n"
-    "1.)Click File->New\n"
-    "2.)Copy Raw from Source and paste it on the textbox\n"
-    "3.)Click Create\n"
-    "4.)Save File into the desired location\n"
-    "5.)Translate\n"
-    "6.)Once done translating click on Clipboard. Paste on your preferred editor or your blog for final edit and posting\n\n"
-    "Creating New Profile\n"
-    "1.)Click Settings->Profile\n"
-    "2.)Click New Profile\n"
-    "3.)Type profile name\n"
-    "4.)Click OK\n\n"
-    "Adding Phrases to Profile:\n"
-    "Option 1:\n"
-    "1.)Click Settings->Add Phrase\n"
-    "2.)Enter Raw on Phrase textbox\n"
-    "3.)Enter translation of phrase in Translation textbox\n"
-    "4.)Click Save\n"
-    "Option 2:\n"
-    "1.)Click Settings->Profile\n"
-    "2.)Add Raw text and Translated Test on their respective boxes at the end of table\n"
-    "3.)Click Save\n\n"
-    "Deleting Phrases\n"
-    "1.)Click Settings->Profile\n"
-    "2.)Double-Click phrase you want to delete\n"
-    "3.)Confirm Delete\n"
-    "4.)Click Save\n\n"
-    "Editing Phrases\n"
-    "1.)Click Settings->Profile\n"
-    "2.)Click on a phrase, and click once again\n"
-    "3.)Modify entry\n"
-    "4.)Click Save\n\n"
-    "Adding to Custom Dictionary\n"
-    "1.)Highlight word to add to custom dictionary\n"
-    "2.)Press CTRL+J\n\n"
-    "Special Punctuations\n"
-    "1.) Click the Special Punctuations menu or press F1-F8"
-)
-
-_HELP_BOTTOM = (
-    "NAVIGATION CONTROLS:\n"
-    "ENTER Key or PgDn Key  = Move down next sentence.\n"
-    "PgUp Key = Move up to previous sentence\n"
-    "CTRL+Left Key = Highlight previous parsed phrase in a sentence\n"
-    "CTRL+Right Key = Highlight next parsed phrase in a sentence\n"
-    "CTRL+Home Key = Go to the first line\n"
-    "CTRL+End Key = Go to the most recent un-translated sentence"
-)
-
 
 def _sanitize_filename(name: str) -> str:
     return re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', name).strip(". ")
@@ -126,17 +74,6 @@ class _StatusCheckWorker(QThread):
             self.error.emit(exc.message)
         except Exception as exc:
             self.error.emit(str(exc))
-
-
-class ReviewTextEdit(QTextEdit):
-    """Read-only review panel that emits the character offset on double-click."""
-
-    line_double_clicked = Signal(int)
-
-    def mouseDoubleClickEvent(self, event):
-        click_pos = self.cursorForPosition(event.position().toPoint()).position()
-        super().mouseDoubleClickEvent(event)
-        self.line_double_clicked.emit(click_pos)
 
 
 class _ClickableLabel(QLabel):
@@ -207,8 +144,6 @@ class TranslationAssistantWidget(QWidget):
         self._parse_sentences: list[str] = []
         self._parse_pointer: int = -1
         self._replaced: bool = False
-        self._top_map: dict[int, tuple[int, int]] = {}
-        self._bottom_map: dict[int, tuple[int, int]] = {}
 
         # Glossary / parse chars
         self._glossary: list[tuple[str, str]] = []
@@ -401,68 +336,44 @@ class TranslationAssistantWidget(QWidget):
 
     def _setup_central_widget(self) -> None:
         font = QFont()
-        font.setFamilies(_CJK_FAMILIES)
+        font.setFamilies(SERIF_FAMILIES)
         font.setPointSizeF(self._settings.font_size)
 
-        def _labeled(title, inner: QWidget, *, collapse_key: str = "") -> QFrame:
+        def _labeled(title, inner: QWidget) -> QFrame:
             w = QFrame(self)
             w.setObjectName("Card")
             vbox = QVBoxLayout(w)
             vbox.setContentsMargins(8, 8, 8, 8)
             vbox.setSpacing(4)
-            if isinstance(title, str):
-                if collapse_key:
-                    lbl = _ClickableLabel(f"▼ {title}")
-                else:
-                    lbl = QLabel(title)
-                lbl.setObjectName("PanelLabel")
-            else:
-                lbl = title
+            lbl = QLabel(title) if isinstance(title, str) else title
+            lbl.setObjectName("PanelLabel")
             vbox.addWidget(lbl)
             vbox.addWidget(inner)
-
-            if collapse_key and isinstance(title, str):
-                collapsed = self._settings.get_panel_collapsed(collapse_key)
-                if collapsed:
-                    inner.setVisible(False)
-                    lbl.setText(f"▶ {title}")
-
-                def _toggle(_t=title, _l=lbl, _i=inner, _k=collapse_key):
-                    vis = not _i.isVisible()
-                    _i.setVisible(vis)
-                    _l.setText(f"{'▼' if vis else '▶'} {_t}")
-                    self._settings.set_panel_collapsed(_k, not vis)
-
-                lbl.clicked.connect(_toggle)
-
             return w
-
-        self._review_top = ReviewTextEdit()
-        self._review_top.setObjectName("ContextAbove")
-        self._review_top.setReadOnly(True)
-        self._review_top.setFont(font)
-        self._review_top.setPlaceholderText(
-            "Open a document to begin — prior sentences appear here."
-        )
-        self._review_top.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
-        )
-        self._review_top.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
-        self._review_top.setMinimumHeight(50)
-        self._review_top.line_double_clicked.connect(self._on_review_top_double_click)
-        self._panel_ctx_above = _labeled("Context (Above)", self._review_top, collapse_key="ctx_above")
 
         self._raw_line = QTextEdit()
         self._raw_line.setObjectName("SourceText")
         self._raw_line.setReadOnly(True)
         self._raw_line.setFont(font)
         self._raw_line.setMinimumHeight(40)
-        self._raw_line.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
+        self._raw_line.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self._raw_line.setPlaceholderText("No document open — File → New or Ctrl+O")
         self._jp_highlighter = JpSyntaxHighlighter(self._raw_line.document())
-        self._source_label = QLabel("Source (read-only)")
-        self._source_label.setObjectName("PanelLabel")
-        self._panel_source = _labeled(self._source_label, self._raw_line)
+
+        self._translated_line = QTextEdit()
+        self._translated_line.setObjectName("TranslationText")
+        self._translated_line.setFont(font)
+        self._translated_line.setMinimumHeight(40)
+        self._translated_line.setAcceptRichText(False)
+        self._translated_line.setPlaceholderText("Type your translation…")
+        self._translated_line.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self._translated_line.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._translated_line.customContextMenuRequested.connect(self._on_translated_context_menu)
+        self._spell_highlighter = SpellHighlighter(self._translated_line.document())
+
+        self._card_view = CardListView()
+        self._card_view.set_editors(self._raw_line, self._translated_line)
+        self._card_view.card_clicked.connect(self._on_card_clicked)
 
         self._tm_panel = QWidget()
         self._tm_panel.setMinimumHeight(0)
@@ -470,43 +381,14 @@ class TranslationAssistantWidget(QWidget):
         self._tm_layout.setContentsMargins(2, 2, 2, 2)
         self._tm_layout.setSpacing(2)
         _tm_lbl = _ClickableLabel("TM Matches")
-        _tm_lbl.setObjectName("PanelLabel")
         _tm_lbl.clicked.connect(self._toggle_tm_panel)
         self._panel_tm = _labeled(_tm_lbl, self._tm_panel)
         self._panel_tm.setVisible(False)
 
-        self._translated_line = QTextEdit()
-        self._translated_line.setObjectName("TranslationText")
-        self._translated_line.setFont(font)
-        self._translated_line.setMinimumHeight(40)
-        self._translated_line.setAcceptRichText(False)
-        self._translated_line.setPlaceholderText("Type translation here…")
-        self._translated_line.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
-        self._translated_line.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self._translated_line.customContextMenuRequested.connect(self._on_translated_context_menu)
-        self._translation_label = QLabel("Translation")
-        self._translation_label.setObjectName("PanelLabel")
-        self._panel_translation = _labeled(self._translation_label, self._translated_line)
-        self._spell_highlighter = SpellHighlighter(self._translated_line.document())
-
-        self._review_bottom = ReviewTextEdit()
-        self._review_bottom.setObjectName("ContextBelow")
-        self._review_bottom.setReadOnly(True)
-        self._review_bottom.setFont(font)
-        self._review_bottom.setPlaceholderText(
-            "Enter / PgDn = next sentence  ·  PgUp = previous  ·  Ctrl+← / → = phrase"
-        )
-        self._review_bottom.setMinimumHeight(50)
-        self._review_bottom.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
-        self._review_bottom.line_double_clicked.connect(self._on_review_bottom_double_click)
-        self._panel_ctx_below = _labeled("Context (Below)", self._review_bottom, collapse_key="ctx_below")
-
-        for widget in (self._review_top, self._raw_line,
-                       self._translated_line, self._review_bottom):
+        for widget in (self._raw_line, self._translated_line):
             widget.installEventFilter(self)
 
         self._translated_line.textChanged.connect(self._on_translation_text_changed)
-        self._translated_line.textChanged.connect(self._update_translation_label)
 
     def _setup_statusbar(self) -> None:
         self._status_bar = QStatusBar()
@@ -685,14 +567,19 @@ class TranslationAssistantWidget(QWidget):
         self._last_save_time = 0.0
         self._autosave_tick_timer.stop()
         self._update_filesaved_label()
-        from translation_assistant.core import replace_and_parse, build_review_text
+        from translation_assistant.core import replace_and_parse, line_has_content
         raw_lines = self._raw_lines
         translated_lines = self._translated_lines
-        p = self._array_pointer
 
-        self._top_map = {}
-        self._bottom_map = {}
-        self._review_top.clear()
+        p = self._array_pointer
+        if raw_lines and not line_has_content(raw_lines[p]):
+            p = next(
+                (i for i in range(p, len(raw_lines)) if line_has_content(raw_lines[i])),
+                p,
+            )
+            self._array_pointer = p
+
+        self._card_view.load(raw_lines, translated_lines, self._glossary)
 
         display, sentences, replaced = replace_and_parse(
             raw_lines[p], self._glossary, self._parse_chars
@@ -706,23 +593,7 @@ class TranslationAssistantWidget(QWidget):
         self._parse_label.setVisible(False)
         self._replaced = replaced
 
-        n = len(raw_lines)
-        if p + 1 < n:
-            bottom_text, self._bottom_map, _bottom_colors = build_review_text(
-                raw_lines, translated_lines, p + 1, n - 1
-            )
-        else:
-            bottom_text, self._bottom_map, _bottom_colors = "", {}, []
-        self._review_bottom.setPlainText(bottom_text)
-        self._apply_review_colors(self._review_bottom, _bottom_colors)
-
-        if p > 0:
-            top_text, self._top_map, _top_colors = build_review_text(
-                raw_lines, translated_lines, 0, p - 1
-            )
-            self._review_top.setPlainText(top_text)
-            self._apply_review_colors(self._review_top, _top_colors)
-
+        self._card_view.set_active(p)
         self._update_progress_labels()
 
         self.action_save.setEnabled(True)
@@ -736,14 +607,10 @@ class TranslationAssistantWidget(QWidget):
         _doc_display = _doc_meta.get("chapter_title") or _doc_meta.get("title") or ""
         self._doc_title = _doc_display
         self._refresh_window_title()
-        n = len(self._raw_lines)
-        _title_part = f"Source — {self._doc_title}" if self._doc_title else "Source"
-        self._source_label.setText(f"{_title_part} · {n} lines")
         _has_series = bool(_doc_meta.get("series_title", ""))
         self.action_export_md_tl_series.setEnabled(_has_series)
         self.action_export_md_ruby_series.setEnabled(_has_series)
         self._translated_line.setFocus()
-        self._update_translation_label()
         self._start_clipboard_timer()
         self._restart_autosave_timer()
         self._update_stats_label()
@@ -786,21 +653,8 @@ class TranslationAssistantWidget(QWidget):
     # ------------------------------------------------------------------
 
     def _update_ui_for_pointer(self) -> None:
-        from translation_assistant.core import (
-            replace_and_parse, build_review_text,
-        )
+        from translation_assistant.core import replace_and_parse
         p = self._array_pointer
-        n = len(self._raw_lines)
-
-        if p > 0:
-            top_text, self._top_map, _top_colors = build_review_text(
-                self._raw_lines, self._translated_lines, 0, p - 1
-            )
-        else:
-            top_text, self._top_map, _top_colors = "", {}, []
-        self._review_top.setPlainText(top_text)
-        self._apply_review_colors(self._review_top, _top_colors)
-        self._review_top.moveCursor(QTextCursor.MoveOperation.End)
 
         display, sentences, replaced = replace_and_parse(
             self._raw_lines[p], self._glossary, self._parse_chars
@@ -813,18 +667,7 @@ class TranslationAssistantWidget(QWidget):
         self._parse_pointer = -1
         self._replaced = replaced
 
-        if p < n - 1:
-            bottom_text, self._bottom_map, _bottom_colors = build_review_text(
-                self._raw_lines, self._translated_lines, p + 1, n - 1
-            )
-        else:
-            bottom_text, self._bottom_map, _bottom_colors = "", {}, []
-        self._review_bottom.setPlainText(bottom_text)
-        self._apply_review_colors(self._review_bottom, _bottom_colors)
-        cursor = self._review_bottom.textCursor()
-        cursor.movePosition(QTextCursor.MoveOperation.Start)
-        self._review_bottom.setTextCursor(cursor)
-
+        self._card_view.set_active(p)
         self._update_progress_labels()
         self._translated_line.setFocus()
         self._start_clipboard_timer()
@@ -833,7 +676,6 @@ class TranslationAssistantWidget(QWidget):
         self.source_sentence_changed.emit(raw.lstrip("%$").strip())
         self._update_tm_panel()
         self._parse_label.setVisible(False)
-        self._update_translation_label()
 
     def _update_tm_panel(self) -> None:
         while self._tm_layout.count():
@@ -867,22 +709,6 @@ class TranslationAssistantWidget(QWidget):
                 sep.setStyleSheet("color: palette(mid);")
                 self._tm_layout.addWidget(sep)
 
-    def _apply_review_colors(
-        self, widget: "QTextEdit", ranges: list[tuple[int, int, bool]]
-    ) -> None:
-        if not ranges:
-            return
-        doc = widget.document()
-        translated_color = QColor(100, 200, 100, 60)
-        untranslated_color = QColor(220, 80, 80, 60)
-        fmt = QTextCharFormat()
-        for start, end, is_translated in ranges:
-            fmt.setBackground(translated_color if is_translated else untranslated_color)
-            cursor = QTextCursor(doc)
-            cursor.setPosition(start)
-            cursor.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
-            cursor.mergeCharFormat(fmt)
-
     def _update_progress_labels(self) -> None:
         from translation_assistant.core import calculate_progress, line_has_content
         p = self._array_pointer
@@ -911,11 +737,6 @@ class TranslationAssistantWidget(QWidget):
         self._profile_label.setText(f"Profile: {profile}")
         self._profile_label.setVisible(True)
 
-    def _update_translation_label(self) -> None:
-        text = self._translated_line.toPlainText()
-        words = len(text.split()) if text.strip() else 0
-        self._translation_label.setText(f"Translation · {words} words")
-
     def _on_set_autosave(self) -> None:
         from PySide6.QtWidgets import QInputDialog
         current = self._settings.auto_save
@@ -938,11 +759,11 @@ class TranslationAssistantWidget(QWidget):
 
     def _apply_font(self) -> None:
         font = QFont()
-        font.setFamilies(_CJK_FAMILIES)
+        font.setFamilies(SERIF_FAMILIES)
         font.setPointSizeF(self._settings.font_size)
-        for w in (self._review_top, self._raw_line,
-                  self._translated_line, self._review_bottom):
+        for w in (self._raw_line, self._translated_line):
             w.setFont(font)
+        self._card_view.set_font_size(self._settings.font_size)
 
     def _on_translation_text_changed(self) -> None:
         if not self._block_dirty and self._doc_id is not None:
@@ -970,6 +791,7 @@ class TranslationAssistantWidget(QWidget):
             return
         text = self._translated_line.toPlainText()
         self._translated_lines[self._array_pointer] = text
+        self._card_view.update_card(self._array_pointer, text)
         if self._doc_id is not None:
             self._db.save_translation(self._doc_id, self._array_pointer, text)
             self._update_stats_label()
@@ -1041,6 +863,15 @@ class TranslationAssistantWidget(QWidget):
         self._array_pointer = 0
         self._update_ui_for_pointer()
         self._translated_line.setFocus()
+
+    def _on_card_clicked(self, index: int) -> None:
+        if index == self._array_pointer:
+            self._translated_line.setFocus()
+            return
+        self._clipboard_timer.stop()
+        self._save_current_translation()
+        self._array_pointer = index
+        self._update_ui_for_pointer()
 
     def _jump_to_next_untranslated(self) -> None:
         if not self._raw_lines:
@@ -1141,6 +972,7 @@ class TranslationAssistantWidget(QWidget):
         selected = self._raw_line.textCursor().selectedText()
         text = selected if selected else self._raw_line.toPlainText()
         QApplication.clipboard().setText(text)
+        self._card_view.show_copied_pill(self._array_pointer)
 
     def _restart_autosave_timer(self) -> None:
         minutes = self._settings.auto_save
@@ -1394,12 +1226,9 @@ class TranslationAssistantWidget(QWidget):
         self._array_pointer = 0
         self._parse_sentences = []
         self._parse_pointer = -1
-        self._review_top.setPlainText(_HELP_TOP)
-        self._review_bottom.setPlainText(_HELP_BOTTOM)
+        self._card_view.load([], [], [])
         self._raw_line.clear()
         self._translated_line.clear()
-        self._source_label.setText("Source (read-only)")
-        self._translation_label.setText("Translation")
         self._parse_label.setVisible(False)
         self._doc_title = ""
         self._refresh_window_title()
@@ -1730,9 +1559,17 @@ class TranslationAssistantWidget(QWidget):
         )
         if not ok:
             return
+        from translation_assistant.core import line_has_content
+        idx = line_num - 1
+        if not line_has_content(self._raw_lines[idx]):
+            idx = next(
+                (i for i in range(idx, n) if line_has_content(self._raw_lines[i])),
+                next((i for i in range(idx, -1, -1)
+                      if line_has_content(self._raw_lines[i])), 0),
+            )
         self._clipboard_timer.stop()
         self._save_current_translation()
-        self._array_pointer = line_num - 1
+        self._array_pointer = idx
         self._update_ui_for_pointer()
         self._translated_line.setFocus()
 
@@ -1829,42 +1666,12 @@ class TranslationAssistantWidget(QWidget):
         menu.exec(self._translated_line.mapToGlobal(pos))
 
     # ------------------------------------------------------------------
-    # Double-click navigation
-    # ------------------------------------------------------------------
-
-    def _on_review_top_double_click(self, char_pos: int) -> None:
-        if not self._raw_lines or self._array_pointer == 0:
-            return
-        for idx, (start, end) in self._top_map.items():
-            if start < char_pos < end:
-                self._save_current_translation()
-                self._array_pointer = idx
-                self._update_ui_for_pointer()
-                return
-
-    def _on_review_bottom_double_click(self, char_pos: int) -> None:
-        if not self._raw_lines:
-            return
-        n = len(self._raw_lines)
-        if self._array_pointer >= n - 1:
-            return
-        for idx, (start, end) in self._bottom_map.items():
-            if start < char_pos < end:
-                self._save_current_translation()
-                self._array_pointer = idx
-                self._update_ui_for_pointer()
-                return
-
-    # ------------------------------------------------------------------
     # Event filter — unified keyboard handler
     # ------------------------------------------------------------------
 
     def eventFilter(self, obj, event) -> bool:
         if event.type() == QEvent.Type.KeyPress:
-            watched = (
-                self._review_top, self._raw_line,
-                self._translated_line, self._review_bottom,
-            )
+            watched = (self._raw_line, self._translated_line)
             if obj in watched and self._handle_key(event):
                 return True
         if obj is self._raw_line and event.type() == QEvent.Type.MouseButtonPress:
@@ -1999,24 +1806,12 @@ class TranslationAssistantWidget(QWidget):
     # ------------------------------------------------------------------
 
     @property
-    def context_above_panel(self) -> QFrame:
-        return self._panel_ctx_above
-
-    @property
-    def source_panel(self) -> QFrame:
-        return self._panel_source
+    def card_panel(self) -> QWidget:
+        return self._card_view
 
     @property
     def tm_panel(self) -> QFrame:
         return self._panel_tm
-
-    @property
-    def translation_panel(self) -> QFrame:
-        return self._panel_translation
-
-    @property
-    def context_below_panel(self) -> QFrame:
-        return self._panel_ctx_below
 
     @property
     def status_bar(self) -> QStatusBar:

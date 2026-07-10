@@ -46,13 +46,6 @@ class CombinedMainWindow(QMainWindow):
         ta = self._ta_widget
         ta.setParent(self)
 
-        self._left_splitter = QSplitter(Qt.Orientation.Vertical)
-        self._left_splitter.setChildrenCollapsible(False)
-        self._left_splitter.addWidget(ta.context_above_panel)
-        self._left_splitter.addWidget(ta.source_panel)
-        self._left_splitter.setStretchFactor(0, 2)
-        self._left_splitter.setStretchFactor(1, 1)
-
         self._right_splitter = QSplitter(Qt.Orientation.Vertical)
         self._right_splitter.setChildrenCollapsible(False)
         self._right_splitter.addWidget(self._agg_widget)
@@ -60,28 +53,19 @@ class CombinedMainWindow(QMainWindow):
         self._right_splitter.setStretchFactor(0, 2)
         self._right_splitter.setStretchFactor(1, 1)
 
-        self._mid_splitter = QSplitter(Qt.Orientation.Horizontal)
-        self._mid_splitter.setChildrenCollapsible(False)
-        self._mid_splitter.addWidget(self._left_splitter)
-        self._mid_splitter.addWidget(self._right_splitter)
-        self._mid_splitter.setStretchFactor(0, 2)
-        self._mid_splitter.setStretchFactor(1, 1)
-
-        self._outer_splitter = QSplitter(Qt.Orientation.Vertical)
-        self._outer_splitter.setChildrenCollapsible(False)
-        self._outer_splitter.addWidget(self._mid_splitter)
-        self._outer_splitter.addWidget(ta.translation_panel)
-        self._outer_splitter.addWidget(ta.context_below_panel)
-        self._outer_splitter.setStretchFactor(0, 3)
-        self._outer_splitter.setStretchFactor(1, 2)
-        self._outer_splitter.setStretchFactor(2, 1)
+        self._main_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self._main_splitter.setChildrenCollapsible(False)
+        self._main_splitter.addWidget(ta.card_panel)
+        self._main_splitter.addWidget(self._right_splitter)
+        self._main_splitter.setStretchFactor(0, 2)
+        self._main_splitter.setStretchFactor(1, 1)
 
         # Wrap in container to provide window margins
         container = QWidget()
         vbox = QVBoxLayout(container)
         vbox.setContentsMargins(12, 12, 12, 0)
         vbox.setSpacing(0)
-        vbox.addWidget(self._outer_splitter)
+        vbox.addWidget(self._main_splitter)
         self.setCentralWidget(container)
 
     # ------------------------------------------------------------------
@@ -258,10 +242,8 @@ class CombinedMainWindow(QMainWindow):
         qs = self._ta_widget._settings._qs
         defaults_applied = False
         for key, splitter in [
-            ("combined/splitter_outer", self._outer_splitter),
-            ("combined/splitter_mid",   self._mid_splitter),
-            ("combined/splitter_left",  self._left_splitter),
-            ("combined/splitter_right", self._right_splitter),
+            ("combined/splitter_main2",  self._main_splitter),
+            ("combined/splitter_right2", self._right_splitter),
         ]:
             raw = qs.value(key)
             if raw:
@@ -270,18 +252,14 @@ class CombinedMainWindow(QMainWindow):
                 defaults_applied = True
 
         if defaults_applied:
-            self._outer_splitter.setSizes([500, 200, 100])
-            self._mid_splitter.setSizes([500, 400])
-            self._left_splitter.setSizes([300, 120])
-            self._right_splitter.setSizes([300, 150])
+            self._main_splitter.setSizes([760, 380])
+            self._right_splitter.setSizes([400, 200])
 
     def _save_splitter(self) -> None:
         qs = self._ta_widget._settings._qs
         for key, splitter in [
-            ("combined/splitter_outer", self._outer_splitter),
-            ("combined/splitter_mid",   self._mid_splitter),
-            ("combined/splitter_left",  self._left_splitter),
-            ("combined/splitter_right", self._right_splitter),
+            ("combined/splitter_main2",  self._main_splitter),
+            ("combined/splitter_right2", self._right_splitter),
         ]:
             qs.setValue(key, splitter.saveState().toBase64().data().decode())
 

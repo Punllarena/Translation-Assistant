@@ -356,19 +356,14 @@ class TestCustomDictionaryPersistence:
 # ---------------------------------------------------------------------------
 
 class TestEdgeCases:
-    def test_continuation_lines_grouped_in_review_bottom(self, win):
-        """
-        $ lines and their % head group together in the review panels.
-        At pointer=0, %Head。 is the current raw line; reviewBottom shows
-        lines 1+ so the $Continuation。 and %Next appear there.
-        """
+    def test_continuation_lines_have_own_cards(self, win):
+        """$ continuation lines get their own cards in the card list."""
         win.load_content(_sep("%Head。\n$Continuation。\n%Next\n"))
         # Current raw line shows the % head (no markers)
         assert "Head" in win._raw_line.toPlainText()
-        # reviewBottom shows the continuation and the following % line
-        review = win._review_bottom.toPlainText()
-        assert "Continuation" in review
-        assert "Next" in review
+        assert win._card_view.card_count() == 3
+        assert "Continuation" in win._card_view.card(1).source_label.text()
+        assert "Next" in win._card_view.card(2).source_label.text()
 
     def test_continuation_line_display_has_both_parts(self, win):
         raw_lines = ["%Head。", "$Cont。", "%Other"]

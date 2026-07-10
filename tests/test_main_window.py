@@ -78,33 +78,17 @@ class TestInstantiation:
     def test_clipboard_action_disabled_initially(self, win):
         assert not win.action_clipboard.isEnabled()
 
-    def test_placeholder_shown_in_review_top(self, win):
-        assert win._review_top.toPlainText() == ""
-        assert "Open a document" in win._review_top.placeholderText()
+    def test_card_view_placeholder_before_load(self, win):
+        assert win._card_view.card_count() == 0
+        assert "No document open" in win._card_view._placeholder.text()
 
-    def test_placeholder_shown_in_review_bottom(self, win):
-        assert win._review_bottom.toPlainText() == ""
-        assert "Enter" in win._review_bottom.placeholderText()
-
-    def test_exposes_context_above_panel(self, win):
-        from PySide6.QtWidgets import QWidget
-        assert isinstance(win.context_above_panel, QWidget)
-
-    def test_exposes_source_panel(self, win):
-        from PySide6.QtWidgets import QWidget
-        assert isinstance(win.source_panel, QWidget)
+    def test_exposes_card_panel(self, win):
+        from translation_assistant.ui.card_list import CardListView
+        assert isinstance(win.card_panel, CardListView)
 
     def test_exposes_tm_panel(self, win):
         from PySide6.QtWidgets import QWidget
         assert isinstance(win.tm_panel, QWidget)
-
-    def test_exposes_translation_panel(self, win):
-        from PySide6.QtWidgets import QWidget
-        assert isinstance(win.translation_panel, QWidget)
-
-    def test_exposes_context_below_panel(self, win):
-        from PySide6.QtWidgets import QWidget
-        assert isinstance(win.context_below_panel, QWidget)
 
     def test_exposes_status_bar(self, win):
         from PySide6.QtWidgets import QStatusBar
@@ -127,25 +111,8 @@ class TestInstantiation:
         from PySide6.QtCore import QTimer
         assert isinstance(win._autosave_tick_timer, QTimer)
 
-    def test_ctx_above_label_has_expand_chevron(self, win, qapp):
-        """Context Above label starts with ▼ (expanded by default)."""
-        from PySide6.QtWidgets import QLabel
-        labels = win._panel_ctx_above.findChildren(QLabel)
-        texts = [lbl.text() for lbl in labels]
-        assert any(t.startswith("▼") for t in texts)
-
-    def test_ctx_below_label_has_expand_chevron(self, win, qapp):
-        """Context Below label starts with ▼ (expanded by default)."""
-        from PySide6.QtWidgets import QLabel
-        labels = win._panel_ctx_below.findChildren(QLabel)
-        texts = [lbl.text() for lbl in labels]
-        assert any(t.startswith("▼") for t in texts)
-
-    def test_ctx_above_inner_visible_by_default(self, win):
-        assert win._review_top.isVisible()
-
-    def test_ctx_below_inner_visible_by_default(self, win):
-        assert win._review_bottom.isVisible()
+    def test_card_placeholder_visible_by_default(self, win):
+        assert not win._card_view._placeholder.isHidden()
 
 
 # ---------------------------------------------------------------------------
@@ -187,14 +154,16 @@ class TestLoadContent:
         win.load_content(content)
         assert win._translated_line.toPlainText() == "Hola"
 
-    def test_review_bottom_shows_subsequent_lines(self, win):
+    def test_all_lines_get_cards(self, win):
         _load(win, "%First\n%Second\n%Third\n")
-        assert "Second" in win._review_bottom.toPlainText()
-        assert "Third" in win._review_bottom.toPlainText()
+        assert win._card_view.card_count() == 3
+        assert "Second" in win._card_view.card(1).source_label.text()
+        assert "Third" in win._card_view.card(2).source_label.text()
 
-    def test_review_top_empty_at_line_zero(self, win):
+    def test_first_card_active_after_load(self, win):
         _load(win, "%Only\n")
-        assert win._review_top.toPlainText() == ""
+        assert win._card_view.active_index == 0
+        assert win._card_view.card(0).state() == "active"
 
     def test_line_status_updated(self, win):
         _load(win, "%A\n%B\n%C\n")
@@ -245,10 +214,12 @@ class TestNavigateForward:
         win._navigate_forward()
         assert "Second" in win._raw_line.toPlainText()
 
-    def test_advance_updates_review_top(self, win):
+    def test_advance_updates_card_states(self, win):
         _load(win, "%First\n%Second\n")
+        win._translated_line.setPlainText("done")
         win._navigate_forward()
-        assert "First" in win._review_top.toPlainText()
+        assert win._card_view.card(0).state() == "done"
+        assert win._card_view.card(1).state() == "active"
 
     def test_enter_saves_to_db(self, win):
         _load(win, "%A\n%B\n")
@@ -338,6 +309,14 @@ class TestJumps:
         win._translated_line.setPlainText("")
         win._jump_to_next_untranslated()
         assert win._array_pointer == 0  # no jump
+
+    def test_card_click_navigates(self, win):
+        _load(win, "%A\n%B\n%C\n")
+        win._translated_line.setPlainText("alpha")
+        win._on_card_clicked(2)
+        assert win._array_pointer == 2
+        assert win._translated_lines[0] == "alpha"
+        assert win._card_view.card(2).state() == "active"
 
 
 # ---------------------------------------------------------------------------
@@ -760,12 +739,13 @@ class TestFontSize:
         win._adjust_font_size(-1)
         assert win._settings.font_size == 8.0
 
-    def test_apply_font_sets_font_on_all_panels(self, win):
+    def test_apply_font_sets_font_on_editors_and_cards(self, win):
         win._settings.font_size = 18.0
+        _load(win, "%A\n")
         win._apply_font()
-        for panel in (win._review_top, win._raw_line,
-                      win._translated_line, win._review_bottom):
+        for panel in (win._raw_line, win._translated_line):
             assert abs(panel.font().pointSizeF() - 18.0) < 0.1
+        assert abs(win._card_view.card(0).source_label.font().pointSizeF() - 18.0) < 0.1
 
     def test_font_larger_in_shortcut_registry(self, win):
         keys = [entry[0] for entry in win._shortcut_registry]
@@ -795,32 +775,22 @@ class TestTmRow:
         assert received == ["Hello world"]
 
 
-class TestSourceLabel:
-    def test_has_source_label(self, win):
-        assert hasattr(win, "_source_label")
-
-    def test_source_label_default_text(self, win):
-        assert "Source" in win._source_label.text()
-
-    def test_source_label_updates_on_load_with_chapter_title(self, win):
+class TestDocTitle:
+    def test_doc_title_uses_chapter_title(self, win):
         win.load_content(
             "%Hello\n---SEPERATOR---\n",
             title="Doc Title",
             chapter_title="Chapter 1",
         )
-        assert "Chapter 1" in win._source_label.text()
+        assert win._doc_title == "Chapter 1"
 
-    def test_source_label_falls_back_to_title(self, win):
+    def test_doc_title_falls_back_to_title(self, win):
         win.load_content(
             "%Hello\n---SEPERATOR---\n",
             title="My Doc",
             chapter_title="",
         )
-        assert "My Doc" in win._source_label.text()
-
-    def test_raw_line_placeholder_text(self, win):
-        assert "Ctrl+O" in win._raw_line.placeholderText() or \
-               "File" in win._raw_line.placeholderText()
+        assert win._doc_title == "My Doc"
 
 
 class TestWindowTitle:
@@ -907,40 +877,6 @@ class TestProgressBar:
     def test_progress_bar_hidden_when_no_doc(self, win):
         # Show progress is True by default, but no doc open → hidden
         assert not win._progress_bar.isVisible()
-
-
-class TestPanelLabelCounts:
-    def test_has_translation_label(self, win):
-        assert hasattr(win, "_translation_label")
-
-    def test_translation_label_default_text(self, win):
-        assert "Translation" in win._translation_label.text()
-
-    def test_translation_label_shows_word_count_after_load(self, win):
-        content = _sep_file("%Hello\n", "Hello world\n")
-        win.load_content(content)
-        assert "2 words" in win._translation_label.text()
-
-    def test_translation_label_zero_words_when_empty(self, win):
-        _load(win, "%Hello\n")
-        assert "0 words" in win._translation_label.text()
-
-    def test_source_label_includes_line_count(self, win):
-        win.load_content("%A\n%B\n%C\n---SEPERATOR---\n", title="Doc", chapter_title="Ch1")
-        assert "· 3 lines" in win._source_label.text()
-
-    def test_source_label_includes_title_and_lines(self, win):
-        win.load_content("%A\n---SEPERATOR---\n", title="Doc", chapter_title="Chapter 1")
-        label = win._source_label.text()
-        assert "Chapter 1" in label
-        assert "lines" in label
-
-    def test_translation_label_resets_on_db_import(self, win):
-        _load(win, "%Hello\n")
-        win._translated_line.setPlainText("Bonjour")
-        # Simulate db import reset
-        win._translation_label.setText("Translation")
-        assert win._translation_label.text() == "Translation"
 
 
 class TestStatusBarLabels:

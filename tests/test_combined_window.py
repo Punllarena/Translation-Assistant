@@ -53,21 +53,17 @@ class TestCombinedWindowInstantiation:
     def test_window_title(self, win):
         assert "Translation Assistant" in win.windowTitle()
 
-    def test_has_outer_splitter(self, win):
+    def test_has_main_splitter(self, win):
         from PySide6.QtWidgets import QSplitter
         from PySide6.QtCore import Qt
-        assert isinstance(win._outer_splitter, QSplitter)
-        assert win._outer_splitter.orientation() == Qt.Orientation.Vertical
+        assert isinstance(win._main_splitter, QSplitter)
+        assert win._main_splitter.orientation() == Qt.Orientation.Horizontal
+        assert win._main_splitter.count() == 2
 
-    def test_outer_splitter_has_three_children(self, win):
-        assert win._outer_splitter.count() == 3
-
-    def test_mid_splitter_is_horizontal(self, win):
+    def test_right_splitter_is_vertical(self, win):
         from PySide6.QtCore import Qt
-        assert win._mid_splitter.orientation() == Qt.Orientation.Horizontal
-
-    def test_mid_splitter_has_two_columns(self, win):
-        assert win._mid_splitter.count() == 2
+        assert win._right_splitter.orientation() == Qt.Orientation.Vertical
+        assert win._right_splitter.count() == 2
 
     def test_status_bar_is_ta_status_bar(self, win):
         assert win.statusBar() is win._ta_widget.status_bar
