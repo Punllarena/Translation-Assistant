@@ -941,3 +941,28 @@ class TestPanelLabelCounts:
         # Simulate db import reset
         win._translation_label.setText("Translation")
         assert win._translation_label.text() == "Translation"
+
+
+class TestStatusBarLabels:
+    def test_filesaved_label_states(self, win):
+        assert win._filesaved_label.text().startswith("Autosave:")
+        _load(win, "%A\n")
+        win._set_dirty(True)
+        assert "Unsaved" in win._filesaved_label.text()
+        win._on_save()
+        assert "saved" in win._filesaved_label.text().lower()
+
+    def test_stats_label_respects_metric(self, win):
+        _load(win, "%A\n")
+        win._settings.stats_metric = "en_words"
+        win._update_stats_label()
+        assert "EN words" in win._stats_label.text()
+
+    def test_progress_bar_tooltip_counts(self, win):
+        _load(win, "%A\n%B\n")
+        assert "of 2 paragraphs" in win._progress_bar.toolTip()
+
+    def test_wp_label_tooltip_empty_without_doc(self, win):
+        win._doc_id = None
+        win._update_wp_status_label()
+        assert win._wp_status_label.text() == ""

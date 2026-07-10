@@ -3,7 +3,7 @@ Tests for translation_assistant.settings.
 """
 import pytest
 from pathlib import Path
-from PySide6.QtCore import QSettings
+from PySide6.QtCore import QByteArray, QSettings
 
 from translation_assistant.settings import AppSettings, _get_app_root
 
@@ -273,3 +273,33 @@ def test_default_stats_metric(tmp_settings):
 def test_stats_metric_roundtrip(tmp_settings):
     tmp_settings.stats_metric = "chars"
     assert tmp_settings.stats_metric == "chars"
+
+
+# ---------------------------------------------------------------------------
+# window/dialog geometry
+# ---------------------------------------------------------------------------
+
+def test_get_geometry_default_empty(tmp_settings):
+    assert tmp_settings.get_geometry("main_window").isEmpty()
+
+
+def test_geometry_roundtrip(tmp_settings):
+    ba = QByteArray(b"\x01\xd9\xd0\xcb\x00\x03")
+    tmp_settings.set_geometry("main_window", ba)
+    assert tmp_settings.get_geometry("main_window") == ba
+
+
+def test_remember_dialog_geometry_saves_on_close(tmp_settings, qapp):
+    from PySide6.QtWidgets import QDialog
+    from translation_assistant.ui import remember_dialog_geometry
+
+    dlg = QDialog()
+    dlg.resize(444, 333)
+    remember_dialog_geometry(dlg, tmp_settings, "dlg_test")
+    dlg.finished.emit(0)
+    assert not tmp_settings.get_geometry("dlg_test").isEmpty()
+
+    dlg2 = QDialog()
+    remember_dialog_geometry(dlg2, tmp_settings, "dlg_test")
+    assert dlg2.size().width() == 444
+    assert dlg2.size().height() == 333

@@ -8,6 +8,7 @@ from PySide6.QtGui import QIcon, QKeySequence, QAction
 from PySide6.QtWidgets import QMainWindow, QMenu, QSplitter, QVBoxLayout, QWidget
 
 from translation_assistant.settings import AppSettings
+from translation_assistant.ui import remember_dialog_geometry
 from translation_assistant.ui.main_widget import TranslationAssistantWidget
 from ta.ui.aggregator_widget import AggregatorWidget
 
@@ -33,6 +34,9 @@ class CombinedMainWindow(QMainWindow):
         self.setStatusBar(self._ta_widget.status_bar)
         self._setup_menubar()
         self._restore_splitter()
+        geo = self._ta_widget._settings.get_geometry("main_window")
+        if not geo.isEmpty():
+            self.restoreGeometry(geo)
         self._connect_bridge()
 
         if _settings is not None and _settings.on_top:
@@ -219,6 +223,7 @@ class CombinedMainWindow(QMainWindow):
         from translation_assistant.ui.dlg_shortcuts import ShortcutsDialog
         ta = self._ta_widget
         dlg = ShortcutsDialog(ta._shortcut_registry, ta._settings, self)
+        remember_dialog_geometry(dlg, ta._settings, "dlg_shortcuts")
         dlg.exec()
 
     def _on_wp_settings(self) -> None:
@@ -281,6 +286,7 @@ class CombinedMainWindow(QMainWindow):
             qs.setValue(key, splitter.saveState().toBase64().data().decode())
 
     def closeEvent(self, event) -> None:
+        self._ta_widget._settings.set_geometry("main_window", self.saveGeometry())
         self._save_splitter()
         self._ta_widget.save_state()
         self._agg_widget.save_layout()

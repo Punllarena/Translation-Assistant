@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 
 from translation_assistant._version import BUILD_DATE
 from translation_assistant.settings import AppSettings
+from translation_assistant.ui import remember_dialog_geometry
 from translation_assistant.jp_highlighter import JpSyntaxHighlighter
 from translation_assistant.spellcheck import SpellHighlighter
 
@@ -146,6 +147,13 @@ class _ClickableLabel(QLabel):
         super().mousePressEvent(event)
 
 
+def _vline() -> QFrame:
+    frame = QFrame()
+    frame.setFrameShape(QFrame.Shape.VLine)
+    frame.setFrameShadow(QFrame.Shadow.Sunken)
+    return frame
+
+
 class _TmRow(QWidget):
     clicked = Signal(str)
 
@@ -208,6 +216,7 @@ class TranslationAssistantWidget(QWidget):
 
         # Progress
         self._tl_complete: int = 0
+        self._last_save_time: float = 0.0
 
         # Last-publish password/schedule state (set in _on_publish_wp, read in _on_publish_done)
         self._last_pw: str | None = None
@@ -507,44 +516,61 @@ class TranslationAssistantWidget(QWidget):
         self._progress_bar.setFormat("%p%")
         self._progress_bar.setMaximumWidth(120)
         self._progress_bar.setTextVisible(True)
-        self._line_label = QLabel()
+        self._line_label = _ClickableLabel()
+        self._line_label.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._line_label.setToolTip("Go to line… (Ctrl+G)")
+        self._line_label.clicked.connect(self._on_go_to_line)
         self._word_label = QLabel()
         self._parse_label = QLabel("")
         self._parse_label.setHidden(True)
-        self._profile_label = QLabel()
-        self._autosave_label = QLabel()
+        self._profile_label = _ClickableLabel()
+        self._profile_label.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._profile_label.setToolTip("Manage profiles (Ctrl+P)")
+        self._profile_label.clicked.connect(self._on_profile)
         self._filesaved_label = QLabel("")
         self._stats_label = _ClickableLabel("")
+        self._stats_label.setCursor(Qt.CursorShape.PointingHandCursor)
         self._stats_label.clicked.connect(self._on_stats)
+        self._progress_sep = _vline()
         self._status_bar.addWidget(self._progress_bar)
         self._status_bar.addWidget(self._line_label)
         self._status_bar.addWidget(self._word_label)
+        self._status_bar.addWidget(self._progress_sep)
         self._status_bar.addWidget(self._parse_label)
         self._status_bar.addWidget(self._profile_label)
-        self._status_bar.addWidget(self._autosave_label)
         self._status_bar.addPermanentWidget(self._stats_label)
+        self._status_bar.addPermanentWidget(_vline())
         self._status_bar.addPermanentWidget(self._filesaved_label)
         self._wp_status_label = _ClickableLabel("")
         self._wp_status_label.setCursor(Qt.CursorShape.PointingHandCursor)
         self._wp_status_label.clicked.connect(self._on_wp_status_clicked)
         self._status_bar.addPermanentWidget(self._wp_status_label)
         self._update_progress_visibility()
-        self._update_autosave_label()
+        self._update_filesaved_label()
 
     def _update_wp_status_label(self) -> None:
         if self._doc_id is None:
             self._wp_status_label.setText("")
+            self._wp_status_label.setToolTip("")
             self._wp_post_url = None
             return
         info = self._db.get_document_wp_status(self._doc_id)
         status_map = {
-            "publish":   "WP: Published",
-            "future":    "WP: Scheduled",
-            "draft":     "WP: Draft",
-            "not_found": "WP: —",
+            "publish":   ("WP: Published", "#2e7d32"),
+            "future":    ("WP: Scheduled", "#b26a00"),
+            "draft":     ("WP: Draft", "#757575"),
+            "not_found": ("WP: —", "#757575"),
         }
-        self._wp_status_label.setText(status_map.get(info["wp_status"] or "", "WP: —"))
+        text, color = status_map.get(info["wp_status"] or "", ("WP: —", "#757575"))
+        self._wp_status_label.setText(text)
+        self._wp_status_label.setStyleSheet(f"color: {color};")
         self._wp_post_url = info["wp_post_url"]
+        tooltip = []
+        if info.get("wp_date"):
+            tooltip.append(f"WordPress date: {info['wp_date']}")
+        if self._wp_post_url:
+            tooltip.append("Click to open post")
+        self._wp_status_label.setToolTip("\n".join(tooltip))
 
     def _on_wp_status_clicked(self) -> None:
         if self._wp_post_url:
@@ -558,7 +584,6 @@ class TranslationAssistantWidget(QWidget):
         self._clipboard_timer.setInterval(400)
         self._clipboard_timer.timeout.connect(self._on_clipboard_timer)
 
-        self._last_save_time: float = 0.0
         self._autosave_tick_timer = QTimer(self)
         self._autosave_tick_timer.setInterval(60_000)
         self._autosave_tick_timer.timeout.connect(self._update_filesaved_label)
@@ -660,9 +685,7 @@ class TranslationAssistantWidget(QWidget):
         self._last_save_time = 0.0
         self._autosave_tick_timer.stop()
         self._update_filesaved_label()
-        from translation_assistant.core import (
-            replace_and_parse, build_review_text, calculate_progress,
-        )
+        from translation_assistant.core import replace_and_parse, build_review_text
         raw_lines = self._raw_lines
         translated_lines = self._translated_lines
         p = self._array_pointer
@@ -700,11 +723,7 @@ class TranslationAssistantWidget(QWidget):
             self._review_top.setPlainText(top_text)
             self._apply_review_colors(self._review_top, _top_colors)
 
-        self._line_label.setText(f"Page {p + 1}/{n}")
-        pct, wc = calculate_progress(raw_lines, translated_lines)
-        self._tl_complete = pct
-        self._progress_bar.setValue(pct)
-        self._word_label.setText(f"{wc} Words")
+        self._update_progress_labels()
 
         self.action_save.setEnabled(True)
         self.action_export.setEnabled(True)
@@ -750,15 +769,17 @@ class TranslationAssistantWidget(QWidget):
         self._autosave_tick_timer.start()
 
     def _update_filesaved_label(self) -> None:
+        cadence = f"{self._settings.auto_save}m" if self._settings.auto_save > 0 else "off"
+        if self._is_dirty:
+            self._filesaved_label.setText("● Unsaved")
+            return
         if self._last_save_time == 0.0:
-            self._filesaved_label.setText("")
+            self._filesaved_label.setText(f"Autosave: {cadence}")
             return
         import time
         elapsed_m = int((time.monotonic() - self._last_save_time) / 60)
-        if elapsed_m < 1:
-            self._filesaved_label.setText("✓ Autosaved just now")
-        else:
-            self._filesaved_label.setText(f"✓ Autosaved {elapsed_m}m ago")
+        when = "just now" if elapsed_m < 1 else f"{elapsed_m}m ago"
+        self._filesaved_label.setText(f"✓ Autosaved {when} · autosave {cadence}")
 
     # ------------------------------------------------------------------
     # UI update helpers
@@ -766,7 +787,7 @@ class TranslationAssistantWidget(QWidget):
 
     def _update_ui_for_pointer(self) -> None:
         from translation_assistant.core import (
-            replace_and_parse, build_review_text, calculate_progress,
+            replace_and_parse, build_review_text,
         )
         p = self._array_pointer
         n = len(self._raw_lines)
@@ -804,11 +825,7 @@ class TranslationAssistantWidget(QWidget):
         cursor.movePosition(QTextCursor.MoveOperation.Start)
         self._review_bottom.setTextCursor(cursor)
 
-        self._line_label.setText(f"Page {p + 1}/{n}")
-        pct, wc = calculate_progress(self._raw_lines, self._translated_lines)
-        self._tl_complete = pct
-        self._progress_bar.setValue(pct)
-        self._word_label.setText(f"{wc} Words")
+        self._update_progress_labels()
         self._translated_line.setFocus()
         self._start_clipboard_timer()
 
@@ -866,21 +883,33 @@ class TranslationAssistantWidget(QWidget):
             cursor.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
             cursor.mergeCharFormat(fmt)
 
+    def _update_progress_labels(self) -> None:
+        from translation_assistant.core import calculate_progress, line_has_content
+        p = self._array_pointer
+        n = len(self._raw_lines)
+        self._line_label.setText(f"Page {p + 1}/{n}")
+        pct, wc = calculate_progress(self._raw_lines, self._translated_lines)
+        self._tl_complete = pct
+        self._progress_bar.setValue(pct)
+        done = sum(
+            1 for r, t in zip(self._raw_lines, self._translated_lines)
+            if line_has_content(r) and t
+        )
+        total = sum(1 for r in self._raw_lines if line_has_content(r))
+        self._progress_bar.setToolTip(f"{done} of {total} paragraphs translated")
+        self._word_label.setText(f"{wc} Words")
+
     def _update_progress_visibility(self) -> None:
         visible = self._settings.show_progress and self._doc_id is not None
         self._progress_bar.setVisible(visible)
         self._line_label.setVisible(visible)
         self._word_label.setVisible(visible)
+        self._progress_sep.setVisible(visible)
 
     def _update_profile_label(self) -> None:
         profile = self._settings.profile_used or "Default"
         self._profile_label.setText(f"Profile: {profile}")
         self._profile_label.setVisible(True)
-
-    def _update_autosave_label(self) -> None:
-        minutes = self._settings.auto_save
-        text = f"Autosave: {minutes}m" if minutes > 0 else "Autosave: off"
-        self._autosave_label.setText(text)
 
     def _update_translation_label(self) -> None:
         text = self._translated_line.toPlainText()
@@ -898,7 +927,7 @@ class TranslationAssistantWidget(QWidget):
         if ok:
             self._settings.auto_save = minutes
             self._settings.save()
-            self._update_autosave_label()
+            self._update_filesaved_label()
             self._restart_autosave_timer()
 
     def _adjust_font_size(self, delta: int) -> None:
@@ -924,6 +953,7 @@ class TranslationAssistantWidget(QWidget):
             return
         self._is_dirty = dirty
         self._refresh_window_title()
+        self._update_filesaved_label()
 
     def _refresh_window_title(self) -> None:
         win = self.window()
@@ -968,12 +998,7 @@ class TranslationAssistantWidget(QWidget):
         if not eof:
             self._update_ui_for_pointer()
         else:
-            self._line_label.setText(f"Page {p + 1}/{n}")
-            from translation_assistant.core import calculate_progress
-            pct, wc = calculate_progress(self._raw_lines, self._translated_lines)
-            self._tl_complete = pct
-            self._progress_bar.setValue(pct)
-            self._word_label.setText(f"{wc} Words")
+            self._update_progress_labels()
 
         if write_file:
             self._save_current_translation()
@@ -1189,6 +1214,7 @@ class TranslationAssistantWidget(QWidget):
             dlg = NewSeriesDialog(self._db, parent=self)
             if dlg.exec():
                 dlg2 = SeriesManagerDialog(self._db, parent=self)
+                remember_dialog_geometry(dlg2, self._settings, "dlg_series")
                 dlg2.exec()
 
     def _on_open(self) -> None:
@@ -1199,6 +1225,7 @@ class TranslationAssistantWidget(QWidget):
                 current_doc_id=self._doc_id,
                 settings=self._settings,
             )
+            remember_dialog_geometry(dlg, self._settings, "dlg_open")
             if dlg.exec() and dlg.selected_doc_id is not None:
                 self.open_document(dlg.selected_doc_id)
 
@@ -1386,6 +1413,7 @@ class TranslationAssistantWidget(QWidget):
         from translation_assistant.ui.dlg_series import SeriesManagerDialog
         with self._topmost_suspended():
             dlg = SeriesManagerDialog(self._db, parent=self)
+            remember_dialog_geometry(dlg, self._settings, "dlg_series")
             dlg.exec()
 
     def _on_publish_wp(self) -> None:
@@ -1439,6 +1467,7 @@ class TranslationAssistantWidget(QWidget):
                 f'Set "Series Slug" and "Short Title" for "{series_title}" in Series Manager.',
             )
             dlg = SeriesManagerDialog(self._db, parent=self)
+            remember_dialog_geometry(dlg, self._settings, "dlg_series")
             dlg.exec()
             series_meta = self._db.get_series_wp_meta(series_title)
             if not series_meta["series_slug"] or not series_meta["series_title_short"]:
@@ -1558,6 +1587,7 @@ class TranslationAssistantWidget(QWidget):
                 password=self._last_pw,
                 unlock_chapter_index=self._last_unlock_idx,
                 scheduled_date=self._last_scheduled_date,
+                attribution=self._settings.wp_attribution_enabled,
             )
         except ValueError as exc:
             QMessageBox.warning(self, "Payload Error", str(exc))
@@ -1902,8 +1932,19 @@ class TranslationAssistantWidget(QWidget):
     def _update_stats_label(self) -> None:
         try:
             stats = self._db.get_today_stats()
-            self._stats_label.setText(
-                f"Today: {stats['paragraphs']} ¶ / {stats['chars']:,} chars"
+            parts = {
+                "paragraphs": f"{stats['paragraphs']} ¶",
+                "chars": f"{stats['chars']:,} chars",
+                "en_words": f"{stats['en_words']:,} EN words",
+            }
+            metric = self._settings.stats_metric
+            if metric not in parts:
+                metric = "paragraphs"
+            self._stats_label.setText(f"Today: {parts[metric]}")
+            ordered = [metric] + [m for m in parts if m != metric]
+            self._stats_label.setToolTip(
+                "Today: " + " · ".join(parts[m] for m in ordered)
+                + "\nClick for statistics"
             )
             self._stats_label.setVisible(True)
         except Exception:
@@ -1912,7 +1953,10 @@ class TranslationAssistantWidget(QWidget):
     def _on_stats(self) -> None:
         from translation_assistant.ui.dlg_stats import StatsDialog
         with self._topmost_suspended():
-            StatsDialog(self._db, self._settings, self).exec()
+            dlg = StatsDialog(self._db, self._settings, self)
+            remember_dialog_geometry(dlg, self._settings, "dlg_stats")
+            dlg.exec()
+        self._update_stats_label()
 
     def _on_series_phrases(self) -> None:
         from translation_assistant.ui.dlg_series_phrases import SeriesPhrasesDialog, _get_series_for_doc
@@ -1921,6 +1965,7 @@ class TranslationAssistantWidget(QWidget):
             current_series=_get_series_for_doc(self._db, self._doc_id),
             parent=self,
         )
+        remember_dialog_geometry(dlg, self._settings, "dlg_series_phrases")
         dlg.exec()
 
     # ------------------------------------------------------------------

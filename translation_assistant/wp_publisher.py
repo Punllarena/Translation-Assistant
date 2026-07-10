@@ -84,6 +84,7 @@ def build_payload(
     password: str | None = None,
     unlock_chapter_index: int | None = None,
     scheduled_date: str | None = None,
+    attribution: bool = True,
 ) -> dict:
     if not series_meta.get("series_slug"):
         raise ValueError("series_slug is required — set it in Series Manager")
@@ -100,6 +101,13 @@ def build_payload(
         "chapter_title":      f"{series_meta['series_title_short']} {doc_meta['chapter_title']}",
         "chapter_body":       build_chapter_body(lines),
     }
+    if attribution and doc_meta["series_order"] != 0:
+        payload["chapter_body"] += (
+            '\n<hr />'
+            '<p><em>This post is automatically published by '
+            '<a href="https://github.com/Punllarena/Translation-Assistant">Translation Assistant</a>'
+            ' and <a href="https://github.com/Punllarena/translation-assistant-publisher">Translation Assistant Publisher</a>.</em></p>'
+        )
     if doc_meta["series_order"] != 0:
         payload["first_line"] = get_first_line(lines)
     if password is not None:

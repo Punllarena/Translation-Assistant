@@ -85,7 +85,8 @@ def test_build_payload_chapter():
     assert payload["series_link"] == "https://ncode.syosetu.com/n1234ab/"
     assert payload["chapter_index"] == 1
     assert payload["chapter_title"] == "SotW The Beginning"
-    assert payload["chapter_body"] == "<p>Hello</p>\n<p>World</p>"
+    assert payload["chapter_body"].startswith("<p>Hello</p>\n<p>World</p>")
+    assert "Translation Assistant" in payload["chapter_body"]
     assert payload["first_line"] == "Hello"
 
 def test_build_payload_synopsis_omits_first_line():
@@ -93,6 +94,11 @@ def test_build_payload_synopsis_omits_first_line():
     doc_meta["series_order"] = 0
     payload = build_payload(doc_meta, series_meta, lines, api_key="key123")
     assert "first_line" not in payload
+
+def test_build_payload_attribution_disabled():
+    doc_meta, series_meta, lines = _sample_meta()
+    payload = build_payload(doc_meta, series_meta, lines, api_key="key123", attribution=False)
+    assert payload["chapter_body"] == "<p>Hello</p>\n<p>World</p>"
 
 def test_build_payload_missing_series_slug_raises():
     doc_meta, series_meta, lines = _sample_meta()

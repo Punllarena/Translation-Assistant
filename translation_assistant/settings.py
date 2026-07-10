@@ -104,6 +104,15 @@ class AppSettings:
     def splitter_state(self, value: QByteArray) -> None:
         self._qs.setValue("SplitterState", value)
 
+    # --- window/dialog geometry ---
+
+    def get_geometry(self, key: str) -> QByteArray:
+        raw = self._qs.value(f"geometry/{key}", "")
+        return QByteArray.fromBase64(raw.encode()) if raw else QByteArray()
+
+    def set_geometry(self, key: str, value: QByteArray) -> None:
+        self._qs.setValue(f"geometry/{key}", value.toBase64().data().decode())
+
     # --- translation memory visible ---
 
     @property
@@ -208,6 +217,14 @@ class AppSettings:
     @wp_default_schedule_time.setter
     def wp_default_schedule_time(self, value: str) -> None:
         self._qs.setValue("WPDefaultScheduleTime", value)
+
+    @property
+    def wp_attribution_enabled(self) -> bool:
+        return self._qs.value("WPAttributionEnabled", True, type=bool)
+
+    @wp_attribution_enabled.setter
+    def wp_attribution_enabled(self, value: bool) -> None:
+        self._qs.setValue("WPAttributionEnabled", value)
 
     # --- Open dialog: last selected series ---
 

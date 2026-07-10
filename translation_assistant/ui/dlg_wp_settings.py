@@ -48,6 +48,10 @@ class WPSettingsDialog(QDialog):
         self._pw_check.toggled.connect(self._unlock_spin.setEnabled)
         form.addRow("Keep N chapters locked:", self._unlock_spin)
 
+        self._attribution_check = QCheckBox("Add attribution footer to published chapters")
+        self._attribution_check.setChecked(self._settings.wp_attribution_enabled)
+        form.addRow("", self._attribution_check)
+
         sched_time = self._settings.wp_default_schedule_time
         self._schedule_cb = QCheckBox("Set default schedule time")
         self._schedule_cb.setChecked(bool(sched_time))
@@ -83,6 +87,7 @@ class WPSettingsDialog(QDialog):
         self._settings.wp_api_key = self._key_edit.text().strip()
         self._settings.wp_password_enabled = self._pw_check.isChecked()
         self._settings.wp_unlock_after = self._unlock_spin.value()
+        self._settings.wp_attribution_enabled = self._attribution_check.isChecked()
         if self._schedule_cb.isChecked():
             self._settings.wp_default_schedule_time = self._schedule_time_edit.time().toString("HH:mm")
         else:
