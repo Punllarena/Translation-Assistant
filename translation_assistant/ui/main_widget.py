@@ -1709,12 +1709,20 @@ class TranslationAssistantWidget(QWidget):
             self._jump_to_first()
             return True
         if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            if mods == Qt.KeyboardModifier.ShiftModifier:
+                return False  # let QTextEdit insert a newline
             self._navigate_forward(write_file=True)
             return True
         if key == Qt.Key.Key_PageDown:
             self._navigate_forward(write_file=False)
             return True
         if key == Qt.Key.Key_PageUp:
+            self._navigate_backward()
+            return True
+        if ctrl and key == Qt.Key.Key_Down:
+            self._navigate_forward(write_file=False)
+            return True
+        if ctrl and key == Qt.Key.Key_Up:
             self._navigate_backward()
             return True
         if ctrl and key == Qt.Key.Key_Right:

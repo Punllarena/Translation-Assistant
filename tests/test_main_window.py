@@ -9,7 +9,7 @@ import pytest
 from pathlib import Path
 from unittest.mock import patch
 
-from PySide6.QtCore import QSettings
+from PySide6.QtCore import QSettings, Qt
 
 from translation_assistant.db import Database
 from translation_assistant.settings import AppSettings
@@ -902,3 +902,33 @@ class TestStatusBarLabels:
         win._doc_id = None
         win._update_wp_status_label()
         assert win._wp_status_label.text() == ""
+
+
+class TestKeyboardAdditions:
+    @staticmethod
+    def _key(win, key, mods=Qt.KeyboardModifier.NoModifier):
+        from PySide6.QtCore import QEvent
+        from PySide6.QtGui import QKeyEvent
+        return win._handle_key(QKeyEvent(QEvent.Type.KeyPress, key, mods))
+
+    def test_shift_enter_passes_through_for_newline(self, win):
+        _load(win, "%A\n%B\n")
+        handled = self._key(win, Qt.Key.Key_Return, Qt.KeyboardModifier.ShiftModifier)
+        assert handled is False
+        assert win._array_pointer == 0
+
+    def test_plain_enter_still_advances(self, win):
+        _load(win, "%A\n%B\n")
+        assert self._key(win, Qt.Key.Key_Return) is True
+        assert win._array_pointer == 1
+
+    def test_ctrl_down_advances(self, win):
+        _load(win, "%A\n%B\n")
+        assert self._key(win, Qt.Key.Key_Down, Qt.KeyboardModifier.ControlModifier) is True
+        assert win._array_pointer == 1
+
+    def test_ctrl_up_goes_back(self, win):
+        _load(win, "%A\n%B\n")
+        win._navigate_forward()
+        assert self._key(win, Qt.Key.Key_Up, Qt.KeyboardModifier.ControlModifier) is True
+        assert win._array_pointer == 0
