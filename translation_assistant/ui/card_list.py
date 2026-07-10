@@ -183,3 +183,136 @@ class LineCard(QFrame):
     def mousePressEvent(self, event) -> None:
         self.clicked.emit(self.index)
         super().mousePressEvent(event)
+
+
+class CardListView(QScrollArea):
+    """Scrollable list of LineCards; hosts the shared editor pair."""
+
+    card_clicked = Signal(int)
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setObjectName("CardList")
+        self.setWidgetResizable(True)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+        self._container = QWidget()
+        self._container.setObjectName("CardListInner")
+        self._vbox = QVBoxLayout(self._container)
+        self._vbox.setContentsMargins(24, 20, 24, 20)
+        self._vbox.setSpacing(14)
+        self._placeholder = QLabel("No document open — File → New or Ctrl+O")
+        self._placeholder.setObjectName("CardListPlaceholder")
+        self._placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._vbox.addWidget(self._placeholder)
+        self._vbox.addStretch(1)
+        self.setWidget(self._container)
+
+        self._cards: dict[int, LineCard] = {}
+        self._source_edit = None
+        self._trans_edit = None
+        self.active_index: int | None = None
+        self._font_pt: float | None = None
+
+        self._pulse_on = False
+        self._pulse_timer = QTimer(self)
+        self._pulse_timer.setInterval(800)
+        self._pulse_timer.timeout.connect(self._on_pulse)
+
+    # -- setup -----------------------------------------------------------
+
+    def set_editors(self, source_edit, trans_edit) -> None:
+        self._source_edit = source_edit
+        self._trans_edit = trans_edit
+
+    # -- content -----------------------------------------------------------
+
+    def load(self, raw_lines: list[str], translated_lines: list[str],
+             glossary: list[tuple[str, str]]) -> None:
+        from translation_assistant.core import line_has_content
+        self._detach_active()
+        for card in self._cards.values():
+            self._vbox.removeWidget(card)
+            card.deleteLater()
+        self._cards = {}
+
+        insert_at = self._vbox.indexOf(self._placeholder)
+        number = 0
+        for i, raw in enumerate(raw_lines):
+            if not line_has_content(raw):
+                continue
+            number += 1
+            card = LineCard(i, number, glossary_html(raw, glossary),
+                            translated_lines[i])
+            if self._font_pt is not None:
+                card.set_font_size(self._font_pt)
+            card.clicked.connect(self.card_clicked)
+            self._vbox.insertWidget(insert_at, card)
+            insert_at += 1
+            self._cards[i] = card
+
+        self._placeholder.setVisible(not self._cards)
+        self.verticalScrollBar().setValue(0)
+
+    def card(self, index: int):
+        return self._cards.get(index)
+
+    def card_count(self) -> int:
+        return len(self._cards)
+
+    # -- active card ---------------------------------------------------------
+
+    def set_active(self, index: int) -> None:
+        card = self._cards.get(index)
+        if card is None:
+            return
+        if index == self.active_index:
+            self._scroll_to(card)
+            return
+        self._detach_active()
+        self.active_index = index
+        if self._source_edit is not None:
+            card.attach(self._source_edit, self._trans_edit)
+        card.set_state("active")
+        self._pulse_timer.start()
+        self._scroll_to(card)
+
+    def _detach_active(self) -> None:
+        if self.active_index is None:
+            return
+        old = self._cards.get(self.active_index)
+        if old is not None and self._source_edit is not None:
+            old.detach(self._source_edit, self._trans_edit)
+        self.active_index = None
+        self._pulse_timer.stop()
+
+    def _scroll_to(self, card: LineCard) -> None:
+        # After the layout pass, so geometry is valid on freshly built lists.
+        QTimer.singleShot(0, lambda: self.ensureWidgetVisible(card, 50, 80))
+
+    def _on_pulse(self) -> None:
+        self._pulse_on = not self._pulse_on
+        if self.active_index is not None:
+            card = self._cards.get(self.active_index)
+            if card is not None:
+                card.set_pulse_dim(self._pulse_on)
+
+    # -- per-card updates ------------------------------------------------------
+
+    def update_card(self, index: int, translation: str) -> None:
+        card = self._cards.get(index)
+        if card is None:
+            return
+        card.set_translation(translation)
+        if index != self.active_index:
+            card.set_state("done" if translation.strip() else "todo")
+
+    def show_copied_pill(self, index: int) -> None:
+        card = self._cards.get(index)
+        if card is not None:
+            card.show_copied_pill()
+
+    def set_font_size(self, pt: float) -> None:
+        self._font_pt = pt
+        for card in self._cards.values():
+            card.set_font_size(pt)

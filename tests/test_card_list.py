@@ -117,3 +117,119 @@ class TestLineCard:
         card.set_font_size(21.0)
         assert abs(card.source_label.font().pointSizeF() - 21.0) < 0.1
         assert abs(card._trans_label.font().pointSizeF() - 21.0) < 0.1
+
+
+from translation_assistant.ui.card_list import CardListView  # noqa: E402
+
+
+@pytest.fixture
+def view(qapp):
+    v = CardListView()
+    yield v
+    v.deleteLater()
+
+
+@pytest.fixture
+def editors(qapp):
+    from PySide6.QtWidgets import QTextEdit
+    src, tr = QTextEdit(), QTextEdit()
+    yield src, tr
+    src.deleteLater()
+    tr.deleteLater()
+
+
+class TestCardListView:
+    def test_placeholder_before_load(self, view):
+        assert view.card_count() == 0
+        assert not view._placeholder.isHidden()
+
+    def test_load_builds_cards_for_content_lines_only(self, view):
+        view.load(["%A", "", "%", "%B"], ["", "", "", "x"], [])
+        assert view.card_count() == 2
+        assert view.card(0) is not None
+        assert view.card(1) is None      # blank line
+        assert view.card(2) is None      # marker-only line
+        assert view.card(3) is not None
+
+    def test_load_hides_placeholder(self, view):
+        view.load(["%A"], [""], [])
+        assert view._placeholder.isHidden()
+
+    def test_reload_replaces_cards(self, view):
+        view.load(["%A", "%B"], ["", ""], [])
+        view.load(["%C"], [""], [])
+        assert view.card_count() == 1
+        assert "C" in view.card(0).source_label.text()
+
+    def test_glossary_applied_to_source(self, view):
+        view.load(["%ホロウ駅"], [""], [("ホロウ", "Hollow")])
+        assert "Hollow" in view.card(0).source_label.text()
+
+    def test_initial_states(self, view):
+        view.load(["%A", "%B"], ["done", ""], [])
+        assert view.card(0).state() == "done"
+        assert view.card(1).state() == "todo"
+
+    def test_set_active_attaches_editors(self, view, editors):
+        src, tr = editors
+        view.set_editors(src, tr)
+        view.load(["%A", "%B"], ["", ""], [])
+        view.set_active(0)
+        assert view.active_index == 0
+        assert view.card(0).state() == "active"
+        assert src.parent() is not None
+
+    def test_set_active_moves_between_cards(self, view, editors):
+        src, tr = editors
+        view.set_editors(src, tr)
+        view.load(["%A", "%B"], ["", ""], [])
+        view.set_active(0)
+        view.set_active(1)
+        assert view.card(0).state() == "todo"
+        assert view.card(1).state() == "active"
+
+    def test_set_active_missing_index_is_noop(self, view, editors):
+        src, tr = editors
+        view.set_editors(src, tr)
+        view.load(["%A", "", "%B"], ["", "", ""], [])
+        view.set_active(0)
+        view.set_active(1)   # blank line — no card
+        assert view.active_index == 0
+
+    def test_update_card_refreshes_label_and_state(self, view):
+        view.load(["%A"], [""], [])
+        view.update_card(0, "Done now")
+        assert view.card(0).translation_text() == "Done now"
+        assert view.card(0).state() == "done"
+
+    def test_update_card_keeps_active_state(self, view, editors):
+        src, tr = editors
+        view.set_editors(src, tr)
+        view.load(["%A"], [""], [])
+        view.set_active(0)
+        view.update_card(0, "text")
+        assert view.card(0).state() == "active"
+
+    def test_card_click_forwards_signal(self, view):
+        view.load(["%A", "%B"], ["", ""], [])
+        got = []
+        view.card_clicked.connect(got.append)
+        view.card(1).clicked.emit(1)
+        assert got == [1]
+
+    def test_show_copied_pill(self, view, qapp):
+        view.load(["%A"], [""], [])
+        view.show()
+        view.show_copied_pill(0)
+        assert not view.card(0)._copied_pill.isHidden()
+
+    def test_set_font_size_propagates(self, view):
+        view.load(["%A", "%B"], ["", ""], [])
+        view.set_font_size(20.0)
+        assert abs(view.card(0).source_label.font().pointSizeF() - 20.0) < 0.1
+
+    def test_load_empty_shows_placeholder(self, view):
+        view.load(["%A"], [""], [])
+        view.load([], [], [])
+        assert view.card_count() == 0
+        assert not view._placeholder.isHidden()
