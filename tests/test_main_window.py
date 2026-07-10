@@ -713,6 +713,18 @@ class TestShortcutRegistry:
 
 
 class TestFontSize:
+    def test_card_font_from_settings_on_startup(self, qapp, tmp_path):
+        """Saved font size (and serif family) must reach cards without Ctrl+±."""
+        settings = _make_settings(tmp_path)
+        settings.font_size = 17.0
+        settings.save()
+        w = TranslationAssistantWidget(_settings=settings, _db=_make_db())
+        _load(w, "%A\n")
+        card = w._card_view.card(0)
+        assert abs(card.source_label.font().pointSizeF() - 17.0) < 0.1
+        assert "Serif" in card.source_label.font().families()[0]
+        w.destroy()
+
     def test_has_font_larger_action(self, win):
         assert hasattr(win, "action_font_larger")
 

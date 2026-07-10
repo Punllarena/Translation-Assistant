@@ -375,6 +375,7 @@ class TranslationAssistantWidget(QWidget):
 
         self._card_view = CardListView()
         self._card_view.set_editors(self._raw_line, self._translated_line)
+        self._card_view.set_font_size(self._settings.font_size)
         self._card_view.card_clicked.connect(self._on_card_clicked)
 
         self._tm_panel = QWidget()
