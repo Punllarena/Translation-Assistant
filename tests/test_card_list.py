@@ -233,3 +233,34 @@ class TestCardListView:
         view.load([], [], [])
         assert view.card_count() == 0
         assert not view._placeholder.isHidden()
+
+    def test_large_load_builds_first_batch_synchronously(self, view):
+        raws = [f"%line {i}" for i in range(250)]
+        view.load(raws, [""] * 250, [])
+        assert view.card(0) is not None
+        assert view.card(99) is not None
+
+    def test_set_active_forces_chunked_build(self, view, editors):
+        src, tr = editors
+        view.set_editors(src, tr)
+        raws = [f"%line {i}" for i in range(250)]
+        view.load(raws, [""] * 250, [])
+        view.set_active(249)   # beyond the first synchronous batch
+        assert view.card(249) is not None
+        assert view.active_index == 249
+
+    def test_chunked_build_completes_via_event_loop(self, view, qapp):
+        raws = [f"%line {i}" for i in range(250)]
+        view.load(raws, [""] * 250, [])
+        for _ in range(10):
+            qapp.processEvents()
+        assert view.card_count() == 250
+
+    def test_reload_during_chunked_build_is_clean(self, view, qapp):
+        raws = [f"%line {i}" for i in range(250)]
+        view.load(raws, [""] * 250, [])
+        view.load(["%only"], [""], [])
+        for _ in range(10):
+            qapp.processEvents()
+        assert view.card_count() == 1
+        assert "only" in view.card(0).source_label.text()

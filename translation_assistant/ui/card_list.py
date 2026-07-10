@@ -209,6 +209,10 @@ class CardListView(QScrollArea):
         self.setWidget(self._container)
 
         self._cards: dict[int, LineCard] = {}
+        self._pending: list[tuple[int, str]] = []
+        self._built_count = 0
+        self._load_translations: list[str] = []
+        self._load_glossary: list[tuple[str, str]] = []
         self._source_edit = None
         self._trans_edit = None
         self.active_index: int | None = None
@@ -236,23 +240,43 @@ class CardListView(QScrollArea):
             card.deleteLater()
         self._cards = {}
 
+        # ponytail: chunked build (100 cards/tick) — 1000 sync cards took 3.6s;
+        # virtualize only if even this proves too slow on real chapters.
+        self._pending = [
+            (i, raw) for i, raw in enumerate(raw_lines) if line_has_content(raw)
+        ]
+        self._built_count = 0
+        self._load_translations = translated_lines
+        self._load_glossary = glossary
+        self._build_batch()
+        if self._pending:
+            QTimer.singleShot(0, self._build_batch)
+
+        self._placeholder.setVisible(not (self._cards or self._pending))
+        self.verticalScrollBar().setValue(0)
+
+    def _build_batch(self) -> None:
+        if not self._pending:
+            return
         insert_at = self._vbox.indexOf(self._placeholder)
-        number = 0
-        for i, raw in enumerate(raw_lines):
-            if not line_has_content(raw):
-                continue
-            number += 1
-            card = LineCard(i, number, glossary_html(raw, glossary),
-                            translated_lines[i])
+        batch, self._pending = self._pending[:100], self._pending[100:]
+        for i, raw in batch:
+            self._built_count += 1
+            card = LineCard(i, self._built_count,
+                            glossary_html(raw, self._load_glossary),
+                            self._load_translations[i])
             if self._font_pt is not None:
                 card.set_font_size(self._font_pt)
             card.clicked.connect(self.card_clicked)
             self._vbox.insertWidget(insert_at, card)
             insert_at += 1
             self._cards[i] = card
+        if self._pending:
+            QTimer.singleShot(0, self._build_batch)
 
-        self._placeholder.setVisible(not self._cards)
-        self.verticalScrollBar().setValue(0)
+    def _ensure_built(self, index: int) -> None:
+        while self._pending and index not in self._cards:
+            self._build_batch()
 
     def card(self, index: int):
         return self._cards.get(index)
@@ -263,6 +287,7 @@ class CardListView(QScrollArea):
     # -- active card ---------------------------------------------------------
 
     def set_active(self, index: int) -> None:
+        self._ensure_built(index)
         card = self._cards.get(index)
         if card is None:
             return
@@ -300,6 +325,7 @@ class CardListView(QScrollArea):
     # -- per-card updates ------------------------------------------------------
 
     def update_card(self, index: int, translation: str) -> None:
+        self._ensure_built(index)
         card = self._cards.get(index)
         if card is None:
             return
