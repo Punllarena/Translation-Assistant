@@ -5,7 +5,7 @@ re-parents into the active card.
 """
 import html
 
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QScrollArea, QVBoxLayout, QWidget,
 )
@@ -61,6 +61,7 @@ class LineCard(QFrame):
         super().__init__(parent)
         self.index = index
         self._translation = translation
+        self._label_font = None
         self.setObjectName("LineCard")
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
@@ -130,6 +131,7 @@ class LineCard(QFrame):
         self._dot.setStyleSheet(f"color: {_DOT_COLORS[state]}; font-size: 9px;")
         _repolish(self)
         _repolish(self._trans_label)
+        self._reassert_fonts()
 
     def set_pulse_dim(self, dim: bool) -> None:
         if self.state() == "active":
@@ -147,6 +149,7 @@ class LineCard(QFrame):
         self._trans_label.setText(_PLACEHOLDER if empty else text)
         self._trans_label.setProperty("empty", empty)
         _repolish(self._trans_label)
+        self._reassert_fonts()
 
     # -- shared-editor hosting -------------------------------------------
 
@@ -174,11 +177,28 @@ class LineCard(QFrame):
         self._pill_timer.start()
 
     def set_font_size(self, pt: float) -> None:
-        font = self.source_label.font()
+        from PySide6.QtGui import QFont
+        font = QFont()
         font.setFamilies(SERIF_FAMILIES)
         font.setPointSizeF(pt)
-        self.source_label.setFont(font)
-        self._trans_label.setFont(font)
+        self._label_font = font
+        self._reassert_fonts()
+
+    def _reassert_fonts(self) -> None:
+        # Under an app stylesheet, any (re)polish — property restyle or
+        # re-parenting into the layout — can reset assigned label fonts.
+        if self._label_font is not None:
+            self.source_label.setFont(self._label_font)
+            self._trans_label.setFont(self._label_font)
+
+    def event(self, e) -> bool:
+        # Polish arrives when the card is inserted into a styled hierarchy
+        # (or restyled); it may clear the labels' assigned fonts.
+        handled = super().event(e)
+        if e.type() in (QEvent.Type.Polish, QEvent.Type.PolishRequest,
+                        QEvent.Type.StyleChange):
+            self._reassert_fonts()
+        return handled
 
     def mousePressEvent(self, event) -> None:
         self.clicked.emit(self.index)
@@ -215,6 +235,7 @@ class CardListView(QScrollArea):
         self._load_glossary: list[tuple[str, str]] = []
         self._source_edit = None
         self._trans_edit = None
+        self._editor_font = None
         self.active_index: int | None = None
         self._font_pt: float | None = None
 
@@ -298,6 +319,11 @@ class CardListView(QScrollArea):
         self.active_index = index
         if self._source_edit is not None:
             card.attach(self._source_edit, self._trans_edit)
+            # Re-parenting under an app stylesheet re-polishes the editors,
+            # which can reset their assigned font — re-assert it every move.
+            if self._editor_font is not None:
+                self._source_edit.setFont(self._editor_font)
+                self._trans_edit.setFont(self._editor_font)
         card.set_state("active")
         self._pulse_timer.start()
         self._scroll_to(card)
@@ -339,6 +365,14 @@ class CardListView(QScrollArea):
             card.show_copied_pill()
 
     def set_font_size(self, pt: float) -> None:
+        from PySide6.QtGui import QFont
         self._font_pt = pt
+        font = QFont()
+        font.setFamilies(SERIF_FAMILIES)
+        font.setPointSizeF(pt)
+        self._editor_font = font
+        if self._source_edit is not None:
+            self._source_edit.setFont(font)
+            self._trans_edit.setFont(font)
         for card in self._cards.values():
             card.set_font_size(pt)

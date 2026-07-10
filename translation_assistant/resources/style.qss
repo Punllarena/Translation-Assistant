@@ -1,9 +1,10 @@
 /* === Base === */
+/* Base UI font comes from QApplication.setFont in main.py — a font rule
+   here would override every widget's setFont on (re)polish, resetting the
+   shared card editors whenever they re-parent into another card. */
 QWidget {
     background-color: #191b19;
     color: #ecefec;
-    font-family: 'Inter';
-    font-size: 13px;
 }
 
 /* === Panels === */

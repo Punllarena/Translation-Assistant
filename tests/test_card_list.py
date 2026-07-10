@@ -264,3 +264,44 @@ class TestCardListView:
             qapp.processEvents()
         assert view.card_count() == 1
         assert "only" in view.card(0).source_label.text()
+
+
+@pytest.fixture
+def app_qss(qapp):
+    """Apply the real stylesheet for the duration of one test."""
+    from pathlib import Path
+    qss = Path("translation_assistant/resources/style.qss").read_text()
+    qapp.setStyleSheet(qss)
+    yield qapp
+    qapp.setStyleSheet("")
+
+
+class TestFontSurvivesStylesheet:
+    def test_editor_font_survives_reparenting_under_qss(self, app_qss, editors, qapp):
+        """The global stylesheet must not clobber setFont on the shared editors,
+        including across the repolish caused by moving between cards."""
+        from PySide6.QtGui import QFont, QFontInfo
+        src, tr = editors
+        font = QFont()
+        font.setFamilies(["Source Serif 4", "Noto Serif", "serif"])
+        font.setPointSizeF(17.0)
+        src.setFont(font)
+        tr.setFont(font)
+
+        view = CardListView()
+        view.set_editors(src, tr)
+        view.set_font_size(17.0)
+        view.load(["%A", "%B", "%C"], ["", "", ""], [])
+        view.show()
+        qapp.processEvents()
+
+        view.set_active(0)
+        qapp.processEvents()
+        view.set_active(2)
+        qapp.processEvents()
+
+        info = QFontInfo(src.font())
+        assert abs(info.pointSizeF() - 17.0) < 1.0, f"editor renders {info.pointSizeF()}pt"
+        label_info = QFontInfo(view.card(0).source_label.font())
+        assert abs(label_info.pointSizeF() - 17.0) < 1.0, f"label renders {label_info.pointSizeF()}pt"
+        view.deleteLater()

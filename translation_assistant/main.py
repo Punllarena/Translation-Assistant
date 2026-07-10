@@ -4,7 +4,7 @@ Application entry point.
 import sys
 from pathlib import Path
 
-from PySide6.QtGui import QFontDatabase
+from PySide6.QtGui import QFont, QFontDatabase
 from PySide6.QtWidgets import QApplication
 
 from translation_assistant.db import Database
@@ -38,6 +38,13 @@ def main() -> None:
     app.setStyle("Fusion")
 
     _load_fonts()
+    # Base UI font — must be set here, not in the stylesheet: a QSS font rule
+    # overrides setFont on every (re)polish, which resets the shared card
+    # editors' serif font whenever they re-parent into another card.
+    ui_font = QFont()
+    ui_font.setFamilies(["Inter", "Noto Sans", "sans-serif"])
+    ui_font.setPointSizeF(10.0)
+    app.setFont(ui_font)
     app.setStyleSheet(_load_qss())
 
     settings = AppSettings()
