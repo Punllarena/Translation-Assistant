@@ -58,6 +58,7 @@ translation_assistant/
 └── ui/
     ├── combined_window.py      # CombinedMainWindow — THE running QMainWindow
     ├── main_widget.py          # TranslationAssistantWidget — all TA logic as QWidget
+    ├── card_list.py            # CardListView + LineCard — whole-chapter card editor
     ├── main_window.py          # LEGACY standalone window — not launched, do not modify
     ├── dlg_new.py              # New-document dialog
     ├── dlg_new_series.py       # Batch new-series dialog
@@ -99,4 +100,4 @@ Tests use shared fixtures from `conftest.py`:
 
 DB tests use in-memory SQLite via `Database(":memory:", _conn=conn)`.
 
-Test files: `test_core.py`, `test_db.py`, `test_settings.py`, `test_dialogs.py`, `test_spellcheck.py`, `test_main_window.py`, `test_combined_window.py`, `test_integration.py`, `test_migration.py`, `test_dlg_open.py`, `test_dlg_new_series.py`, `test_dlg_series_phrases.py`, `test_scraper.py`. Total: 535 tests.
+Test files: `test_core.py`, `test_db.py`, `test_settings.py`, `test_dialogs.py`, `test_spellcheck.py`, `test_main_window.py`, `test_combined_window.py`, `test_card_list.py`, `test_integration.py`, `test_migration.py`, `test_dlg_open.py`, `test_dlg_new_series.py`, `test_dlg_series_phrases.py`, `test_scraper.py`. Total: 823 tests.
