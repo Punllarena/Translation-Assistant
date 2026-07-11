@@ -305,3 +305,77 @@ class TestFontSurvivesStylesheet:
         label_info = QFontInfo(view.card(0).source_label.font())
         assert abs(label_info.pointSizeF() - 17.0) < 1.0, f"label renders {label_info.pointSizeF()}pt"
         view.deleteLater()
+
+
+class TestTypewriterWheel:
+    def _shown_view(self, qapp, lines=30):
+        v = CardListView()
+        v.resize(400, 600)
+        v.load([f"%Line {i}" for i in range(lines)], [""] * lines, [])
+        v.show()
+        qapp.processEvents()
+        qapp.processEvents()  # chunked build + deferred wheel pass
+        return v
+
+    def test_edge_padding_is_half_viewport(self, qapp):
+        v = self._shown_view(qapp)
+        m = v._vbox.contentsMargins()
+        assert m.top() == v.viewport().height() // 2
+        assert m.bottom() == v.viewport().height() // 2
+        v.deleteLater()
+
+    def test_no_edge_padding_when_empty(self, view):
+        view.resize(400, 600)
+        view.load([], [], [])
+        assert view._vbox.contentsMargins().top() == 20
+
+    def test_center_on_targets_viewport_center(self, qapp):
+        v = self._shown_view(qapp)
+        card = v.card(15)
+        v._center_on(card)
+        expected = card.pos().y() + card.height() // 2 - v.viewport().height() // 2
+        bar = v.verticalScrollBar()
+        expected = max(bar.minimum(), min(bar.maximum(), expected))
+        assert v._scroll_anim.endValue() == expected
+        v.deleteLater()
+
+    def test_wheel_fades_offcenter_cards(self, qapp):
+        v = self._shown_view(qapp)
+        card = v.card(15)
+        bar = v.verticalScrollBar()
+        target = card.pos().y() + card.height() // 2 - v.viewport().height() // 2
+        bar.setValue(max(bar.minimum(), min(bar.maximum(), target)))
+        v._apply_wheel()
+        assert not card._wheel_fx.isEnabled()          # centered card full strength
+        far = v.card(0)
+        assert far._wheel_fx.isEnabled()
+        assert far._wheel_fx.opacity() == pytest.approx(0.45)  # clamped floor
+        v.deleteLater()
+
+    def test_active_card_never_faded(self, qapp, editors):
+        v = self._shown_view(qapp)
+        v.set_editors(*editors)
+        v.set_active(15)
+        v.verticalScrollBar().setValue(0)
+        v._apply_wheel()
+        assert not v.card(15)._wheel_fx.isEnabled()
+        v.deleteLater()
+
+    def test_visible_view_highlights_after_scroll(self, qapp, editors):
+        v = self._shown_view(qapp)
+        v.set_editors(*editors)
+        v.set_active(15)
+        assert v.card(15).state() != "active"      # not yet — scroll first
+        qapp.processEvents()                        # singleShot starts the anim
+        assert v.card(15).state() != "active"
+        # Drive the animation to its end deterministically (the shared Qt
+        # animation timer is unreliable under offscreen test runs).
+        v._scroll_anim.setCurrentTime(v._scroll_anim.duration())
+        assert v.card(15).state() == "active"
+        v.deleteLater()
+
+    def test_hidden_view_highlights_immediately(self, view, editors):
+        view.set_editors(*editors)
+        view.load(["%A", "%B"], ["", ""], [])
+        view.set_active(1)
+        assert view.card(1).state() == "active"

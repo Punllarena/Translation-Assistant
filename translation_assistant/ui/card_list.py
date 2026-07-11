@@ -5,9 +5,12 @@ re-parents into the active card.
 """
 import html
 
-from PySide6.QtCore import QEvent, Qt, QTimer, Signal
+from PySide6.QtCore import (
+    QEasingCurve, QEvent, QPropertyAnimation, Qt, QTimer, Signal,
+)
 from PySide6.QtWidgets import (
-    QFrame, QHBoxLayout, QLabel, QScrollArea, QVBoxLayout, QWidget,
+    QFrame, QGraphicsOpacityEffect, QHBoxLayout, QLabel, QScrollArea,
+    QVBoxLayout, QWidget,
 )
 
 SERIF_FAMILIES = [
@@ -117,6 +120,11 @@ class LineCard(QFrame):
         self._tr_slot.setContentsMargins(0, 0, 0, 0)
         vbox.addLayout(self._tr_slot)
 
+        self._wheel_fx = QGraphicsOpacityEffect(self)
+        self._wheel_fx.setOpacity(1.0)
+        self._wheel_fx.setEnabled(False)
+        self.setGraphicsEffect(self._wheel_fx)
+
         self.set_translation(translation)
         self.set_state("done" if translation.strip() else "todo")
 
@@ -175,6 +183,16 @@ class LineCard(QFrame):
     def show_copied_pill(self) -> None:
         self._copied_pill.show()
         self._pill_timer.start()
+
+    def set_wheel_opacity(self, opacity: float) -> None:
+        """Fade with distance from the viewport center (picker-wheel look)."""
+        # Effect disabled at full opacity: QGraphicsOpacityEffect renders the
+        # card through a pixmap, which the active card's editors don't need.
+        if opacity >= 0.999:
+            self._wheel_fx.setEnabled(False)
+        else:
+            self._wheel_fx.setOpacity(opacity)
+            self._wheel_fx.setEnabled(True)
 
     def set_font_size(self, pt: float) -> None:
         from PySide6.QtGui import QFont
@@ -244,6 +262,14 @@ class CardListView(QScrollArea):
         self._pulse_timer.setInterval(800)
         self._pulse_timer.timeout.connect(self._on_pulse)
 
+        self._scroll_anim = QPropertyAnimation(self.verticalScrollBar(), b"value", self)
+        self._scroll_anim.setDuration(220)
+        self._scroll_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        # finished only fires when the animation reaches the end — a stop()
+        # from rapid navigation does not highlight early.
+        self._scroll_anim.finished.connect(self._highlight_active)
+        self.verticalScrollBar().valueChanged.connect(self._apply_wheel)
+
     # -- setup -----------------------------------------------------------
 
     def set_editors(self, source_edit, trans_edit) -> None:
@@ -274,6 +300,7 @@ class CardListView(QScrollArea):
             QTimer.singleShot(0, self._build_batch)
 
         self._placeholder.setVisible(not (self._cards or self._pending))
+        self._update_edge_padding()
         self.verticalScrollBar().setValue(0)
 
     def _build_batch(self) -> None:
@@ -294,6 +321,8 @@ class CardListView(QScrollArea):
             self._cards[i] = card
         if self._pending:
             QTimer.singleShot(0, self._build_batch)
+        # Wheel fade needs settled geometry — apply after the layout pass.
+        QTimer.singleShot(0, self._apply_wheel)
 
     def _ensure_built(self, index: int) -> None:
         while self._pending and index not in self._cards:
@@ -324,9 +353,19 @@ class CardListView(QScrollArea):
             if self._editor_font is not None:
                 self._source_edit.setFont(self._editor_font)
                 self._trans_edit.setFont(self._editor_font)
-        card.set_state("active")
-        self._pulse_timer.start()
+        if not self.isVisible():
+            # No scroll animation offscreen — highlight immediately.
+            self._highlight_active()
         self._scroll_to(card)
+
+    def _highlight_active(self) -> None:
+        """Apply the active highlight — after the centering scroll lands."""
+        if self.active_index is None:
+            return
+        card = self._cards.get(self.active_index)
+        if card is not None and card.state() != "active":
+            card.set_state("active")
+            self._pulse_timer.start()
 
     def _detach_active(self) -> None:
         if self.active_index is None:
@@ -339,7 +378,43 @@ class CardListView(QScrollArea):
 
     def _scroll_to(self, card: LineCard) -> None:
         # After the layout pass, so geometry is valid on freshly built lists.
-        QTimer.singleShot(0, lambda: self.ensureWidgetVisible(card, 50, 80))
+        QTimer.singleShot(0, lambda: self._center_on(card))
+
+    def _center_on(self, card: LineCard) -> None:
+        """Typewriter behavior: scroll so the card sits at the viewport center."""
+        bar = self.verticalScrollBar()
+        target = card.pos().y() + card.height() // 2 - self.viewport().height() // 2
+        target = max(bar.minimum(), min(bar.maximum(), target))
+        self._scroll_anim.stop()
+        self._scroll_anim.setStartValue(bar.value())
+        self._scroll_anim.setEndValue(target)
+        self._scroll_anim.start()
+
+    def _update_edge_padding(self) -> None:
+        # Half-viewport top/bottom padding lets the first and last cards
+        # reach the center; keep the empty-state placeholder unpadded.
+        pad = self.viewport().height() // 2 if (self._cards or self._pending) else 20
+        m = self._vbox.contentsMargins()
+        self._vbox.setContentsMargins(m.left(), pad, m.right(), pad)
+
+    def _apply_wheel(self) -> None:
+        """Fade cards by distance from the viewport center as the list scrolls."""
+        vp_h = self.viewport().height()
+        if vp_h <= 0 or not self._cards:
+            return
+        center = self.verticalScrollBar().value() + vp_h / 2
+        half = vp_h / 2
+        for i, card in self._cards.items():
+            if i == self.active_index:
+                card.set_wheel_opacity(1.0)
+                continue
+            d = abs(card.pos().y() + card.height() / 2 - center) / half
+            card.set_wheel_opacity(1.0 - 0.55 * min(d, 1.0))
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._update_edge_padding()
+        self._apply_wheel()
 
     def _on_pulse(self) -> None:
         self._pulse_on = not self._pulse_on
