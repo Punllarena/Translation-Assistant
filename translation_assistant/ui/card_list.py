@@ -54,6 +54,51 @@ def _repolish(widget) -> None:
     widget.style().polish(widget)
 
 
+class WrapLabel(QLabel):
+    """Word-wrapping QLabel with memoized size queries.
+
+    QLabel re-runs full text layout on every heightForWidth/sizeHint call,
+    so one column relayout costs O(cards) text layouts — ~250 ms for a
+    1000-card chapter. Cache per width; drop on text/font/style change.
+    """
+
+    def __init__(self, *args) -> None:
+        super().__init__(*args)
+        self._hfw_cache: dict[int, int] = {}
+        self._hint_cache = None
+        self._min_hint_cache = None
+
+    def _drop_size_cache(self) -> None:
+        self._hfw_cache.clear()
+        self._hint_cache = None
+        self._min_hint_cache = None
+
+    def heightForWidth(self, width: int) -> int:
+        h = self._hfw_cache.get(width)
+        if h is None:
+            h = self._hfw_cache[width] = super().heightForWidth(width)
+        return h
+
+    def sizeHint(self):
+        if self._hint_cache is None:
+            self._hint_cache = super().sizeHint()
+        return self._hint_cache
+
+    def minimumSizeHint(self):
+        if self._min_hint_cache is None:
+            self._min_hint_cache = super().minimumSizeHint()
+        return self._min_hint_cache
+
+    def setText(self, text: str) -> None:
+        self._drop_size_cache()
+        super().setText(text)
+
+    def changeEvent(self, e) -> None:
+        if e.type() in (QEvent.Type.FontChange, QEvent.Type.StyleChange):
+            self._drop_size_cache()
+        super().changeEvent(e)
+
+
 class LineCard(QFrame):
     """One chapter line: header row, source text, translation text/editor slot."""
 
@@ -96,7 +141,7 @@ class LineCard(QFrame):
         src_caption = QLabel("SOURCE")
         src_caption.setObjectName("CardCaption")
         vbox.addWidget(src_caption)
-        self.source_label = QLabel()
+        self.source_label = WrapLabel()
         self.source_label.setObjectName("CardSource")
         self.source_label.setWordWrap(True)
         self.source_label.setTextFormat(Qt.TextFormat.RichText)
@@ -112,7 +157,7 @@ class LineCard(QFrame):
         tr_caption = QLabel("TRANSLATION")
         tr_caption.setObjectName("CardCaption")
         vbox.addWidget(tr_caption)
-        self._trans_label = QLabel()
+        self._trans_label = WrapLabel()
         self._trans_label.setObjectName("CardTranslation")
         self._trans_label.setWordWrap(True)
         vbox.addWidget(self._trans_label)
@@ -123,6 +168,7 @@ class LineCard(QFrame):
         self._wheel_fx = QGraphicsOpacityEffect(self)
         self._wheel_fx.setOpacity(1.0)
         self._wheel_fx.setEnabled(False)
+        self._wheel_opacity = 1.0
         self.setGraphicsEffect(self._wheel_fx)
 
         self.set_translation(translation)
@@ -186,6 +232,11 @@ class LineCard(QFrame):
 
     def set_wheel_opacity(self, opacity: float) -> None:
         """Fade with distance from the viewport center (picker-wheel look)."""
+        # No-op when unchanged: most cards sit at the clamped floor while
+        # scrolling, and each effect update schedules a repaint.
+        if abs(opacity - self._wheel_opacity) < 0.01:
+            return
+        self._wheel_opacity = opacity
         # Effect disabled at full opacity: QGraphicsOpacityEffect renders the
         # card through a pixmap, which the active card's editors don't need.
         if opacity >= 0.999:
@@ -205,9 +256,13 @@ class LineCard(QFrame):
     def _reassert_fonts(self) -> None:
         # Under an app stylesheet, any (re)polish — property restyle or
         # re-parenting into the layout — can reset assigned label fonts.
+        # Only set when actually reset: a redundant setFont fires FontChange,
+        # which drops the labels' size caches.
         if self._label_font is not None:
-            self.source_label.setFont(self._label_font)
-            self._trans_label.setFont(self._label_font)
+            if self.source_label.font() != self._label_font:
+                self.source_label.setFont(self._label_font)
+            if self._trans_label.font() != self._label_font:
+                self._trans_label.setFont(self._label_font)
 
     def event(self, e) -> bool:
         # Polish arrives when the card is inserted into a styled hierarchy
@@ -247,6 +302,7 @@ class CardListView(QScrollArea):
         self.setWidget(self._container)
 
         self._cards: dict[int, LineCard] = {}
+        self._ordered: list[LineCard] = []   # visual (y-ascending) order
         self._pending: list[tuple[int, str]] = []
         self._built_count = 0
         self._load_translations: list[str] = []
@@ -286,6 +342,7 @@ class CardListView(QScrollArea):
             self._vbox.removeWidget(card)
             card.deleteLater()
         self._cards = {}
+        self._ordered = []
 
         # ponytail: chunked build (100 cards/tick) — 1000 sync cards took 3.6s;
         # virtualize only if even this proves too slow on real chapters.
@@ -319,6 +376,7 @@ class CardListView(QScrollArea):
             self._vbox.insertWidget(insert_at, card)
             insert_at += 1
             self._cards[i] = card
+            self._ordered.append(card)
         if self._pending:
             QTimer.singleShot(0, self._build_batch)
         # Wheel fade needs settled geometry — apply after the layout pass.
@@ -344,15 +402,23 @@ class CardListView(QScrollArea):
         if index == self.active_index:
             self._scroll_to(card)
             return
-        self._detach_active()
-        self.active_index = index
-        if self._source_edit is not None:
-            card.attach(self._source_edit, self._trans_edit)
-            # Re-parenting under an app stylesheet re-polishes the editors,
-            # which can reset their assigned font — re-assert it every move.
-            if self._editor_font is not None:
-                self._source_edit.setFont(self._editor_font)
-                self._trans_edit.setFont(self._editor_font)
+        # Freeze the column layout across detach+attach — each hide/show/
+        # reparent otherwise relayouts every card; one pass at the end.
+        layout = self._container.layout()
+        layout.setEnabled(False)
+        try:
+            self._detach_active()
+            self.active_index = index
+            if self._source_edit is not None:
+                card.attach(self._source_edit, self._trans_edit)
+                # Re-parenting under an app stylesheet re-polishes the editors,
+                # which can reset their assigned font — re-assert it every move.
+                if self._editor_font is not None:
+                    self._source_edit.setFont(self._editor_font)
+                    self._trans_edit.setFont(self._editor_font)
+        finally:
+            layout.setEnabled(True)
+            layout.activate()
         if not self.isVisible():
             # No scroll animation offscreen — highlight immediately.
             self._highlight_active()
@@ -398,17 +464,41 @@ class CardListView(QScrollArea):
         self._vbox.setContentsMargins(m.left(), pad, m.right(), pad)
 
     def _apply_wheel(self) -> None:
-        """Fade cards by distance from the viewport center as the list scrolls."""
+        """Fade cards by distance from the viewport center as the list scrolls.
+
+        Runs per animation tick, so it only touches cards near the viewport:
+        bisect on y (cards are in visual order), then walk until past the
+        window. Beyond one half-viewport the fade is at its clamped floor
+        anyway, so offscreen cards keep their last (floor) value.
+        """
         vp_h = self.viewport().height()
-        if vp_h <= 0 or not self._cards:
+        if vp_h <= 0 or not self._ordered:
             return
-        center = self.verticalScrollBar().value() + vp_h / 2
+        top = self.verticalScrollBar().value()
+        center = top + vp_h / 2
         half = vp_h / 2
-        for i, card in self._cards.items():
-            if i == self.active_index:
+        margin = 200
+        # Active card is always full strength, even outside the window.
+        if self.active_index is not None:
+            active = self._cards.get(self.active_index)
+            if active is not None:
+                active.set_wheel_opacity(1.0)
+        lo, hi = 0, len(self._ordered)
+        while lo < hi:
+            mid = (lo + hi) // 2
+            card = self._ordered[mid]
+            if card.pos().y() + card.height() < top - margin:
+                lo = mid + 1
+            else:
+                hi = mid
+        for card in self._ordered[lo:]:
+            y = card.pos().y()
+            if y > top + vp_h + margin:
+                break
+            if card.index == self.active_index:
                 card.set_wheel_opacity(1.0)
                 continue
-            d = abs(card.pos().y() + card.height() / 2 - center) / half
+            d = abs(y + card.height() / 2 - center) / half
             card.set_wheel_opacity(1.0 - 0.55 * min(d, 1.0))
 
     def resizeEvent(self, event) -> None:

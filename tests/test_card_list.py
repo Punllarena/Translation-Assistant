@@ -346,10 +346,12 @@ class TestTypewriterWheel:
         target = card.pos().y() + card.height() // 2 - v.viewport().height() // 2
         bar.setValue(max(bar.minimum(), min(bar.maximum(), target)))
         v._apply_wheel()
-        assert not card._wheel_fx.isEnabled()          # centered card full strength
-        far = v.card(0)
-        assert far._wheel_fx.isEnabled()
-        assert far._wheel_fx.opacity() == pytest.approx(0.45)  # clamped floor
+        assert not card._wheel_fx.isEnabled()      # centered card full strength
+        # In-window neighbors fade progressively with distance from center.
+        near, edge = v.card(16), v.card(18)
+        assert near._wheel_fx.isEnabled()
+        assert near._wheel_fx.opacity() < 1.0
+        assert edge._wheel_fx.opacity() <= near._wheel_fx.opacity()
         v.deleteLater()
 
     def test_active_card_never_faded(self, qapp, editors):
@@ -379,3 +381,28 @@ class TestTypewriterWheel:
         view.load(["%A", "%B"], ["", ""], [])
         view.set_active(1)
         assert view.card(1).state() == "active"
+
+
+class TestWrapLabel:
+    def test_hfw_cached_then_dropped_on_text_change(self, qapp):
+        from translation_assistant.ui.card_list import WrapLabel
+        lbl = WrapLabel()
+        lbl.setWordWrap(True)
+        lbl.setText("short")
+        h1 = lbl.heightForWidth(200)
+        assert 200 in lbl._hfw_cache
+        lbl.setText("much longer text " * 30)
+        assert not lbl._hfw_cache            # setText must invalidate
+        assert lbl.heightForWidth(200) > h1  # recomputed, not stale
+
+    def test_cache_dropped_on_font_change(self, qapp):
+        from PySide6.QtGui import QFont
+        from translation_assistant.ui.card_list import WrapLabel
+        lbl = WrapLabel()
+        lbl.setWordWrap(True)
+        lbl.setText("text")
+        lbl.heightForWidth(200)
+        font = QFont(lbl.font())
+        font.setPointSize(lbl.font().pointSize() + 6)
+        lbl.setFont(font)
+        assert not lbl._hfw_cache
