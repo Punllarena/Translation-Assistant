@@ -60,6 +60,7 @@ class OllamaTranslator(BaseTranslator):
         payload = {
             "model": self._model,
             "stream": True,
+            "think": True,
             "messages": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": text},
@@ -78,6 +79,7 @@ class OllamaTranslator(BaseTranslator):
                 if detail:
                     raise RuntimeError(f"HTTP {resp.status_code}: {detail}") from exc
                 raise
+            thinking_open = False
             for line in resp.iter_lines():
                 if self._cancel:
                     break
@@ -86,8 +88,18 @@ class OllamaTranslator(BaseTranslator):
                 obj = json.loads(line)
                 if obj.get("done"):
                     break
-                token = obj.get("message", {}).get("content", "")
+                message = obj.get("message", {})
+                thinking = message.get("thinking", "")
+                if thinking:
+                    if not thinking_open:
+                        self.translation_chunk.emit("[thinking] ")
+                        thinking_open = True
+                    self.translation_chunk.emit(thinking)
+                token = message.get("content", "")
                 if token:
+                    if thinking_open:
+                        self.translation_chunk.emit("\n[answer] ")
+                        thinking_open = False
                     self.translation_chunk.emit(token)
             self._active_response = None
 
