@@ -45,13 +45,17 @@ class TranslationPanel(QWidget):
         self._enable_cb.stateChanged.connect(self._on_toggle)
         title_bar.addWidget(self._enable_cb)
 
-        title_bar.addStretch()
-
         self._status_label = QLabel("")
         self._status_label.setObjectName("EngineStatus")
         self._status_label.setProperty("state", "idle")
         self._status_label.setAlignment(Qt.AlignmentFlag.AlignRight)
-        title_bar.addWidget(self._status_label)
+        # Fills the gap the stretch used to occupy. Ignored policy so a long
+        # stats line clips instead of dictating the panel's minimum width
+        # (the tooltip holds the full breakdown).
+        self._status_label.setSizePolicy(
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred
+        )
+        title_bar.addWidget(self._status_label, stretch=1)
 
         self._translate_btn = QPushButton("▶")
         self._translate_btn.setObjectName("EngineRunBtn")
