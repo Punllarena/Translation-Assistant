@@ -379,6 +379,12 @@ class CardListView(QScrollArea):
             self._ordered.append(card)
         if self._pending:
             QTimer.singleShot(0, self._build_batch)
+        elif self.active_index is not None:
+            # Last batch grew the scroll range — a center scheduled while the
+            # list was shorter may have clamped short. Re-center the active card.
+            card = self._cards.get(self.active_index)
+            if card is not None:
+                self._scroll_to(card)
         # Wheel fade needs settled geometry — apply after the layout pass.
         QTimer.singleShot(0, self._apply_wheel)
 
@@ -446,11 +452,16 @@ class CardListView(QScrollArea):
         # After the layout pass, so geometry is valid on freshly built lists.
         QTimer.singleShot(0, lambda: self._center_on(card))
 
-    def _center_on(self, card: LineCard) -> None:
+    def _center_on(self, card: LineCard, animate: bool = True) -> None:
         """Typewriter behavior: scroll so the card sits at the viewport center."""
         bar = self.verticalScrollBar()
         target = card.pos().y() + card.height() // 2 - self.viewport().height() // 2
         target = max(bar.minimum(), min(bar.maximum(), target))
+        if not animate:
+            self._scroll_anim.stop()
+            bar.setValue(target)
+            self._highlight_active()
+            return
         self._scroll_anim.stop()
         self._scroll_anim.setStartValue(bar.value())
         self._scroll_anim.setEndValue(target)
@@ -501,9 +512,28 @@ class CardListView(QScrollArea):
             d = abs(y + card.height() / 2 - center) / half
             card.set_wheel_opacity(1.0 - 0.55 * min(d, 1.0))
 
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        # Startup: set_active ran before the window was shown, so the centering
+        # used a stale viewport height. Re-center now that geometry is real.
+        self._update_edge_padding()
+        if self.active_index is not None:
+            card = self._cards.get(self.active_index)
+            if card is not None:
+                self._scroll_to(card)
+
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         self._update_edge_padding()
+        # Width changes rewrap every card, shifting positions by thousands of
+        # px on long chapters — any previously computed scroll target is stale.
+        # Re-anchor on the active card after the relayout settles.
+        # ponytail: also recenters when the user scrolled away and then
+        # resizes; acceptable for a typewriter view, revisit if it annoys.
+        if self.active_index is not None:
+            card = self._cards.get(self.active_index)
+            if card is not None:
+                QTimer.singleShot(0, lambda: self._center_on(card, animate=False))
         self._apply_wheel()
 
     def _on_pulse(self) -> None:

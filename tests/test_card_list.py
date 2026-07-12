@@ -339,6 +339,42 @@ class TestTypewriterWheel:
         assert v._scroll_anim.endValue() == expected
         v.deleteLater()
 
+    def test_show_recenters_active_card_set_before_show(self, qapp, editors):
+        v = CardListView()
+        v.set_editors(*editors)
+        v.resize(400, 600)
+        v.load([f"%Line {i}" for i in range(30)], [""] * 30, [])
+        qapp.processEvents()  # chunked build
+        v.set_active(15)      # before show — startup path
+        v.show()
+        qapp.processEvents()
+        qapp.processEvents()  # deferred _center_on
+        card = v.card(15)
+        expected = card.pos().y() + card.height() // 2 - v.viewport().height() // 2
+        bar = v.verticalScrollBar()
+        expected = max(bar.minimum(), min(bar.maximum(), expected))
+        assert v._scroll_anim.endValue() == expected
+        assert expected > 0
+        v.deleteLater()
+
+    def test_resize_reanchors_active_card(self, qapp, editors):
+        # Post-show reflow (scrollbar appearing, WM resize) rewraps cards and
+        # moves them; the view must re-center the active card, not keep the
+        # stale scroll offset.
+        v = self._shown_view(qapp)
+        v.set_editors(*editors)
+        v.set_active(15)
+        qapp.processEvents()
+        v.resize(400, 300)
+        qapp.processEvents()
+        qapp.processEvents()  # deferred re-center
+        card = v.card(15)
+        bar = v.verticalScrollBar()
+        expected = card.pos().y() + card.height() // 2 - v.viewport().height() // 2
+        expected = max(bar.minimum(), min(bar.maximum(), expected))
+        assert bar.value() == expected
+        v.deleteLater()
+
     def test_wheel_fades_offcenter_cards(self, qapp):
         v = self._shown_view(qapp)
         card = v.card(15)
