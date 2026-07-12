@@ -4,7 +4,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout,
-    QLabel, QTextEdit, QPushButton, QCheckBox, QSizePolicy,
+    QLabel, QTextEdit, QPushButton, QCheckBox, QSizePolicy, QToolButton,
 )
 
 from ta.translators.base import BaseTranslator
@@ -18,6 +18,7 @@ class TranslationPanel(QWidget):
         self._current_text: str = ""
         self._current_src = Language.Japanese
         self._current_dst = Language.English
+        self._thinking_text: str = ""
         self._setup_ui()
         self._connect_signals()
 
@@ -60,6 +61,24 @@ class TranslationPanel(QWidget):
 
         layout.addLayout(title_bar)
 
+        # Collapsible reasoning trace (only populated by models that emit it)
+        self._thinking_toggle = QToolButton()
+        self._thinking_toggle.setObjectName("ThinkingToggle")
+        self._thinking_toggle.setArrowType(Qt.ArrowType.RightArrow)
+        self._thinking_toggle.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self._thinking_toggle.setCheckable(True)
+        self._thinking_toggle.setText("Thinking")
+        self._thinking_toggle.toggled.connect(self._on_thinking_toggled)
+        self._thinking_toggle.hide()
+        layout.addWidget(self._thinking_toggle)
+
+        self._thinking_box = QTextEdit()
+        self._thinking_box.setObjectName("ThinkingText")
+        self._thinking_box.setReadOnly(True)
+        self._thinking_box.setFixedHeight(80)
+        self._thinking_box.hide()
+        layout.addWidget(self._thinking_box)
+
         # Output text area
         self._output = QTextEdit()
         self._output.setObjectName("AggTranslationText")
@@ -72,6 +91,7 @@ class TranslationPanel(QWidget):
         self._translator.translation_error.connect(self._on_error)
         self._translator.translation_started.connect(self._on_started)
         self._translator.translation_chunk.connect(self._on_chunk)
+        self._translator.translation_thinking.connect(self._on_thinking)
 
     def translate(self, text: str, src: Language, dst: Language) -> None:
         self._current_text = text
@@ -104,12 +124,39 @@ class TranslationPanel(QWidget):
 
     def _on_started(self) -> None:
         self._output.clear()
+        self._thinking_text = ""
+        self._thinking_box.clear()
+        self._thinking_toggle.hide()
+        self._thinking_box.hide()
         self._set_status("working", "…")
 
     def _on_chunk(self, token: str) -> None:
+        if self._thinking_text and self._thinking_toggle.isChecked():
+            # First real answer token: collapse the reasoning trace out of the way.
+            self._thinking_toggle.setChecked(False)
         self._output.moveCursor(QTextCursor.MoveOperation.End)
         self._output.insertPlainText(token)
         self._set_status("working", "…")
+
+    def _on_thinking(self, token: str) -> None:
+        self._thinking_text += token
+        if self._thinking_toggle.isHidden():
+            self._thinking_toggle.show()
+            self._thinking_toggle.setChecked(True)
+        self._thinking_box.moveCursor(QTextCursor.MoveOperation.End)
+        self._thinking_box.insertPlainText(token)
+        self._set_status("working", "…")
+
+    def _on_thinking_toggled(self, expanded: bool) -> None:
+        self._thinking_box.setVisible(expanded)
+        self._thinking_toggle.setArrowType(
+            Qt.ArrowType.DownArrow if expanded else Qt.ArrowType.RightArrow
+        )
+        if expanded:
+            self._thinking_toggle.setText("Thinking")
+        else:
+            lines = self._thinking_text.count("\n") + 1
+            self._thinking_toggle.setText(f"Thinking ({lines} lines)")
 
     def _on_toggle(self, state: int) -> None:
         enabled = bool(state)

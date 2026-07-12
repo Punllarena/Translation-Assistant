@@ -82,6 +82,27 @@ QTextEdit#AggTranslationText {
     padding: 8px;
 }
 
+/* Collapsible reasoning trace (Ollama "thinking" tokens) */
+QToolButton#ThinkingToggle {
+    background: transparent;
+    border: none;
+    color: #9aa09a;
+    font-size: 11px;
+    padding: 2px 0px;
+}
+QToolButton#ThinkingToggle:hover { color: #ecefec; }
+
+QTextEdit#ThinkingText {
+    background: #1a1d1a;
+    color: #9aa09a;
+    border: 1px solid #3a3e3a;
+    border-radius: 6px;
+    font-family: 'Noto Sans JP';
+    font-size: 13px;
+    font-style: italic;
+    padding: 6px;
+}
+
 /* === Splitter === */
 QSplitter::handle {
     background: #3a3e3a;
