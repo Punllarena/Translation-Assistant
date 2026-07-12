@@ -67,7 +67,17 @@ class OllamaTranslator(BaseTranslator):
         }
         with httpx.stream("POST", f"{self._url}/api/chat", json=payload, timeout=60) as resp:
             self._active_response = resp
-            resp.raise_for_status()
+            try:
+                resp.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                resp.read()
+                try:
+                    detail = resp.json().get("error", "")
+                except Exception:
+                    detail = ""
+                if detail:
+                    raise RuntimeError(f"HTTP {resp.status_code}: {detail}") from exc
+                raise
             for line in resp.iter_lines():
                 if self._cancel:
                     break

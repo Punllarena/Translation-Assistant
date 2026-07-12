@@ -222,6 +222,44 @@ class TestOllamaTranslator:
         assert len(errors) == 1
         assert "connection refused" in errors[0]
 
+    def test_http_error_includes_server_error_body(self, qapp):
+        """A 500 response must surface Ollama's JSON error detail, not just the status."""
+        import httpx
+        from ta.translators.ollama import OllamaTranslator
+        errors = []
+        done = threading.Event()
+        t = OllamaTranslator("http://test:11434", "llama3", "")
+        t.translation_error.connect(
+            lambda e: (errors.append(e), done.set()),
+            Qt.ConnectionType.DirectConnection,
+        )
+
+        @contextmanager
+        def fake_500_stream(*args, **kwargs):
+            class FakeResp:
+                status_code = 500
+
+                def raise_for_status(self_inner):
+                    raise httpx.HTTPStatusError(
+                        "Server error '500 Internal Server Error'",
+                        request=httpx.Request("POST", "http://test:11434/api/chat"),
+                        response=httpx.Response(500),
+                    )
+
+                def read(self_inner):
+                    pass
+
+                def json(self_inner):
+                    return {"error": "model requires more system memory"}
+            yield FakeResp()
+
+        with patch("ta.translators.ollama.httpx.stream", fake_500_stream):
+            t.translate("test", Language.Japanese, Language.English)
+            done.wait(timeout=3.0)
+
+        assert len(errors) == 1
+        assert "model requires more system memory" in errors[0]
+
     def test_system_prompt_substitution(self, qapp):
         """Verify {src}/{dst} are replaced with language display names."""
         from ta.translators.ollama import OllamaTranslator
