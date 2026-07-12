@@ -92,6 +92,14 @@ class OllamaTranslator(BaseTranslator):
                     continue
                 obj = json.loads(line)
                 if obj.get("done"):
+                    stats = {
+                        k: obj[k]
+                        for k in ("prompt_eval_count", "eval_count",
+                                  "eval_duration", "total_duration")
+                        if k in obj
+                    }
+                    if stats:
+                        self.translation_stats.emit(stats)
                     break
                 message = obj.get("message", {})
                 thinking = message.get("thinking", "")

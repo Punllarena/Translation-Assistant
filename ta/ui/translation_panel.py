@@ -19,6 +19,7 @@ class TranslationPanel(QWidget):
         self._current_src = Language.Japanese
         self._current_dst = Language.English
         self._thinking_text: str = ""
+        self._stats_text: str = ""
         self._setup_ui()
         self._connect_signals()
 
@@ -92,6 +93,7 @@ class TranslationPanel(QWidget):
         self._translator.translation_started.connect(self._on_started)
         self._translator.translation_chunk.connect(self._on_chunk)
         self._translator.translation_thinking.connect(self._on_thinking)
+        self._translator.translation_stats.connect(self._on_stats)
 
     def translate(self, text: str, src: Language, dst: Language) -> None:
         self._current_text = text
@@ -116,7 +118,9 @@ class TranslationPanel(QWidget):
         self._thinking_box.clear()
         self._thinking_toggle.hide()
         self._thinking_box.hide()
+        self._stats_text = ""
         self._on_ready(text)
+        self._set_status("ok", "✓ cached")
 
     def request_key(self) -> tuple[str, Language, Language]:
         """Identity of the last request sent (or shown) on this panel."""
@@ -134,7 +138,21 @@ class TranslationPanel(QWidget):
                 self._output.setHtml(text)
             else:
                 self._output.setPlainText(text)
-        self._set_status("ok", "✓")
+        self._set_status("ok", f"✓ {self._stats_text}" if self._stats_text else "✓")
+
+    def _on_stats(self, stats: dict) -> None:
+        parts = []
+        p = stats.get("prompt_eval_count")
+        e = stats.get("eval_count")
+        if p is not None and e is not None:
+            parts.append(f"{p}→{e} tok")
+        total = stats.get("total_duration")
+        if total:
+            parts.append(f"{total / 1e9:.1f}s")
+        e_dur = stats.get("eval_duration")
+        if e and e_dur:
+            parts.append(f"{e / (e_dur / 1e9):.1f} tok/s")
+        self._stats_text = " · ".join(parts)
 
     def _on_error(self, msg: str) -> None:
         self._output.setPlainText(f"[Error] {msg}")
@@ -142,6 +160,7 @@ class TranslationPanel(QWidget):
 
     def _on_started(self) -> None:
         self._output.clear()
+        self._stats_text = ""
         self._thinking_text = ""
         self._thinking_box.clear()
         self._thinking_toggle.hide()

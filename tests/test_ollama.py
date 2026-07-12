@@ -356,7 +356,7 @@ class TestTranslationPanelShowResult:
         panel = TranslationPanel(t)
         panel.show_result("cached!", "源文", Language.Japanese, Language.English)
         assert panel._output.toPlainText() == "cached!"
-        assert panel._status_label.text() == "✓"
+        assert panel._status_label.text() == "✓ cached"
         assert panel.request_key() == ("源文", Language.Japanese, Language.English)
 
     def test_show_result_hides_stale_thinking_trace(self, qapp):
@@ -375,6 +375,64 @@ class TestTranslationPanelShowResult:
         panel._enable_cb.setChecked(False)
         panel.show_result("cached!", "源文", Language.Japanese, Language.English)
         assert panel._output.toPlainText() == ""
+
+
+class TestOllamaStats:
+    def test_done_object_emits_stats(self, qapp):
+        from ta.translators.ollama import OllamaTranslator
+        stats = []
+        done = threading.Event()
+        t = OllamaTranslator("http://test:11434", "llama3", "")
+        t.translation_stats.connect(stats.append, Qt.ConnectionType.DirectConnection)
+        t.translation_ready.connect(lambda _: done.set(), Qt.ConnectionType.DirectConnection)
+
+        @contextmanager
+        def fake_stream(*args, **kwargs):
+            class FakeResp:
+                def raise_for_status(self): pass
+                def iter_lines(self_inner):
+                    yield json.dumps({"message": {"content": "ok"}, "done": False})
+                    yield json.dumps({
+                        "done": True,
+                        "prompt_eval_count": 45,
+                        "eval_count": 210,
+                        "eval_duration": 7_000_000_000,
+                        "total_duration": 8_200_000_000,
+                    })
+            yield FakeResp()
+
+        with patch("ta.translators.ollama.httpx.stream", fake_stream):
+            t.translate("test", Language.Japanese, Language.English)
+            assert done.wait(timeout=3.0)
+
+        assert stats == [{
+            "prompt_eval_count": 45,
+            "eval_count": 210,
+            "eval_duration": 7_000_000_000,
+            "total_duration": 8_200_000_000,
+        }]
+
+    def test_panel_shows_stats_in_status(self, qapp):
+        from ta.ui.translation_panel import TranslationPanel
+        t = BaseTranslator("Ollama")
+        panel = TranslationPanel(t)
+        panel._on_started()
+        panel._on_stats({
+            "prompt_eval_count": 45,
+            "eval_count": 210,
+            "eval_duration": 7_000_000_000,
+            "total_duration": 8_200_000_000,
+        })
+        panel._on_ready("")
+        assert panel._status_label.text() == "✓ 45→210 tok · 8.2s · 30.0 tok/s"
+
+    def test_panel_status_plain_check_without_stats(self, qapp):
+        from ta.ui.translation_panel import TranslationPanel
+        t = BaseTranslator("Ollama")
+        panel = TranslationPanel(t)
+        panel._on_started()
+        panel._on_ready("done")
+        assert panel._status_label.text() == "✓"
 
 
 class TestAggregatorOllamaCache:
