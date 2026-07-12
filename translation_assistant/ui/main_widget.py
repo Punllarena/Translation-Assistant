@@ -626,8 +626,7 @@ class TranslationAssistantWidget(QWidget):
         self._update_wp_status_label()
 
         # Emit so the Aggregator translates the first sentence on load
-        raw = self._raw_lines[p]
-        self.source_sentence_changed.emit(raw.lstrip("%$").strip())
+        self.source_sentence_changed.emit(display.lstrip("%$").strip())
 
     def _save_to_db(self) -> None:
         if self._doc_id is None:
@@ -675,8 +674,7 @@ class TranslationAssistantWidget(QWidget):
         self._translated_line.setFocus()
         self._start_clipboard_timer()
 
-        raw = self._raw_lines[p]
-        self.source_sentence_changed.emit(raw.lstrip("%$").strip())
+        self.source_sentence_changed.emit(display.lstrip("%$").strip())
         self._update_tm_panel()
         self._parse_label.setVisible(False)
 

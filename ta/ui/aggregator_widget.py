@@ -150,6 +150,10 @@ class AggregatorWidget(QWidget):
         return auto_filter(text, self._settings.filter)
 
     def _on_clipboard_text(self, text: str) -> None:
+        if self._preprocess(text) == self._current_source:
+            # TA's own navigation clipboard write mirrors what we just
+            # translated via source_sentence_changed; skip the resend.
+            return
         self._source_panel.set_text(text)
         self._on_translate(text)
 
