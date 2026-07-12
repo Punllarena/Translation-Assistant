@@ -100,4 +100,4 @@ Tests use shared fixtures from `conftest.py`:
 
 DB tests use in-memory SQLite via `Database(":memory:", _conn=conn)`.
 
-Test files: `test_core.py`, `test_db.py`, `test_settings.py`, `test_dialogs.py`, `test_spellcheck.py`, `test_main_window.py`, `test_combined_window.py`, `test_card_list.py`, `test_integration.py`, `test_migration.py`, `test_dlg_open.py`, `test_dlg_new_series.py`, `test_dlg_series_phrases.py`, `test_scraper.py`. Total: 849 tests.
+Test files: `test_core.py`, `test_db.py`, `test_settings.py`, `test_dialogs.py`, `test_spellcheck.py`, `test_main_window.py`, `test_combined_window.py`, `test_card_list.py`, `test_integration.py`, `test_migration.py`, `test_dlg_open.py`, `test_dlg_new_series.py`, `test_dlg_series_phrases.py`, `test_scraper.py`. Total: 850 tests.

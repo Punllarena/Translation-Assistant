@@ -424,7 +424,15 @@ class TestOllamaStats:
             "total_duration": 8_200_000_000,
         })
         panel._on_ready("")
-        assert panel._status_label.text() == "✓ 45→210 tok · 8.2s · 30.0 tok/s"
+        assert panel._status_label.text() == "✓ 45 in · 210 out · 8.2s · 30 tok/s"
+        assert "Prompt: 45 tokens" in panel._status_label.toolTip()
+        assert "Output: 210 tokens" in panel._status_label.toolTip()
+
+    def test_duration_over_a_minute_humanized(self, qapp):
+        from ta.ui.translation_panel import _fmt_duration
+        assert _fmt_duration(8.24) == "8.2s"
+        assert _fmt_duration(72.6) == "1m 13s"
+        assert _fmt_duration(60) == "1m 00s"
 
     def test_panel_status_plain_check_without_stats(self, qapp):
         from ta.ui.translation_panel import TranslationPanel

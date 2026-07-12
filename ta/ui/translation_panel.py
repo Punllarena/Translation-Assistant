@@ -11,6 +11,13 @@ from ta.translators.base import BaseTranslator
 from ta.config.languages import Language
 
 
+def _fmt_duration(seconds: float) -> str:
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    m, s = divmod(int(round(seconds)), 60)
+    return f"{m}m {s:02d}s"
+
+
 class TranslationPanel(QWidget):
     def __init__(self, translator: BaseTranslator, parent=None):
         super().__init__(parent)
@@ -119,6 +126,7 @@ class TranslationPanel(QWidget):
         self._thinking_toggle.hide()
         self._thinking_box.hide()
         self._stats_text = ""
+        self._status_label.setToolTip("")
         self._on_ready(text)
         self._set_status("ok", "✓ cached")
 
@@ -142,17 +150,25 @@ class TranslationPanel(QWidget):
 
     def _on_stats(self, stats: dict) -> None:
         parts = []
+        tips = []
         p = stats.get("prompt_eval_count")
         e = stats.get("eval_count")
-        if p is not None and e is not None:
-            parts.append(f"{p}→{e} tok")
+        if p is not None:
+            parts.append(f"{p} in")
+            tips.append(f"Prompt: {p} tokens")
+        if e is not None:
+            parts.append(f"{e} out")
+            tips.append(f"Output: {e} tokens")
         total = stats.get("total_duration")
         if total:
-            parts.append(f"{total / 1e9:.1f}s")
+            parts.append(_fmt_duration(total / 1e9))
+            tips.append(f"Total time: {_fmt_duration(total / 1e9)}")
         e_dur = stats.get("eval_duration")
         if e and e_dur:
-            parts.append(f"{e / (e_dur / 1e9):.1f} tok/s")
+            parts.append(f"{e / (e_dur / 1e9):.0f} tok/s")
+            tips.append(f"Generation speed: {e / (e_dur / 1e9):.1f} tokens/second")
         self._stats_text = " · ".join(parts)
+        self._status_label.setToolTip("\n".join(tips))
 
     def _on_error(self, msg: str) -> None:
         self._output.setPlainText(f"[Error] {msg}")
@@ -161,6 +177,7 @@ class TranslationPanel(QWidget):
     def _on_started(self) -> None:
         self._output.clear()
         self._stats_text = ""
+        self._status_label.setToolTip("")
         self._thinking_text = ""
         self._thinking_box.clear()
         self._thinking_toggle.hide()
