@@ -531,10 +531,26 @@ class CardListView(QScrollArea):
         # ponytail: also recenters when the user scrolled away and then
         # resizes; acceptable for a typewriter view, revisit if it annoys.
         if self.active_index is not None:
-            card = self._cards.get(self.active_index)
-            if card is not None:
-                QTimer.singleShot(0, lambda: self._center_on(card, animate=False))
+            QTimer.singleShot(0, self._reanchor_active)
         self._apply_wheel()
+
+    def _reanchor_active(self) -> None:
+        if self.active_index is None:
+            return
+        card = self._cards.get(self.active_index)
+        if card is None:
+            return
+        # The zero-timer can fire before the post-resize relayout has run,
+        # leaving card positions and the scroll range stale. Force the
+        # layout current before computing the center target.
+        w = self.widget()
+        lay = w.layout() if w is not None else None
+        if lay is not None:
+            lay.activate()
+            h = (lay.totalHeightForWidth(w.width())
+                 if lay.hasHeightForWidth() else lay.totalSizeHint().height())
+            w.resize(w.width(), h)
+        self._center_on(card, animate=False)
 
     def _on_pulse(self) -> None:
         self._pulse_on = not self._pulse_on

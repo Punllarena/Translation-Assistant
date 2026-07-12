@@ -368,6 +368,10 @@ class TestTypewriterWheel:
         v.resize(400, 300)
         qapp.processEvents()
         qapp.processEvents()  # deferred re-center
+        # Card heights can settle one more event-loop pass later; invoke the
+        # re-anchor directly so the assertion checks the anchoring math, not
+        # how many passes the relayout happened to need.
+        v._reanchor_active()
         card = v.card(15)
         bar = v.verticalScrollBar()
         expected = card.pos().y() + card.height() // 2 - v.viewport().height() // 2
