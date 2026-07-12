@@ -104,6 +104,24 @@ class TranslationPanel(QWidget):
         self._current_src = src
         self._current_dst = dst
 
+    def show_result(self, text: str, source: str, src: Language, dst: Language) -> None:
+        """Display a cached result without contacting the translator."""
+        self._current_text = source
+        self._current_src = src
+        self._current_dst = dst
+        if not self._enable_cb.isChecked():
+            return
+        # The reasoning trace belongs to whatever streamed last, not this line.
+        self._thinking_text = ""
+        self._thinking_box.clear()
+        self._thinking_toggle.hide()
+        self._thinking_box.hide()
+        self._on_ready(text)
+
+    def request_key(self) -> tuple[str, Language, Language]:
+        """Identity of the last request sent (or shown) on this panel."""
+        return (self._current_text, self._current_src, self._current_dst)
+
     def _set_status(self, state: str, text: str) -> None:
         self._status_label.setText(text)
         self._status_label.setProperty("state", state)

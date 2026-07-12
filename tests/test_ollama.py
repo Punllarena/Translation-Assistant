@@ -294,6 +294,171 @@ class TestOllamaTranslator:
         assert "{dst}" not in sys_msg
 
 
+class TestBaseTranslatorCancelReset:
+    def test_translate_after_halt_clears_cancel(self):
+        """A halt() must not silently drop the next queued request."""
+        t = BaseTranslator("test")
+        t.halt()
+        assert t._cancel is True
+        t._running = True  # simulate worker thread still winding down
+        t.translate("x", Language.Japanese, Language.English)
+        assert t._cancel is False
+        assert t._pending == ("x", Language.Japanese, Language.English)
+
+
+class TestOllamaSupersededStream:
+    def test_superseded_stream_aborts_without_ready(self, qapp):
+        """A newer pending request aborts the current stream mid-flight."""
+        from ta.translators.ollama import OllamaTranslator
+        chunks = []
+        readies = []
+        done = threading.Event()
+        t = OllamaTranslator("http://test:11434", "llama3", "")
+        t.translation_chunk.connect(chunks.append, Qt.ConnectionType.DirectConnection)
+        t.translation_ready.connect(
+            lambda v: (readies.append(v), done.set()),
+            Qt.ConnectionType.DirectConnection,
+        )
+
+        calls = []
+
+        @contextmanager
+        def fake_stream(*args, **kwargs):
+            calls.append(kwargs["json"]["messages"][1]["content"])
+            first = len(calls) == 1
+
+            class FakeResp:
+                def raise_for_status(self): pass
+                def iter_lines(self_inner):
+                    yield json.dumps({"message": {"content": "A"}, "done": False})
+                    if first:
+                        # Queue a newer request mid-stream.
+                        with t._lock:
+                            t._pending = ("second", Language.Japanese, Language.English)
+                    yield json.dumps({"message": {"content": "B"}, "done": False})
+                    yield json.dumps({"done": True})
+            yield FakeResp()
+
+        with patch("ta.translators.ollama.httpx.stream", fake_stream):
+            t.translate("first", Language.Japanese, Language.English)
+            assert done.wait(timeout=3.0), "translation_ready never fired"
+
+        assert calls == ["first", "second"]
+        # First stream aborted after "A"; only the second ran to completion.
+        assert chunks == ["A", "A", "B"]
+        assert readies == [""]
+
+
+class TestTranslationPanelShowResult:
+    def test_show_result_displays_text_and_sets_key(self, qapp):
+        from ta.ui.translation_panel import TranslationPanel
+        t = BaseTranslator("Ollama")
+        panel = TranslationPanel(t)
+        panel.show_result("cached!", "源文", Language.Japanese, Language.English)
+        assert panel._output.toPlainText() == "cached!"
+        assert panel._status_label.text() == "✓"
+        assert panel.request_key() == ("源文", Language.Japanese, Language.English)
+
+    def test_show_result_hides_stale_thinking_trace(self, qapp):
+        from ta.ui.translation_panel import TranslationPanel
+        t = BaseTranslator("Ollama")
+        panel = TranslationPanel(t)
+        panel._on_thinking("old trace")
+        panel.show_result("cached!", "源文", Language.Japanese, Language.English)
+        assert panel._thinking_toggle.isHidden()
+        assert panel._thinking_box.toPlainText() == ""
+
+    def test_show_result_respects_disabled_checkbox(self, qapp):
+        from ta.ui.translation_panel import TranslationPanel
+        t = BaseTranslator("Ollama")
+        panel = TranslationPanel(t)
+        panel._enable_cb.setChecked(False)
+        panel.show_result("cached!", "源文", Language.Japanese, Language.English)
+        assert panel._output.toPlainText() == ""
+
+
+class TestAggregatorOllamaCache:
+    def _make_widget(self, qapp, tmp_path):
+        from ta.config.settings import Settings, TranslatorConfig
+        from ta.core.history import HistoryStore
+
+        s = Settings()
+        for cfg in s.translators.values():
+            cfg.enabled = False
+        s.translators["ollama"] = TranslatorConfig(
+            enabled=True, url="http://test:1", model="m", system_prompt="p",
+        )
+        s.layout_panels = ["ollama"]
+        s.enable_substitutions = False
+
+        def make_history(max_bytes):
+            return HistoryStore(path=tmp_path / "history.jsonl", max_bytes=max_bytes)
+
+        with patch("ta.ui.aggregator_widget.Settings.load", return_value=s), \
+             patch("ta.ui.aggregator_widget.HistoryStore", make_history), \
+             patch("ta.ui.aggregator_widget.ClipboardMonitor"):
+            from ta.ui.aggregator_widget import AggregatorWidget
+            return AggregatorWidget()
+
+    def test_cache_hit_skips_translator_and_debounce(self, qapp, tmp_path):
+        w = self._make_widget(qapp, tmp_path)
+        calls = []
+        w._ollama_translator.translate = lambda *a: calls.append(a)
+        text = w._preprocess("hello line")
+        src = w._source_panel.src_language()
+        dst = w._source_panel.dst_language()
+        w._mt_cache[(text, src, dst)] = "cached!"
+
+        w.translate_source("hello line")
+
+        assert w._ollama_panel._output.toPlainText() == "cached!"
+        assert not w._ollama_debounce.isActive()
+        assert calls == []
+
+    def test_cache_miss_debounces_then_fires(self, qapp, tmp_path):
+        w = self._make_widget(qapp, tmp_path)
+        calls = []
+        w._ollama_translator.translate = lambda *a: calls.append(a)
+
+        w.translate_source("new line")
+
+        assert w._ollama_debounce.isActive()
+        assert calls == []  # nothing sent until the debounce fires
+        w._ollama_debounce.stop()
+        w._fire_ollama()
+        assert len(calls) == 1
+        assert calls[0][0] == w._current_source
+
+    def test_ready_caches_result_and_records_history(self, qapp, tmp_path):
+        w = self._make_widget(qapp, tmp_path)
+        calls = []
+        w._ollama_translator.translate = lambda *a: calls.append(a)
+        w.translate_source("some line")
+        w._ollama_debounce.stop()
+        w._fire_ollama()
+
+        w._ollama_chunks[:] = ["Hello", " world"]
+        w._on_ollama_ready("")
+
+        key = w._ollama_panel.request_key()
+        assert w._mt_cache[key] == "Hello world"
+        assert w._pending_translations["ollama"] == "Hello world"
+        assert any(
+            e.translations.get("ollama") == "Hello world"
+            for e in w._history.all_entries()
+        )
+
+    def test_seed_cache_from_history(self, qapp, tmp_path):
+        from ta.core.history import HistoryStore
+        store = HistoryStore(path=tmp_path / "history.jsonl")
+        store.append("古い行", {"ollama": "old line"})
+
+        w = self._make_widget(qapp, tmp_path)
+        src = w._source_panel.src_language()
+        dst = w._source_panel.dst_language()
+        assert w._mt_cache[("古い行", src, dst)] == "old line"
+
+
 # ---------------------------------------------------------------------------
 # Task 4: Aggregator factory + SettingsDialog Ollama group
 # ---------------------------------------------------------------------------

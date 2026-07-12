@@ -79,8 +79,14 @@ class OllamaTranslator(BaseTranslator):
                 if detail:
                     raise RuntimeError(f"HTTP {resp.status_code}: {detail}") from exc
                 raise
+            superseded = False
             for line in resp.iter_lines():
-                if self._cancel:
+                with self._lock:
+                    # A newer request queued: abort this stream. Exiting the
+                    # context closes the connection, which stops generation
+                    # server-side instead of burning tokens on a stale line.
+                    superseded = self._cancel or self._pending is not None
+                if superseded:
                     break
                 if not line.strip():
                     continue
@@ -96,5 +102,5 @@ class OllamaTranslator(BaseTranslator):
                     self.translation_chunk.emit(token)
             self._active_response = None
 
-        if not self._cancel:
+        if not superseded and not self._cancel:
             self.translation_ready.emit("")

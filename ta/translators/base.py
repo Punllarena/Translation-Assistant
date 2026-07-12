@@ -26,10 +26,12 @@ class BaseTranslator(QObject):
         """Queue a translation request. Replaces any pending request."""
         with self._lock:
             self._pending = (text, src, dst)
+            # Clear a prior halt() even if the worker is still winding down,
+            # so this request isn't silently dropped at the top of its loop.
+            self._cancel = False
             if self._running:
                 return
             self._running = True
-            self._cancel = False
 
         t = threading.Thread(target=self._worker, daemon=True)
         t.start()

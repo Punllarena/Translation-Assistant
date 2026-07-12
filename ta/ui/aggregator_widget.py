@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Slot
+from PySide6.QtCore import Qt, QTimer, Slot
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QSizePolicy,
 )
@@ -57,10 +57,17 @@ class AggregatorWidget(QWidget):
         self._history_current_id: int | None = None
         self._pending_translations: dict[str, str] = {}
         self._current_source: str = ""
+        self._mt_cache: dict[tuple[str, Language, Language], str] = {}
+        self._ollama_chunks: list[str] = []
+        self._ollama_debounce = QTimer(self)
+        self._ollama_debounce.setSingleShot(True)
+        self._ollama_debounce.setInterval(400)
+        self._ollama_debounce.timeout.connect(self._fire_ollama)
 
         self._setup_ui()
         self._setup_clipboard()
         self._restore_layout()
+        self._seed_mt_cache()
 
     # ------------------------------------------------------------------
     # UI setup
@@ -98,6 +105,11 @@ class AggregatorWidget(QWidget):
             if name == "ollama":
                 self._ollama_translator = translator
                 self._ollama_panel = TranslationPanel(translator)
+                # Accumulate streamed tokens so the finished translation can
+                # be cached and written to history (ready itself emits "").
+                translator.translation_started.connect(self._ollama_chunks.clear)
+                translator.translation_chunk.connect(self._ollama_chunks.append)
+                translator.translation_ready.connect(self._on_ollama_ready)
                 # Insert between source panel (0) and panels container (1)
                 main_layout.insertWidget(1, self._ollama_panel)
                 continue
@@ -140,8 +152,46 @@ class AggregatorWidget(QWidget):
         src = self._source_panel.src_language()
         dst = self._source_panel.dst_language()
         self._panels.translate_all(text, src, dst)
-        if self._ollama_panel is not None:
-            self._ollama_panel.translate(text, src, dst)
+        if self._ollama_panel is None:
+            return
+        # Abort any in-flight generation for the line we just left.
+        self._ollama_translator.halt()
+        cached = self._mt_cache.get((text, src, dst))
+        if cached is not None:
+            self._ollama_debounce.stop()
+            self._ollama_panel.show_result(cached, text, src, dst)
+        else:
+            # Debounce so rapid line-skipping only translates where we settle.
+            self._ollama_debounce.start()
+
+    def _fire_ollama(self) -> None:
+        text = self._current_source
+        if not text:
+            return
+        src = self._source_panel.src_language()
+        dst = self._source_panel.dst_language()
+        self._ollama_panel.translate(text, src, dst)
+
+    def _on_ollama_ready(self, _ignored: str) -> None:
+        text = "".join(self._ollama_chunks)
+        if not text:
+            return
+        key = self._ollama_panel.request_key()
+        self._mt_cache[key] = text
+        if key[0] == self._current_source:
+            self._on_translation_received("ollama", text)
+
+    def _seed_mt_cache(self) -> None:
+        if self._ollama_panel is None:
+            return
+        # ponytail: history doesn't record languages; seed under the pair
+        # active at startup. Store languages per entry if that ever bites.
+        src = self._source_panel.src_language()
+        dst = self._source_panel.dst_language()
+        for e in self._history.all_entries():
+            t = e.translations.get("ollama")
+            if t:
+                self._mt_cache[(e.source, src, dst)] = t
 
     def _preprocess(self, text: str) -> str:
         if self._settings.enable_substitutions:
