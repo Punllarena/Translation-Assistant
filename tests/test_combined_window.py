@@ -31,8 +31,23 @@ def _sep_file(raw: str, translated: str = "") -> str:
 
 @pytest.fixture
 def win(qapp, tmp_path):
+    # Isolate the aggregator from the user's real config: with real settings
+    # these tests fire actual translator requests (e.g. a live Ollama server)
+    # on load_content/navigation and append to the user's history file.
+    from ta.config.settings import Settings
+    from ta.core.history import HistoryStore
+
+    agg_settings = Settings()
+    for cfg in agg_settings.translators.values():
+        cfg.enabled = False
+
+    def make_history(max_bytes):
+        return HistoryStore(path=tmp_path / "history.jsonl", max_bytes=max_bytes)
+
     settings = _make_settings(tmp_path)
-    with patch("ta.ui.aggregator_widget.ClipboardMonitor"):
+    with patch("ta.ui.aggregator_widget.Settings.load", return_value=agg_settings), \
+         patch("ta.ui.aggregator_widget.HistoryStore", make_history), \
+         patch("ta.ui.aggregator_widget.ClipboardMonitor"):
         w = CombinedMainWindow(_settings=settings, _db=_make_db())
     yield w
     w.destroy()
