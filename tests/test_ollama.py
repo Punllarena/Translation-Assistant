@@ -368,6 +368,21 @@ class TestTranslationPanelShowResult:
         assert panel._thinking_toggle.isHidden()
         assert panel._thinking_box.toPlainText() == ""
 
+    def test_thinking_reshown_after_interrupted_stream(self, qapp):
+        """Navigating mid-thinking restarts the stream; the new trace must render."""
+        from ta.ui.translation_panel import TranslationPanel
+        t = BaseTranslator("Ollama")
+        panel = TranslationPanel(t)
+        panel._on_started()
+        panel._on_thinking("first line")
+        # User navigates: stream restarts before any answer token arrived.
+        panel._on_started()
+        panel._on_thinking("second trace")
+        assert not panel._thinking_toggle.isHidden()
+        assert panel._thinking_toggle.isChecked()
+        assert not panel._thinking_box.isHidden()
+        assert panel._thinking_box.toPlainText() == "second trace"
+
     def test_show_result_respects_disabled_checkbox(self, qapp):
         from ta.ui.translation_panel import TranslationPanel
         t = BaseTranslator("Ollama")
@@ -375,6 +390,63 @@ class TestTranslationPanelShowResult:
         panel._enable_cb.setChecked(False)
         panel.show_result("cached!", "源文", Language.Japanese, Language.English)
         assert panel._output.toPlainText() == ""
+
+
+class TestThinkingTakeover:
+    def _panel(self):
+        from ta.ui.translation_panel import TranslationPanel
+        return TranslationPanel(BaseTranslator("Ollama"))
+
+    def test_thinking_takes_over_panel_while_streaming(self, qapp):
+        panel = self._panel()
+        panel._on_started()
+        panel._on_thinking("hmm")
+        assert panel._output.isHidden()
+        # Box must be free to grow, not pinned at the collapsed 80px.
+        assert panel._thinking_box.maximumHeight() > 80
+
+    def test_first_chunk_collapses_thinking_and_restores_output(self, qapp):
+        panel = self._panel()
+        panel._on_started()
+        panel._on_thinking("hmm")
+        panel._on_chunk("Hello")
+        assert not panel._output.isHidden()
+        assert not panel._thinking_toggle.isChecked()
+        assert panel._thinking_box.isHidden()
+        assert panel._output.toPlainText() == "Hello"
+
+    def test_ready_without_chunks_restores_output(self, qapp):
+        panel = self._panel()
+        panel._on_started()
+        panel._on_thinking("hmm")
+        panel._on_ready("done")
+        assert not panel._output.isHidden()
+        assert panel._output.toPlainText() == "done"
+
+    def test_error_restores_output(self, qapp):
+        panel = self._panel()
+        panel._on_started()
+        panel._on_thinking("hmm")
+        panel._on_error("boom")
+        assert not panel._output.isHidden()
+
+    def test_restart_mid_takeover_restores_output_layout(self, qapp):
+        panel = self._panel()
+        panel._on_started()
+        panel._on_thinking("hmm")
+        panel._on_started()
+        assert not panel._output.isHidden()
+        assert panel._thinking_box.isHidden()
+
+    def test_manual_expand_after_done_uses_collapsed_height(self, qapp):
+        panel = self._panel()
+        panel._on_started()
+        panel._on_thinking("hmm")
+        panel._on_chunk("Hello")
+        panel._thinking_toggle.setChecked(True)
+        assert not panel._thinking_box.isHidden()
+        assert panel._thinking_box.maximumHeight() == 80
+        assert not panel._output.isHidden()
 
 
 class TestOllamaStats:

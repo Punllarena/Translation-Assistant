@@ -26,6 +26,7 @@ class TranslationPanel(QWidget):
         self._current_src = Language.Japanese
         self._current_dst = Language.English
         self._thinking_text: str = ""
+        self._thinking_streaming: bool = False
         self._stats_text: str = ""
         self._setup_ui()
         self._connect_signals()
@@ -144,7 +145,30 @@ class TranslationPanel(QWidget):
         self._status_label.style().unpolish(self._status_label)
         self._status_label.style().polish(self._status_label)
 
+    def _end_thinking_takeover(self) -> None:
+        """Collapse the reasoning trace and give the panel back to the output."""
+        if not self._thinking_streaming:
+            return
+        self._thinking_streaming = False
+        if self._thinking_toggle.isChecked():
+            self._thinking_toggle.setChecked(False)  # toggled handler restores layout
+        else:
+            self._apply_thinking_layout()
+
+    def _apply_thinking_layout(self) -> None:
+        expanded = self._thinking_toggle.isChecked()
+        if expanded and self._thinking_streaming:
+            # Take over the panel while the model is still reasoning.
+            self._thinking_box.setMinimumHeight(0)
+            self._thinking_box.setMaximumHeight(16777215)
+            self._output.hide()
+        else:
+            self._thinking_box.setFixedHeight(80)
+            self._output.show()
+        self._thinking_box.setVisible(expanded)
+
     def _on_ready(self, text: str) -> None:
+        self._end_thinking_takeover()
         if text:
             if text.startswith("<html"):
                 self._output.setHtml(text)
@@ -175,38 +199,44 @@ class TranslationPanel(QWidget):
         self._status_label.setToolTip("\n".join(tips))
 
     def _on_error(self, msg: str) -> None:
+        self._end_thinking_takeover()
         self._output.setPlainText(f"[Error] {msg}")
         self._set_status("error", "✗")
 
     def _on_started(self) -> None:
+        self._end_thinking_takeover()
         self._output.clear()
         self._stats_text = ""
         self._status_label.setToolTip("")
         self._thinking_text = ""
         self._thinking_box.clear()
+        # Uncheck so the next stream's setChecked(True) actually emits toggled
+        # (a checked toggle left over from an interrupted stream would swallow it).
+        self._thinking_toggle.setChecked(False)
         self._thinking_toggle.hide()
         self._thinking_box.hide()
         self._set_status("working", "…")
 
     def _on_chunk(self, token: str) -> None:
-        if self._thinking_text and self._thinking_toggle.isChecked():
-            # First real answer token: collapse the reasoning trace out of the way.
-            self._thinking_toggle.setChecked(False)
+        # First real answer token: collapse the reasoning trace out of the way.
+        self._end_thinking_takeover()
         self._output.moveCursor(QTextCursor.MoveOperation.End)
         self._output.insertPlainText(token)
         self._set_status("working", "…")
 
     def _on_thinking(self, token: str) -> None:
         self._thinking_text += token
-        if self._thinking_toggle.isHidden():
+        if not self._thinking_streaming:
+            self._thinking_streaming = True
             self._thinking_toggle.show()
             self._thinking_toggle.setChecked(True)
+            self._apply_thinking_layout()
         self._thinking_box.moveCursor(QTextCursor.MoveOperation.End)
         self._thinking_box.insertPlainText(token)
         self._set_status("working", "…")
 
     def _on_thinking_toggled(self, expanded: bool) -> None:
-        self._thinking_box.setVisible(expanded)
+        self._apply_thinking_layout()
         self._thinking_toggle.setArrowType(
             Qt.ArrowType.DownArrow if expanded else Qt.ArrowType.RightArrow
         )
