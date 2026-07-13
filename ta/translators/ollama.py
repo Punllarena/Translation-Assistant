@@ -66,7 +66,11 @@ class OllamaTranslator(BaseTranslator):
                 {"role": "user", "content": text},
             ],
         }
-        with httpx.stream("POST", f"{self._url}/api/chat", json=payload, timeout=60) as resp:
+        # Model load + prompt eval can take minutes before the first streamed
+        # token; read timeout must outlast that. Keep it finite: a blocked
+        # iter_lines is the only escape for a superseded request.
+        timeout = httpx.Timeout(10, read=300)
+        with httpx.stream("POST", f"{self._url}/api/chat", json=payload, timeout=timeout) as resp:
             self._active_response = resp
             try:
                 resp.raise_for_status()
