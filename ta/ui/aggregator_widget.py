@@ -5,7 +5,7 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, Slot
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QSizePolicy,
+    QWidget, QVBoxLayout, QSizePolicy, QSystemTrayIcon,
 )
 
 from ta.config.settings import Settings, DEFAULT_CONFIG_PATH
@@ -59,6 +59,7 @@ class AggregatorWidget(QWidget):
         self._current_source: str = ""
         self._mt_cache: dict[tuple[str, Language, Language], str] = {}
         self._ollama_chunks: list[str] = []
+        self._tray: QSystemTrayIcon | None = None
         self._ollama_debounce = QTimer(self)
         self._ollama_debounce.setSingleShot(True)
         self._ollama_debounce.setInterval(400)
@@ -180,6 +181,23 @@ class AggregatorWidget(QWidget):
         self._mt_cache[key] = text
         if key[0] == self._current_source:
             self._on_translation_received("ollama", text)
+        self._notify_ollama_done(text)
+
+    def _notify_ollama_done(self, text: str) -> None:
+        # Only toast when the user is elsewhere; the panel's ✓ covers the
+        # focused case.
+        if self.window().isActiveWindow():
+            return
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            return
+        if self._tray is None:
+            self._tray = QSystemTrayIcon(self.window().windowIcon(), self)
+            self._tray.show()
+        snippet = text if len(text) <= 120 else text[:119] + "…"
+        self._tray.showMessage(
+            "Ollama translation ready", snippet,
+            QSystemTrayIcon.MessageIcon.Information, 5000,
+        )
 
     def _seed_mt_cache(self) -> None:
         if self._ollama_panel is None:

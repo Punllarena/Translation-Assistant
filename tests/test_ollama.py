@@ -586,6 +586,30 @@ class TestAggregatorOllamaCache:
             for e in w._history.all_entries()
         )
 
+    def test_ready_toasts_when_window_inactive(self, qapp, tmp_path):
+        w = self._make_widget(qapp, tmp_path)
+        messages = []
+        with patch.object(w, "window") as win, \
+             patch("ta.ui.aggregator_widget.QSystemTrayIcon") as tray_cls:
+            win.return_value.isActiveWindow.return_value = False
+            tray_cls.isSystemTrayAvailable.return_value = True
+            tray_cls.return_value.showMessage = (
+                lambda title, body, *a: messages.append((title, body))
+            )
+            w._ollama_chunks[:] = ["Hello world"]
+            w._on_ollama_ready("")
+        assert messages == [("Ollama translation ready", "Hello world")]
+
+    def test_ready_no_toast_when_window_active(self, qapp, tmp_path):
+        w = self._make_widget(qapp, tmp_path)
+        with patch.object(w, "window") as win, \
+             patch("ta.ui.aggregator_widget.QSystemTrayIcon") as tray_cls:
+            win.return_value.isActiveWindow.return_value = True
+            w._ollama_chunks[:] = ["Hello world"]
+            w._on_ollama_ready("")
+        tray_cls.return_value.showMessage.assert_not_called()
+        assert w._tray is None
+
     def test_seed_cache_from_history(self, qapp, tmp_path):
         from ta.core.history import HistoryStore
         store = HistoryStore(path=tmp_path / "history.jsonl")
