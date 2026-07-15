@@ -205,3 +205,30 @@ class TestUpcomingSentences:
         content = _sep_file("%First\n%Second\n%Third\n")
         win._ta_widget.load_content(content, title="Test")
         assert win._agg_widget._prefetch_queue == ["Second", "Third"]
+
+
+class TestClearTranslationCache:
+    def test_clear_translation_cache_action(self, win, monkeypatch):
+        agg = win._agg_widget
+        agg._history.append("line", {"ollama": "cached"}, "Japanese", "English")
+        assert len(agg._history.all_entries()) == 1
+
+        from PySide6.QtWidgets import QMessageBox
+        monkeypatch.setattr(QMessageBox, "question",
+                            lambda *a, **k: QMessageBox.StandardButton.Yes)
+        win._on_clear_translation_cache()
+        assert agg._history.all_entries() == []
+
+        # Declining leaves history alone
+        agg._history.append("line2", {"ollama": "kept"}, "Japanese", "English")
+        monkeypatch.setattr(QMessageBox, "question",
+                            lambda *a, **k: QMessageBox.StandardButton.No)
+        win._on_clear_translation_cache()
+        assert len(agg._history.all_entries()) == 1
+
+    def test_clear_translation_cache_in_tools_menu(self, win):
+        labels = []
+        for menu in win.menuBar().actions():
+            if menu.text() == "Tools":
+                labels = [a.text() for a in menu.menu().actions()]
+        assert "Clear Translation Cache…" in labels

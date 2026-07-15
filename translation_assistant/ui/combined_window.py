@@ -5,7 +5,9 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt, QByteArray
 from PySide6.QtGui import QIcon, QKeySequence, QAction
-from PySide6.QtWidgets import QMainWindow, QMenu, QSplitter, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QMainWindow, QMenu, QMessageBox, QSplitter, QVBoxLayout, QWidget,
+)
 
 from translation_assistant.settings import AppSettings
 from translation_assistant.ui import remember_dialog_geometry
@@ -168,6 +170,9 @@ class CombinedMainWindow(QMainWindow):
         history_action = QAction("History…", self)
         history_action.triggered.connect(agg.show_history)
         tools_menu.addAction(history_action)
+        clear_cache_action = QAction("Clear Translation Cache…", self)
+        clear_cache_action.triggered.connect(self._on_clear_translation_cache)
+        tools_menu.addAction(clear_cache_action)
         tools_menu.addSeparator()
         tools_menu.addAction(ta.action_series_phrases)
         tools_menu.addAction(ta.action_stats)      # #3: moved from Help
@@ -212,6 +217,22 @@ class CombinedMainWindow(QMainWindow):
         dlg = ShortcutsDialog(ta._shortcut_registry, ta._settings, self)
         remember_dialog_geometry(dlg, ta._settings, "dlg_shortcuts")
         dlg.exec()
+
+    def _on_clear_translation_cache(self) -> None:
+        agg = self._agg_widget
+        mb = agg._history.size_bytes() / (1024 * 1024)
+        resp = QMessageBox.question(
+            self, "Clear Translation Cache",
+            f"Delete translation history and cached machine translations "
+            f"({mb:.1f} MB)?\nThis cannot be undone.",
+        )
+        if resp != QMessageBox.StandardButton.Yes:
+            return
+        freed = agg.clear_history()
+        self._ta_widget.status_bar.showMessage(
+            f"Translation cache cleared — freed {freed / (1024 * 1024):.1f} MB",
+            5000,
+        )
 
     def _on_wp_settings(self) -> None:
         from translation_assistant.ui.dlg_wp_settings import WPSettingsDialog
