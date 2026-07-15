@@ -76,6 +76,9 @@ class CombinedMainWindow(QMainWindow):
         self._ta_widget.source_sentence_changed.connect(
             self._agg_widget.translate_source
         )
+        self._ta_widget.upcoming_sentences_changed.connect(
+            self._agg_widget.set_prefetch_queue
+        )
 
     # ------------------------------------------------------------------
     # Menu bar

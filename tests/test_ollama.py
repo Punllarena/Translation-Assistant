@@ -806,3 +806,135 @@ class TestShowResultThinking:
         panel._thinking_toggle.setChecked(True)
         assert not panel._thinking_box.isHidden()
         assert panel._output.isVisibleTo(panel)  # not streaming: no takeover
+
+
+# ---------------------------------------------------------------------------
+# Prefetch: engine
+# ---------------------------------------------------------------------------
+
+class TestAggregatorPrefetch:
+    def _make_widget(self, qapp, tmp_path, count=3, idle_ms=3000):
+        from ta.config.settings import Settings, TranslatorConfig
+        from ta.core.history import HistoryStore
+
+        s = Settings()
+        for cfg in s.translators.values():
+            cfg.enabled = False
+        s.translators["ollama"] = TranslatorConfig(
+            enabled=True, url="http://test:1", model="m", system_prompt="p",
+            prefetch_count=count, prefetch_idle_ms=idle_ms,
+        )
+        s.layout_panels = ["ollama"]
+        s.enable_substitutions = False
+
+        def make_history(max_bytes):
+            return HistoryStore(path=tmp_path / "history.jsonl", max_bytes=max_bytes)
+
+        with patch("ta.ui.aggregator_widget.Settings.load", return_value=s), \
+             patch("ta.ui.aggregator_widget.HistoryStore", make_history), \
+             patch("ta.ui.aggregator_widget.ClipboardMonitor"):
+            from ta.ui.aggregator_widget import AggregatorWidget
+            w = AggregatorWidget()
+        # Never hit the network
+        w._ollama_translator.translate = lambda *a: None
+        w._sent = []
+        w._ollama_prefetcher.translate = lambda *a: w._sent.append(a)
+        w._ollama_prefetcher.halt = lambda: w._sent.append("halt")
+        return w
+
+    def test_disabled_when_count_zero(self, qapp, tmp_path):
+        from ta.config.settings import Settings, TranslatorConfig
+        from ta.core.history import HistoryStore
+        s = Settings()
+        for cfg in s.translators.values():
+            cfg.enabled = False
+        s.translators["ollama"] = TranslatorConfig(
+            enabled=True, url="http://test:1", model="m", system_prompt="p",
+        )
+        s.layout_panels = ["ollama"]
+        s.enable_substitutions = False
+        def make_history(max_bytes):
+            return HistoryStore(path=tmp_path / "history.jsonl", max_bytes=max_bytes)
+        with patch("ta.ui.aggregator_widget.Settings.load", return_value=s), \
+             patch("ta.ui.aggregator_widget.HistoryStore", make_history), \
+             patch("ta.ui.aggregator_widget.ClipboardMonitor"):
+            from ta.ui.aggregator_widget import AggregatorWidget
+            w = AggregatorWidget()
+        assert w._ollama_prefetcher is None
+        # Ready must not start the idle timer
+        w._ollama_chunks[:] = ["x"]
+        w._on_ollama_ready("")
+        assert not w._prefetch_idle.isActive()
+
+    def test_idle_timer_uses_configured_interval(self, qapp, tmp_path):
+        w = self._make_widget(qapp, tmp_path, idle_ms=7000)
+        assert w._prefetch_idle.interval() == 7000
+        assert w._prefetch_idle.isSingleShot()
+
+    def test_foreground_ready_starts_idle_timer(self, qapp, tmp_path):
+        w = self._make_widget(qapp, tmp_path)
+        w.translate_source("line one")
+        w._ollama_debounce.stop()
+        w._ollama_chunks[:] = ["done"]
+        w._on_ollama_ready("")
+        assert w._prefetch_idle.isActive()
+
+    def test_cache_hit_starts_idle_timer(self, qapp, tmp_path):
+        w = self._make_widget(qapp, tmp_path)
+        text = w._preprocess("hello")
+        src = w._source_panel.src_language()
+        dst = w._source_panel.dst_language()
+        w._mt_cache[(text, src, dst)] = ("cached", "")
+        w.translate_source("hello")
+        assert w._prefetch_idle.isActive()
+
+    def test_navigation_halts_prefetch(self, qapp, tmp_path):
+        w = self._make_widget(qapp, tmp_path)
+        w._prefetch_idle.start()
+        w.translate_source("new line")
+        assert not w._prefetch_idle.isActive()
+        assert "halt" in w._sent
+
+    def test_fire_sends_first_uncached(self, qapp, tmp_path):
+        w = self._make_widget(qapp, tmp_path)
+        src = w._source_panel.src_language()
+        dst = w._source_panel.dst_language()
+        w.set_prefetch_queue(["line A", "line B"])
+        w._mt_cache[(w._preprocess("line A"), src, dst)] = ("done", "")
+        w._fire_prefetch()
+        sent = [c for c in w._sent if c != "halt"]
+        assert len(sent) == 1
+        assert sent[0][0] == w._preprocess("line B")
+
+    def test_ready_caches_and_chains(self, qapp, tmp_path):
+        w = self._make_widget(qapp, tmp_path, count=2)
+        w.set_prefetch_queue(["line A", "line B", "line C"])
+        w._fire_prefetch()
+        assert [c[0] for c in w._sent] == [w._preprocess("line A")]
+
+        w._prefetch_chunks[:] = ["trans A"]
+        w._prefetch_thinking[:] = ["think A"]
+        w._on_prefetch_ready("")
+
+        src = w._source_panel.src_language()
+        dst = w._source_panel.dst_language()
+        assert w._mt_cache[(w._preprocess("line A"), src, dst)] == ("trans A", "think A")
+        # Chained to line B
+        assert [c[0] for c in w._sent] == [
+            w._preprocess("line A"), w._preprocess("line B"),
+        ]
+
+        w._prefetch_chunks[:] = ["trans B"]
+        w._prefetch_thinking[:] = []
+        w._on_prefetch_ready("")
+        # count=2 reached: line C not sent
+        assert len(w._sent) == 2
+
+    def test_prefetch_does_not_touch_panel_or_history(self, qapp, tmp_path):
+        w = self._make_widget(qapp, tmp_path)
+        w.set_prefetch_queue(["line A"])
+        w._fire_prefetch()
+        w._prefetch_chunks[:] = ["trans A"]
+        w._on_prefetch_ready("")
+        assert w._ollama_panel._output.toPlainText() == ""
+        assert w._history.all_entries() == []

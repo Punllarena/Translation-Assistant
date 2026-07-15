@@ -66,6 +66,20 @@ class AggregatorWidget(QWidget):
         self._ollama_debounce.setInterval(400)
         self._ollama_debounce.timeout.connect(self._fire_ollama)
 
+        self._prefetch_queue: list[str] = []
+        self._prefetch_chunks: list[str] = []
+        self._prefetch_thinking: list[str] = []
+        self._prefetch_key: tuple[str, Language, Language] | None = None
+        self._prefetch_done = 0
+        _ollama_cfg = self._settings.translators.get("ollama")
+        self._prefetch_count = _ollama_cfg.prefetch_count if _ollama_cfg else 0
+        self._prefetch_idle = QTimer(self)
+        self._prefetch_idle.setSingleShot(True)
+        self._prefetch_idle.setInterval(
+            _ollama_cfg.prefetch_idle_ms if _ollama_cfg else 3000
+        )
+        self._prefetch_idle.timeout.connect(self._fire_prefetch)
+
         self._setup_ui()
         self._setup_clipboard()
         self._restore_layout()
@@ -94,6 +108,7 @@ class AggregatorWidget(QWidget):
 
         self._ollama_panel: TranslationPanel | None = None
         self._ollama_translator = None
+        self._ollama_prefetcher = None
         for name in self._settings.layout_panels:
             cfg = self._settings.translators.get(name)
             if cfg is None or not cfg.enabled:
@@ -116,6 +131,22 @@ class AggregatorWidget(QWidget):
                 translator.translation_ready.connect(self._on_ollama_ready)
                 # Insert between source panel (0) and panels container (1)
                 main_layout.insertWidget(1, self._ollama_panel)
+                if cfg.prefetch_count > 0:
+                    # Second instance so prefetch never streams into the
+                    # visible panel and can be halted independently.
+                    self._ollama_prefetcher = _build_translator("ollama", cfg)
+                    self._ollama_prefetcher.translation_started.connect(
+                        self._on_prefetch_started
+                    )
+                    self._ollama_prefetcher.translation_chunk.connect(
+                        self._prefetch_chunks.append
+                    )
+                    self._ollama_prefetcher.translation_thinking.connect(
+                        self._prefetch_thinking.append
+                    )
+                    self._ollama_prefetcher.translation_ready.connect(
+                        self._on_prefetch_ready
+                    )
                 continue
             panel = TranslationPanel(translator)
             self._panels.add_panel(panel)
@@ -158,13 +189,17 @@ class AggregatorWidget(QWidget):
         self._panels.translate_all(text, src, dst)
         if self._ollama_panel is None:
             return
-        # Abort any in-flight generation for the line we just left.
+        # Abort any in-flight generation for the line we just left. Prefetch
+        # too: Ollama serves one request at a time, and the foreground line
+        # must never wait behind a background one.
         self._ollama_translator.halt()
+        self._stop_prefetch()
         cached = self._mt_cache.get((text, src, dst))
         if cached is not None:
             self._ollama_debounce.stop()
             translation, thinking = cached
             self._ollama_panel.show_result(translation, text, src, dst, thinking)
+            self._start_prefetch_idle()
         else:
             # Debounce so rapid line-skipping only translates where we settle.
             self._ollama_debounce.start()
@@ -190,6 +225,7 @@ class AggregatorWidget(QWidget):
         if key[0] == self._current_source:
             self._on_translation_received("ollama", text)
         self._notify_ollama_done(text)
+        self._start_prefetch_idle()
 
     def _notify_ollama_done(self, text: str) -> None:
         # Only toast when the user is elsewhere; the panel's ✓ covers the
@@ -218,6 +254,56 @@ class AggregatorWidget(QWidget):
             t = e.translations.get("ollama")
             if t:
                 self._mt_cache[(e.source, src, dst)] = (t, "")
+
+    # ------------------------------------------------------------------
+    # Prefetch — background translation of upcoming lines
+    # ------------------------------------------------------------------
+
+    @Slot(list)
+    def set_prefetch_queue(self, sentences: list) -> None:
+        """Upcoming source lines, nearest first (from the TA widget)."""
+        self._prefetch_queue = list(sentences)
+
+    def _start_prefetch_idle(self) -> None:
+        if self._ollama_prefetcher is None:
+            return
+        self._prefetch_done = 0
+        self._prefetch_idle.start()
+
+    def _stop_prefetch(self) -> None:
+        self._prefetch_idle.stop()
+        if self._ollama_prefetcher is not None:
+            self._ollama_prefetcher.halt()
+
+    def _fire_prefetch(self) -> None:
+        if self._ollama_prefetcher is None or self._prefetch_done >= self._prefetch_count:
+            return
+        src = self._source_panel.src_language()
+        dst = self._source_panel.dst_language()
+        for raw in self._prefetch_queue[: self._prefetch_count]:
+            text = self._preprocess(raw)
+            if not text:
+                continue
+            key = (text, src, dst)
+            if key in self._mt_cache:
+                continue
+            self._prefetch_key = key
+            self._ollama_prefetcher.translate(text, src, dst)
+            return
+
+    def _on_prefetch_started(self) -> None:
+        self._prefetch_chunks.clear()
+        self._prefetch_thinking.clear()
+
+    def _on_prefetch_ready(self, _ignored: str) -> None:
+        text = "".join(self._prefetch_chunks)
+        if text and self._prefetch_key is not None:
+            self._mt_cache[self._prefetch_key] = (
+                text, "".join(self._prefetch_thinking),
+            )
+        self._prefetch_key = None
+        self._prefetch_done += 1
+        self._fire_prefetch()
 
     def _preprocess(self, text: str) -> str:
         if self._settings.enable_substitutions:

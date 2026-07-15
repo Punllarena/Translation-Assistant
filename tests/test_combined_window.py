@@ -200,3 +200,8 @@ class TestUpcomingSentences:
         win._ta_widget._update_ui_for_pointer()
         assert len(received[-1]) == 20
         assert received[-1][0] == "Line 1"
+
+    def test_bridge_fills_prefetch_queue(self, win, qapp):
+        content = _sep_file("%First\n%Second\n%Third\n")
+        win._ta_widget.load_content(content, title="Test")
+        assert win._agg_widget._prefetch_queue == ["Second", "Third"]
