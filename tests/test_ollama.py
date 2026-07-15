@@ -545,7 +545,7 @@ class TestAggregatorOllamaCache:
         text = w._preprocess("hello line")
         src = w._source_panel.src_language()
         dst = w._source_panel.dst_language()
-        w._mt_cache[(text, src, dst)] = "cached!"
+        w._mt_cache[(text, src, dst)] = ("cached!", "")
 
         w.translate_source("hello line")
 
@@ -579,7 +579,7 @@ class TestAggregatorOllamaCache:
         w._on_ollama_ready("")
 
         key = w._ollama_panel.request_key()
-        assert w._mt_cache[key] == "Hello world"
+        assert w._mt_cache[key] == ("Hello world", "")
         assert w._pending_translations["ollama"] == "Hello world"
         assert any(
             e.translations.get("ollama") == "Hello world"
@@ -610,6 +610,42 @@ class TestAggregatorOllamaCache:
         tray_cls.return_value.showMessage.assert_not_called()
         assert w._tray is None
 
+    def test_ready_caches_thinking(self, qapp, tmp_path):
+        w = self._make_widget(qapp, tmp_path)
+        w._ollama_translator.translate = lambda *a: None
+        w.translate_source("some line")
+        w._ollama_debounce.stop()
+        w._fire_ollama()
+
+        w._ollama_thinking[:] = ["consider", " nuance"]
+        w._ollama_chunks[:] = ["Hello"]
+        w._on_ollama_ready("")
+
+        key = w._ollama_panel.request_key()
+        assert w._mt_cache[key] == ("Hello", "consider nuance")
+
+    def test_cache_hit_shows_cached_thinking(self, qapp, tmp_path):
+        w = self._make_widget(qapp, tmp_path)
+        w._ollama_translator.translate = lambda *a: None
+        text = w._preprocess("hello line")
+        src = w._source_panel.src_language()
+        dst = w._source_panel.dst_language()
+        w._mt_cache[(text, src, dst)] = ("cached!", "some trace")
+
+        w.translate_source("hello line")
+
+        assert w._ollama_panel._output.toPlainText() == "cached!"
+        assert w._ollama_panel._thinking_box.toPlainText() == "some trace"
+        assert not w._ollama_panel._thinking_toggle.isHidden()
+
+    def test_started_clears_thinking_accumulator(self, qapp, tmp_path):
+        w = self._make_widget(qapp, tmp_path)
+        w._ollama_thinking[:] = ["stale"]
+        w._ollama_chunks[:] = ["stale"]
+        w._ollama_translator.translation_started.emit()
+        assert w._ollama_thinking == []
+        assert w._ollama_chunks == []
+
     def test_seed_cache_from_history(self, qapp, tmp_path):
         from ta.core.history import HistoryStore
         store = HistoryStore(path=tmp_path / "history.jsonl")
@@ -618,7 +654,7 @@ class TestAggregatorOllamaCache:
         w = self._make_widget(qapp, tmp_path)
         src = w._source_panel.src_language()
         dst = w._source_panel.dst_language()
-        assert w._mt_cache[("古い行", src, dst)] == "old line"
+        assert w._mt_cache[("古い行", src, dst)] == ("old line", "")
 
 
 # ---------------------------------------------------------------------------

@@ -57,8 +57,9 @@ class AggregatorWidget(QWidget):
         self._history_current_id: int | None = None
         self._pending_translations: dict[str, str] = {}
         self._current_source: str = ""
-        self._mt_cache: dict[tuple[str, Language, Language], str] = {}
+        self._mt_cache: dict[tuple[str, Language, Language], tuple[str, str]] = {}
         self._ollama_chunks: list[str] = []
+        self._ollama_thinking: list[str] = []
         self._tray: QSystemTrayIcon | None = None
         self._ollama_debounce = QTimer(self)
         self._ollama_debounce.setSingleShot(True)
@@ -106,10 +107,12 @@ class AggregatorWidget(QWidget):
             if name == "ollama":
                 self._ollama_translator = translator
                 self._ollama_panel = TranslationPanel(translator)
-                # Accumulate streamed tokens so the finished translation can
-                # be cached and written to history (ready itself emits "").
-                translator.translation_started.connect(self._ollama_chunks.clear)
+                # Accumulate streamed tokens + thinking so the finished
+                # translation can be cached and written to history (ready
+                # itself emits "").
+                translator.translation_started.connect(self._on_ollama_started)
                 translator.translation_chunk.connect(self._ollama_chunks.append)
+                translator.translation_thinking.connect(self._ollama_thinking.append)
                 translator.translation_ready.connect(self._on_ollama_ready)
                 # Insert between source panel (0) and panels container (1)
                 main_layout.insertWidget(1, self._ollama_panel)
@@ -160,7 +163,8 @@ class AggregatorWidget(QWidget):
         cached = self._mt_cache.get((text, src, dst))
         if cached is not None:
             self._ollama_debounce.stop()
-            self._ollama_panel.show_result(cached, text, src, dst)
+            translation, thinking = cached
+            self._ollama_panel.show_result(translation, text, src, dst, thinking)
         else:
             # Debounce so rapid line-skipping only translates where we settle.
             self._ollama_debounce.start()
@@ -173,12 +177,16 @@ class AggregatorWidget(QWidget):
         dst = self._source_panel.dst_language()
         self._ollama_panel.translate(text, src, dst)
 
+    def _on_ollama_started(self) -> None:
+        self._ollama_chunks.clear()
+        self._ollama_thinking.clear()
+
     def _on_ollama_ready(self, _ignored: str) -> None:
         text = "".join(self._ollama_chunks)
         if not text:
             return
         key = self._ollama_panel.request_key()
-        self._mt_cache[key] = text
+        self._mt_cache[key] = (text, "".join(self._ollama_thinking))
         if key[0] == self._current_source:
             self._on_translation_received("ollama", text)
         self._notify_ollama_done(text)
@@ -209,7 +217,7 @@ class AggregatorWidget(QWidget):
         for e in self._history.all_entries():
             t = e.translations.get("ollama")
             if t:
-                self._mt_cache[(e.source, src, dst)] = t
+                self._mt_cache[(e.source, src, dst)] = (t, "")
 
     def _preprocess(self, text: str) -> str:
         if self._settings.enable_substitutions:
