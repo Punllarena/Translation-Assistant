@@ -78,7 +78,7 @@ translation_assistant/
 
 **`core.py` is framework-agnostic.** Every text-processing function takes plain Python types and returns plain Python types. No Qt imports. This makes them trivially testable.
 
-**`db.py` is the single SQLite access point.** All reads and writes go through the `Database` class. The constructor accepts `_conn: sqlite3.Connection | None` — tests pass an in-memory connection, production uses the file at `settings.db_path`. Never import `sqlite3` outside `db.py`.
+**`db.py` is the single SQLite access point.** All reads and writes go through the `Database` class. The constructor accepts `_conn: sqlite3.Connection | None` — tests pass an in-memory connection, production uses the file at `settings.db_path`. Never import `sqlite3` outside `db.py` — with one sanctioned exception: `ta/core/history.py`, the aggregator's standalone history/MT-cache store (`~/.local/share/ta-python/history.db`), kept separate so the aggregator stays self-contained.
 
 **Schema migrations are idempotent.** `Database._apply_schema()` applies `ALTER TABLE` migrations using `PRAGMA table_info` checks. Adding a column: check if it exists first, then `ALTER TABLE … ADD COLUMN`. This pattern is safe to run on existing databases.
 
@@ -100,4 +100,4 @@ Tests use shared fixtures from `conftest.py`:
 
 DB tests use in-memory SQLite via `Database(":memory:", _conn=conn)`.
 
-Test files: `test_core.py`, `test_db.py`, `test_settings.py`, `test_dialogs.py`, `test_spellcheck.py`, `test_main_window.py`, `test_combined_window.py`, `test_card_list.py`, `test_integration.py`, `test_migration.py`, `test_dlg_open.py`, `test_dlg_new_series.py`, `test_dlg_series_phrases.py`, `test_scraper.py`. Total: 850 tests.
+Test files: `test_core.py`, `test_db.py`, `test_settings.py`, `test_dialogs.py`, `test_spellcheck.py`, `test_main_window.py`, `test_combined_window.py`, `test_card_list.py`, `test_integration.py`, `test_migration.py`, `test_dlg_open.py`, `test_dlg_new_series.py`, `test_dlg_series_phrases.py`, `test_scraper.py`. Total: 898 tests.
