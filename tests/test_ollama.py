@@ -724,3 +724,49 @@ class TestPrefetchSettings:
         s = Settings.load(path)
         assert s.translators["ollama"].prefetch_count == 0
         assert s.translators["ollama"].prefetch_idle_ms == 3000
+
+
+# ---------------------------------------------------------------------------
+# Prefetch: panel shows cached thinking
+# ---------------------------------------------------------------------------
+
+class TestShowResultThinking:
+    def _panel(self):
+        from ta.ui.translation_panel import TranslationPanel
+        return TranslationPanel(BaseTranslator("Ollama"))
+
+    def test_cached_thinking_shown_collapsed(self, qapp):
+        from ta.config.languages import Language
+        panel = self._panel()
+        panel.show_result(
+            "hello", "こんにちは", Language.Japanese, Language.English,
+            thinking="line one\nline two",
+        )
+        assert panel._output.toPlainText() == "hello"
+        assert not panel._thinking_toggle.isHidden()
+        assert not panel._thinking_toggle.isChecked()
+        assert panel._thinking_toggle.text() == "Thinking (2 lines)"
+        assert panel._thinking_box.isHidden()
+        assert panel._thinking_box.toPlainText() == "line one\nline two"
+
+    def test_no_thinking_hides_trace(self, qapp):
+        from ta.config.languages import Language
+        panel = self._panel()
+        # Simulate a previous streamed trace, then a cached line without one
+        panel._on_thinking("old trace")
+        panel.show_result("hi", "やあ", Language.Japanese, Language.English)
+        assert panel._thinking_toggle.isHidden()
+        assert panel._thinking_box.isHidden()
+        assert panel._thinking_box.toPlainText() == ""
+        assert panel._output.isVisibleTo(panel)  # takeover fully unwound
+
+    def test_expanding_cached_thinking_shows_box(self, qapp):
+        from ta.config.languages import Language
+        panel = self._panel()
+        panel.show_result(
+            "hello", "こんにちは", Language.Japanese, Language.English,
+            thinking="trace",
+        )
+        panel._thinking_toggle.setChecked(True)
+        assert not panel._thinking_box.isHidden()
+        assert panel._output.isVisibleTo(panel)  # not streaming: no takeover

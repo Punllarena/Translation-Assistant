@@ -118,18 +118,30 @@ class TranslationPanel(QWidget):
         self._current_src = src
         self._current_dst = dst
 
-    def show_result(self, text: str, source: str, src: Language, dst: Language) -> None:
+    def show_result(self, text: str, source: str, src: Language, dst: Language,
+                    thinking: str = "") -> None:
         """Display a cached result without contacting the translator."""
         self._current_text = source
         self._current_src = src
         self._current_dst = dst
         if not self._enable_cb.isChecked():
             return
-        # The reasoning trace belongs to whatever streamed last, not this line.
-        self._thinking_text = ""
-        self._thinking_box.clear()
-        self._thinking_toggle.hide()
-        self._thinking_box.hide()
+        # An interrupted stream may still hold the panel in thinking takeover;
+        # end it while the streaming flag is still set so the layout restores.
+        self._end_thinking_takeover()
+        # The trace shown is this line's cached one, not whatever streamed last.
+        self._thinking_text = thinking
+        self._thinking_box.setPlainText(thinking)
+        if thinking:
+            # Collapsed by default; the toggled handler writes the line count.
+            if self._thinking_toggle.isChecked():
+                self._thinking_toggle.setChecked(False)
+            else:
+                self._on_thinking_toggled(False)
+            self._thinking_toggle.show()
+        else:
+            self._thinking_toggle.hide()
+            self._thinking_box.hide()
         self._stats_text = ""
         self._status_label.setToolTip("")
         self._on_ready(text)
