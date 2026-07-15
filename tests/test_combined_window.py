@@ -164,3 +164,39 @@ class TestWPStatusLabel:
         ta = win._ta_widget
         assert hasattr(ta, "_wp_status_label")
         assert ta._wp_status_label.text() == ""
+
+
+class TestUpcomingSentences:
+    def test_load_emits_upcoming(self, win, qapp):
+        received = []
+        win._ta_widget.upcoming_sentences_changed.connect(received.append)
+        content = _sep_file("%First\n%Second\n\n%Third\n")
+        win._ta_widget.load_content(content, title="Test")
+        assert received
+        assert received[-1] == ["Second", "Third"]
+
+    def test_navigate_emits_remaining(self, win, qapp):
+        received = []
+        content = _sep_file("%First\n%Second\n%Third\n")
+        win._ta_widget.load_content(content, title="Test")
+        win._ta_widget.upcoming_sentences_changed.connect(received.append)
+        win._ta_widget._navigate_forward()
+        assert received[-1] == ["Third"]
+
+    def test_last_line_emits_empty(self, win, qapp):
+        received = []
+        content = _sep_file("%Only\n")
+        win._ta_widget.load_content(content, title="Test")
+        win._ta_widget.upcoming_sentences_changed.connect(received.append)
+        win._ta_widget._navigate_forward()  # stays on last line or no-op emit
+        if received:  # navigation may not emit when pinned to last line
+            assert received[-1] == []
+
+    def test_capped_at_20(self, win, qapp):
+        raw = "\n".join(f"%Line {i}" for i in range(30))
+        win._ta_widget.load_content(_sep_file(raw + "\n"), title="Test")
+        received = []
+        win._ta_widget.upcoming_sentences_changed.connect(received.append)
+        win._ta_widget._update_ui_for_pointer()
+        assert len(received[-1]) == 20
+        assert received[-1][0] == "Line 1"

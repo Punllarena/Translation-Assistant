@@ -124,6 +124,7 @@ class _TmRow(QWidget):
 class TranslationAssistantWidget(QWidget):
 
     source_sentence_changed = Signal(str)
+    upcoming_sentences_changed = Signal(list)
 
     def __init__(self, _settings: AppSettings | None = None, _db=None) -> None:
         super().__init__()
@@ -627,6 +628,7 @@ class TranslationAssistantWidget(QWidget):
 
         # Emit so the Aggregator translates the first sentence on load
         self.source_sentence_changed.emit(display.lstrip("%$").strip())
+        self.upcoming_sentences_changed.emit(self._upcoming_sentences())
 
     def _save_to_db(self) -> None:
         if self._doc_id is None:
@@ -675,8 +677,26 @@ class TranslationAssistantWidget(QWidget):
         self._start_clipboard_timer()
 
         self.source_sentence_changed.emit(display.lstrip("%$").strip())
+        self.upcoming_sentences_changed.emit(self._upcoming_sentences())
         self._update_tm_panel()
         self._parse_label.setVisible(False)
+
+    def _upcoming_sentences(self, limit: int = 20) -> list[str]:
+        """Next `limit` content lines after the pointer, transformed like the
+        displayed line, for the aggregator's prefetch queue."""
+        from translation_assistant.core import replace_and_parse, line_has_content
+        out: list[str] = []
+        for i in range(self._array_pointer + 1, len(self._raw_lines)):
+            if len(out) >= limit:
+                break
+            raw = self._raw_lines[i]
+            if not line_has_content(raw):
+                continue
+            display, _, _ = replace_and_parse(raw, self._glossary, self._parse_chars)
+            display = display.lstrip("%$").strip()
+            if display:
+                out.append(display)
+        return out
 
     def _update_tm_panel(self) -> None:
         while self._tm_layout.count():
