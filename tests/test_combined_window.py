@@ -42,7 +42,7 @@ def win(qapp, tmp_path):
         cfg.enabled = False
 
     def make_history(max_bytes):
-        return HistoryStore(path=tmp_path / "history.jsonl", max_bytes=max_bytes)
+        return HistoryStore(path=tmp_path / "history.db", max_bytes=max_bytes)
 
     settings = _make_settings(tmp_path)
     with patch("ta.ui.aggregator_widget.Settings.load", return_value=agg_settings), \

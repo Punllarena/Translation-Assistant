@@ -530,7 +530,7 @@ class TestAggregatorOllamaCache:
         s.enable_substitutions = False
 
         def make_history(max_bytes):
-            return HistoryStore(path=tmp_path / "history.jsonl", max_bytes=max_bytes)
+            return HistoryStore(path=tmp_path / "history.db", max_bytes=max_bytes)
 
         with patch("ta.ui.aggregator_widget.Settings.load", return_value=s), \
              patch("ta.ui.aggregator_widget.HistoryStore", make_history), \
@@ -545,7 +545,7 @@ class TestAggregatorOllamaCache:
         text = w._preprocess("hello line")
         src = w._source_panel.src_language()
         dst = w._source_panel.dst_language()
-        w._mt_cache[(text, src, dst)] = ("cached!", "")
+        w._history.append(text, {"ollama": "cached!"}, src.name, dst.name)
 
         w.translate_source("hello line")
 
@@ -578,9 +578,8 @@ class TestAggregatorOllamaCache:
         w._ollama_chunks[:] = ["Hello", " world"]
         w._on_ollama_ready("")
 
-        key = w._ollama_panel.request_key()
-        assert w._mt_cache[key] == ("Hello world", "")
-        assert w._pending_translations["ollama"] == "Hello world"
+        source, src, dst = w._ollama_panel.request_key()
+        assert w._history.find(source, src.name, dst.name) == ("Hello world", "")
         assert any(
             e.translations.get("ollama") == "Hello world"
             for e in w._history.all_entries()
@@ -621,8 +620,8 @@ class TestAggregatorOllamaCache:
         w._ollama_chunks[:] = ["Hello"]
         w._on_ollama_ready("")
 
-        key = w._ollama_panel.request_key()
-        assert w._mt_cache[key] == ("Hello", "consider nuance")
+        source, src, dst = w._ollama_panel.request_key()
+        assert w._history.find(source, src.name, dst.name) == ("Hello", "consider nuance")
 
     def test_cache_hit_shows_cached_thinking(self, qapp, tmp_path):
         w = self._make_widget(qapp, tmp_path)
@@ -630,7 +629,7 @@ class TestAggregatorOllamaCache:
         text = w._preprocess("hello line")
         src = w._source_panel.src_language()
         dst = w._source_panel.dst_language()
-        w._mt_cache[(text, src, dst)] = ("cached!", "some trace")
+        w._history.append(text, {"ollama": "cached!"}, src.name, dst.name, "some trace")
 
         w.translate_source("hello line")
 
@@ -646,15 +645,15 @@ class TestAggregatorOllamaCache:
         assert w._ollama_thinking == []
         assert w._ollama_chunks == []
 
-    def test_seed_cache_from_history(self, qapp, tmp_path):
+    def test_legacy_entries_without_langs_still_hit_cache(self, qapp, tmp_path):
         from ta.core.history import HistoryStore
-        store = HistoryStore(path=tmp_path / "history.jsonl")
-        store.append("古い行", {"ollama": "old line"})
+        store = HistoryStore(path=tmp_path / "history.db")
+        store.append("古い行", {"ollama": "old line"})  # no language pair recorded
 
         w = self._make_widget(qapp, tmp_path)
         src = w._source_panel.src_language()
         dst = w._source_panel.dst_language()
-        assert w._mt_cache[("古い行", src, dst)] == ("old line", "")
+        assert w._history.find("古い行", src.name, dst.name) == ("old line", "")
 
 
 # ---------------------------------------------------------------------------
@@ -828,7 +827,7 @@ class TestAggregatorPrefetch:
         s.enable_substitutions = False
 
         def make_history(max_bytes):
-            return HistoryStore(path=tmp_path / "history.jsonl", max_bytes=max_bytes)
+            return HistoryStore(path=tmp_path / "history.db", max_bytes=max_bytes)
 
         with patch("ta.ui.aggregator_widget.Settings.load", return_value=s), \
              patch("ta.ui.aggregator_widget.HistoryStore", make_history), \
@@ -854,7 +853,7 @@ class TestAggregatorPrefetch:
         s.layout_panels = ["ollama"]
         s.enable_substitutions = False
         def make_history(max_bytes):
-            return HistoryStore(path=tmp_path / "history.jsonl", max_bytes=max_bytes)
+            return HistoryStore(path=tmp_path / "history.db", max_bytes=max_bytes)
         with patch("ta.ui.aggregator_widget.Settings.load", return_value=s), \
              patch("ta.ui.aggregator_widget.HistoryStore", make_history), \
              patch("ta.ui.aggregator_widget.ClipboardMonitor"):
@@ -884,7 +883,7 @@ class TestAggregatorPrefetch:
         text = w._preprocess("hello")
         src = w._source_panel.src_language()
         dst = w._source_panel.dst_language()
-        w._mt_cache[(text, src, dst)] = ("cached", "")
+        w._history.append(text, {"ollama": "cached"}, src.name, dst.name)
         w.translate_source("hello")
         assert w._prefetch_idle.isActive()
 
@@ -900,7 +899,7 @@ class TestAggregatorPrefetch:
         src = w._source_panel.src_language()
         dst = w._source_panel.dst_language()
         w.set_prefetch_queue(["line A", "line B"])
-        w._mt_cache[(w._preprocess("line A"), src, dst)] = ("done", "")
+        w._history.append(w._preprocess("line A"), {"ollama": "done"}, src.name, dst.name)
         w._fire_prefetch()
         sent = [c for c in w._sent if c != "halt"]
         assert len(sent) == 1
@@ -918,7 +917,7 @@ class TestAggregatorPrefetch:
 
         src = w._source_panel.src_language()
         dst = w._source_panel.dst_language()
-        assert w._mt_cache[(w._preprocess("line A"), src, dst)] == ("trans A", "think A")
+        assert w._history.find(w._preprocess("line A"), src.name, dst.name) == ("trans A", "think A")
         # Chained to line B
         assert [c[0] for c in w._sent] == [
             w._preprocess("line A"), w._preprocess("line B"),
@@ -930,14 +929,16 @@ class TestAggregatorPrefetch:
         # count=2 reached: line C not sent
         assert len(w._sent) == 2
 
-    def test_prefetch_does_not_touch_panel_or_history(self, qapp, tmp_path):
+    def test_prefetch_persists_to_history_but_not_panel(self, qapp, tmp_path):
         w = self._make_widget(qapp, tmp_path)
         w.set_prefetch_queue(["line A"])
         w._fire_prefetch()
         w._prefetch_chunks[:] = ["trans A"]
         w._on_prefetch_ready("")
         assert w._ollama_panel._output.toPlainText() == ""
-        assert w._history.all_entries() == []
+        src = w._source_panel.src_language()
+        dst = w._source_panel.dst_language()
+        assert w._history.find(w._preprocess("line A"), src.name, dst.name) == ("trans A", "")
 
 
 class TestSettingsDialogPrefetch:

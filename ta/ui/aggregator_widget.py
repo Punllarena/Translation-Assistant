@@ -55,9 +55,7 @@ class AggregatorWidget(QWidget):
         self._history = HistoryStore(max_bytes=self._settings.history_max_bytes)
         self._subs = SubstitutionStore.load()
         self._history_current_id: int | None = None
-        self._pending_translations: dict[str, str] = {}
         self._current_source: str = ""
-        self._mt_cache: dict[tuple[str, Language, Language], tuple[str, str]] = {}
         self._ollama_chunks: list[str] = []
         self._ollama_thinking: list[str] = []
         self._tray: QSystemTrayIcon | None = None
@@ -83,7 +81,6 @@ class AggregatorWidget(QWidget):
         self._setup_ui()
         self._setup_clipboard()
         self._restore_layout()
-        self._seed_mt_cache()
 
     # ------------------------------------------------------------------
     # UI setup
@@ -165,6 +162,12 @@ class AggregatorWidget(QWidget):
         self._source_panel.set_text(text)
         self._on_translate(text)
 
+    def clear_history(self) -> int:
+        """Wipe translation history + MT cache. Returns bytes freed on disk."""
+        freed = self._history.clear()
+        self._history_current_id = None
+        return freed
+
     def get_translator(self, name: str):
         """Return the translator instance for a panel by name, or None."""
         if name.lower() == "ollama":
@@ -183,7 +186,6 @@ class AggregatorWidget(QWidget):
         if not text:
             return
         self._current_source = text
-        self._pending_translations = {}
         src = self._source_panel.src_language()
         dst = self._source_panel.dst_language()
         self._panels.translate_all(text, src, dst)
@@ -194,7 +196,7 @@ class AggregatorWidget(QWidget):
         # must never wait behind a background one.
         self._ollama_translator.halt()
         self._stop_prefetch()
-        cached = self._mt_cache.get((text, src, dst))
+        cached = self._history.find(text, src.name, dst.name)
         if cached is not None:
             self._ollama_debounce.stop()
             translation, thinking = cached
@@ -220,10 +222,9 @@ class AggregatorWidget(QWidget):
         text = "".join(self._ollama_chunks)
         if not text:
             return
-        key = self._ollama_panel.request_key()
-        self._mt_cache[key] = (text, "".join(self._ollama_thinking))
-        if key[0] == self._current_source:
-            self._on_translation_received("ollama", text)
+        source, src, dst = self._ollama_panel.request_key()
+        self._history.append(source, {"ollama": text}, src.name, dst.name,
+                             "".join(self._ollama_thinking))
         self._notify_ollama_done(text)
         self._start_prefetch_idle()
 
@@ -242,18 +243,6 @@ class AggregatorWidget(QWidget):
             "Ollama translation ready", snippet,
             QSystemTrayIcon.MessageIcon.Information, 5000,
         )
-
-    def _seed_mt_cache(self) -> None:
-        if self._ollama_panel is None:
-            return
-        # ponytail: history doesn't record languages; seed under the pair
-        # active at startup. Store languages per entry if that ever bites.
-        src = self._source_panel.src_language()
-        dst = self._source_panel.dst_language()
-        for e in self._history.all_entries():
-            t = e.translations.get("ollama")
-            if t:
-                self._mt_cache[(e.source, src, dst)] = (t, "")
 
     # ------------------------------------------------------------------
     # Prefetch — background translation of upcoming lines
@@ -284,10 +273,9 @@ class AggregatorWidget(QWidget):
             text = self._preprocess(raw)
             if not text:
                 continue
-            key = (text, src, dst)
-            if key in self._mt_cache:
+            if self._history.find(text, src.name, dst.name) is not None:
                 continue
-            self._prefetch_key = key
+            self._prefetch_key = (text, src, dst)
             self._ollama_prefetcher.translate(text, src, dst)
             return
 
@@ -298,9 +286,9 @@ class AggregatorWidget(QWidget):
     def _on_prefetch_ready(self, _ignored: str) -> None:
         text = "".join(self._prefetch_chunks)
         if text and self._prefetch_key is not None:
-            self._mt_cache[self._prefetch_key] = (
-                text, "".join(self._prefetch_thinking),
-            )
+            source, src, dst = self._prefetch_key
+            self._history.append(source, {"ollama": text}, src.name, dst.name,
+                                 "".join(self._prefetch_thinking))
         self._prefetch_key = None
         self._prefetch_done += 1
         self._fire_prefetch()
@@ -330,8 +318,10 @@ class AggregatorWidget(QWidget):
     def _on_translation_received(self, name: str, text: str) -> None:
         if not text:
             return
-        self._pending_translations[name] = text
-        self._history.append(self._current_source, dict(self._pending_translations))
+        src = self._source_panel.src_language()
+        dst = self._source_panel.dst_language()
+        self._history.append(self._current_source, {name: text},
+                             src.name, dst.name)
 
     # ------------------------------------------------------------------
     # History navigation
