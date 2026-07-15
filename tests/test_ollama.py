@@ -688,3 +688,39 @@ class TestSettingsDialogOllamaGroup:
         result = dlg.apply()
         assert result.translators["ollama"].model == "qwen2:latest"
         assert result.translators["ollama"].system_prompt == "custom prompt"
+
+
+# ---------------------------------------------------------------------------
+# Prefetch: settings fields
+# ---------------------------------------------------------------------------
+
+class TestPrefetchSettings:
+    def test_defaults(self):
+        from ta.config.settings import TranslatorConfig
+        cfg = TranslatorConfig()
+        assert cfg.prefetch_count == 0
+        assert cfg.prefetch_idle_ms == 3000
+
+    def test_toml_roundtrip(self, tmp_path):
+        from ta.config.settings import Settings, TranslatorConfig
+        s = Settings()
+        s.translators["ollama"] = TranslatorConfig(
+            enabled=True, url="http://localhost:11434", model="m",
+            system_prompt="p", prefetch_count=5, prefetch_idle_ms=7000,
+        )
+        path = tmp_path / "settings.toml"
+        s.save(path)
+        s2 = Settings.load(path)
+        assert s2.translators["ollama"].prefetch_count == 5
+        assert s2.translators["ollama"].prefetch_idle_ms == 7000
+
+    def test_load_without_prefetch_keys_uses_defaults(self, tmp_path):
+        from ta.config.settings import Settings
+        path = tmp_path / "settings.toml"
+        path.write_text(
+            '[translators.ollama]\nenabled = true\napi_key = ""\n',
+            encoding="utf-8",
+        )
+        s = Settings.load(path)
+        assert s.translators["ollama"].prefetch_count == 0
+        assert s.translators["ollama"].prefetch_idle_ms == 3000

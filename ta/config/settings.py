@@ -35,6 +35,9 @@ class TranslatorConfig:
     url: str = ""
     model: str = ""
     system_prompt: str = ""
+    # Ollama only: background prefetch of upcoming lines (0 = off)
+    prefetch_count: int = 0
+    prefetch_idle_ms: int = 3000
 
 
 @dataclass
@@ -146,6 +149,8 @@ class Settings:
                     url=cfg.get("url", ""),
                     model=cfg.get("model", ""),
                     system_prompt=cfg.get("system_prompt", ""),
+                    prefetch_count=cfg.get("prefetch_count", 0),
+                    prefetch_idle_ms=cfg.get("prefetch_idle_ms", 3000),
                 )
 
         if "layout" in data:
@@ -190,6 +195,10 @@ class Settings:
                 lines.append(f'url = "{cfg.url}"')
             if cfg.model:
                 lines.append(f'model = "{cfg.model}"')
+            if cfg.prefetch_count:
+                lines.append(f"prefetch_count = {cfg.prefetch_count}")
+            if cfg.prefetch_idle_ms != 3000:
+                lines.append(f"prefetch_idle_ms = {cfg.prefetch_idle_ms}")
             if cfg.system_prompt:
                 escaped = cfg.system_prompt.replace('\\', '\\\\').replace('"""', '\\"\\"\\"')
                 lines.append(f'system_prompt = """\n{escaped}"""')
