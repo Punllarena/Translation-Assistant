@@ -144,6 +144,21 @@ class SettingsDialog(QDialog):
                 self._ollama_prompt_edit.setFixedHeight(120)
                 form.addRow("System prompt:", self._ollama_prompt_edit)
 
+                self._ollama_prefetch_spin = QSpinBox()
+                self._ollama_prefetch_spin.setRange(0, 20)
+                self._ollama_prefetch_spin.setToolTip(
+                    "Pre-translate this many upcoming lines while idle (0 = off)"
+                )
+                form.addRow("Prefetch lines ahead:", self._ollama_prefetch_spin)
+
+                self._ollama_prefetch_idle_spin = QSpinBox()
+                self._ollama_prefetch_idle_spin.setRange(1, 60)
+                self._ollama_prefetch_idle_spin.setSuffix(" s")
+                self._ollama_prefetch_idle_spin.setToolTip(
+                    "Idle time after the current line finishes before prefetch starts"
+                )
+                form.addRow("Prefetch idle delay:", self._ollama_prefetch_idle_spin)
+
             self._translator_widgets[name] = (enable_cb, api_edit)
             vbox.addWidget(group)
 
@@ -252,6 +267,10 @@ class SettingsDialog(QDialog):
                     cfg.system_prompt if cfg and cfg.system_prompt
                     else DEFAULT_OLLAMA_SYSTEM_PROMPT
                 )
+                self._ollama_prefetch_spin.setValue(cfg.prefetch_count if cfg else 0)
+                self._ollama_prefetch_idle_spin.setValue(
+                    round((cfg.prefetch_idle_ms if cfg else 3000) / 1000) or 1
+                )
 
         self._set_combo_by_data(self._char_repeat_combo, s.filter.char_repeat_mode)
         self._set_combo_by_data(self._line_break_combo, s.filter.line_break_mode)
@@ -285,6 +304,10 @@ class SettingsDialog(QDialog):
             if name == "ollama":
                 s.translators[name].model = self._ollama_model_combo.currentText()
                 s.translators[name].system_prompt = self._ollama_prompt_edit.toPlainText()
+                s.translators[name].prefetch_count = self._ollama_prefetch_spin.value()
+                s.translators[name].prefetch_idle_ms = (
+                    self._ollama_prefetch_idle_spin.value() * 1000
+                )
 
         s.filter.char_repeat_mode = self._char_repeat_combo.currentData()
         s.filter.line_break_mode = self._line_break_combo.currentData()

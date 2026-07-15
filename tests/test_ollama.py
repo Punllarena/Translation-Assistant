@@ -938,3 +938,36 @@ class TestAggregatorPrefetch:
         w._on_prefetch_ready("")
         assert w._ollama_panel._output.toPlainText() == ""
         assert w._history.all_entries() == []
+
+
+class TestSettingsDialogPrefetch:
+    def _make_settings(self):
+        from ta.config.settings import Settings, TranslatorConfig
+        s = Settings()
+        s.translators["ollama"] = TranslatorConfig(
+            enabled=True, url="http://localhost:11434", model="m",
+            system_prompt="p", prefetch_count=5, prefetch_idle_ms=7000,
+        )
+        return s
+
+    def test_load_populates_spinboxes(self, qapp):
+        from ta.ui.dialogs.settings_dialog import SettingsDialog
+        dlg = SettingsDialog(self._make_settings())
+        assert dlg._ollama_prefetch_spin.value() == 5
+        assert dlg._ollama_prefetch_idle_spin.value() == 7
+
+    def test_apply_writes_config(self, qapp):
+        from ta.ui.dialogs.settings_dialog import SettingsDialog
+        dlg = SettingsDialog(self._make_settings())
+        dlg._ollama_prefetch_spin.setValue(10)
+        dlg._ollama_prefetch_idle_spin.setValue(4)
+        s = dlg.apply()
+        assert s.translators["ollama"].prefetch_count == 10
+        assert s.translators["ollama"].prefetch_idle_ms == 4000
+
+    def test_defaults_when_unconfigured(self, qapp):
+        from ta.config.settings import Settings
+        from ta.ui.dialogs.settings_dialog import SettingsDialog
+        dlg = SettingsDialog(Settings())
+        assert dlg._ollama_prefetch_spin.value() == 0
+        assert dlg._ollama_prefetch_idle_spin.value() == 3
