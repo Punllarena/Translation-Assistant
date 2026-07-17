@@ -1268,7 +1268,9 @@ class TranslationAssistantWidget(QWidget):
 
     def _on_publish_wp(self) -> None:
         from translation_assistant.ui.dlg_wp_settings import WPSettingsDialog
-        from translation_assistant.wp_publisher import build_payload, WPPublishError
+        from translation_assistant.wp_publisher import (
+            build_payload, compute_auto_schedule, WPPublishError,
+        )
 
         endpoint_url = self._settings.wp_endpoint_url
         api_key = self._settings.wp_api_key
@@ -1285,6 +1287,7 @@ class TranslationAssistantWidget(QWidget):
         series_title = doc_meta["series_title"]
         series_meta = self._db.get_series_wp_meta(series_title)
 
+        prev_status = None
         prev_scheduled = False
         if doc_meta["series_order"] > 0:
             prev_status = self._db.get_wp_status_by_series_position(
@@ -1378,6 +1381,24 @@ class TranslationAssistantWidget(QWidget):
         dte.setEnabled(False)
         schedule_cb.toggled.connect(dte.setEnabled)
         _cl.addWidget(dte)
+
+        if prev_scheduled:
+            schedule_cb.setChecked(True)
+            _prev_date = prev_status.get("wp_date") if prev_status else None
+            if _prev_date:
+                _scope_series = (
+                    None if self._settings.wp_schedule_scope_global else series_title
+                )
+                try:
+                    _auto = compute_auto_schedule(
+                        _prev_date,
+                        self._db.get_wp_dates(_scope_series),
+                        self._settings.wp_chapters_per_day,
+                        self._settings.wp_default_schedule_time,
+                    )
+                    dte.setDateTime(QDateTime(_auto))
+                except ValueError:
+                    pass  # malformed stored wp_date — keep the default pre-fill
 
         if prev_scheduled:
             _btns = QDialogButtonBox()
