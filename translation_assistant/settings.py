@@ -219,6 +219,22 @@ class AppSettings:
         self._qs.setValue("WPDefaultScheduleTime", value)
 
     @property
+    def wp_chapters_per_day(self) -> int:
+        return self._qs.value("WPChaptersPerDay", 1, type=int)
+
+    @wp_chapters_per_day.setter
+    def wp_chapters_per_day(self, value: int) -> None:
+        self._qs.setValue("WPChaptersPerDay", value)
+
+    @property
+    def wp_schedule_scope_global(self) -> bool:
+        return self._qs.value("WPScheduleScopeGlobal", False, type=bool)
+
+    @wp_schedule_scope_global.setter
+    def wp_schedule_scope_global(self, value: bool) -> None:
+        self._qs.setValue("WPScheduleScopeGlobal", value)
+
+    @property
     def wp_attribution_enabled(self) -> bool:
         return self._qs.value("WPAttributionEnabled", True, type=bool)
 

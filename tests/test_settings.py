@@ -204,6 +204,24 @@ def test_wp_default_schedule_time_roundtrip(tmp_settings):
     assert tmp_settings.wp_default_schedule_time == "20:00"
 
 
+def test_wp_chapters_per_day_default(tmp_settings):
+    assert tmp_settings.wp_chapters_per_day == 1
+
+
+def test_wp_chapters_per_day_roundtrip(tmp_settings):
+    tmp_settings.wp_chapters_per_day = 3
+    assert tmp_settings.wp_chapters_per_day == 3
+
+
+def test_wp_schedule_scope_global_default(tmp_settings):
+    assert tmp_settings.wp_schedule_scope_global is False
+
+
+def test_wp_schedule_scope_global_roundtrip(tmp_settings):
+    tmp_settings.wp_schedule_scope_global = True
+    assert tmp_settings.wp_schedule_scope_global is True
+
+
 # ---------------------------------------------------------------------------
 # Keyboard shortcuts
 # ---------------------------------------------------------------------------
