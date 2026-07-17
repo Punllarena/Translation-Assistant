@@ -518,7 +518,7 @@ class OpenDocumentDialog(QDialog):
 
     def _open_series_manager(self) -> None:
         from translation_assistant.ui.dlg_series import SeriesManagerDialog
-        dlg = SeriesManagerDialog(self._db, parent=self)
+        dlg = SeriesManagerDialog(self._db, settings=self._settings, parent=self)
         dlg.exec()
 
     def _apply_filter(self, text: str) -> None:

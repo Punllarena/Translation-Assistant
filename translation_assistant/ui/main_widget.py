@@ -1066,7 +1066,7 @@ class TranslationAssistantWidget(QWidget):
         with self._topmost_suspended():
             dlg = NewSeriesDialog(self._db, parent=self)
             if dlg.exec():
-                dlg2 = SeriesManagerDialog(self._db, parent=self)
+                dlg2 = SeriesManagerDialog(self._db, settings=self._settings, parent=self)
                 remember_dialog_geometry(dlg2, self._settings, "dlg_series")
                 dlg2.exec()
 
@@ -1262,7 +1262,7 @@ class TranslationAssistantWidget(QWidget):
     def _on_manage_series(self) -> None:
         from translation_assistant.ui.dlg_series import SeriesManagerDialog
         with self._topmost_suspended():
-            dlg = SeriesManagerDialog(self._db, parent=self)
+            dlg = SeriesManagerDialog(self._db, settings=self._settings, parent=self)
             remember_dialog_geometry(dlg, self._settings, "dlg_series")
             dlg.exec()
 
@@ -1316,7 +1316,7 @@ class TranslationAssistantWidget(QWidget):
                 "WP Fields Missing",
                 f'Set "Series Slug" and "Short Title" for "{series_title}" in Series Manager.',
             )
-            dlg = SeriesManagerDialog(self._db, parent=self)
+            dlg = SeriesManagerDialog(self._db, settings=self._settings, parent=self)
             remember_dialog_geometry(dlg, self._settings, "dlg_series")
             dlg.exec()
             series_meta = self._db.get_series_wp_meta(series_title)

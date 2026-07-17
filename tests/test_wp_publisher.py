@@ -286,3 +286,21 @@ def test_check_status_network_error_raises():
                 "https://example.com/wp-json/ta-publisher/v1/publish",
                 "k", "s", 1,
             )
+
+
+# ---------------------------------------------------------------------------
+# toc_page_url
+# ---------------------------------------------------------------------------
+
+from translation_assistant.wp_publisher import toc_page_url
+
+
+def test_toc_page_url_from_bare_site():
+    assert toc_page_url("https://site.com", "my-series") == "https://site.com/my-series/"
+
+
+def test_toc_page_url_strips_endpoint_path_and_trailing_slash():
+    assert (
+        toc_page_url("https://site.com/wp-json/ta-publisher/v1/publish/", "my-series")
+        == "https://site.com/my-series/"
+    )

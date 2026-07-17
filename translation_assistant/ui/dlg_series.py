@@ -3,8 +3,8 @@ Series Manager dialog — view all series, set syosetu URL, open chapter fetcher
 """
 from pathlib import Path
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction, QCursor
+from PySide6.QtCore import Qt, QUrl
+from PySide6.QtGui import QAction, QCursor, QDesktopServices
 from PySide6.QtWidgets import (
     QDialog, QFileDialog, QHBoxLayout, QHeaderView, QInputDialog, QMenu,
     QMessageBox, QPushButton, QTableWidget, QTableWidgetItem, QToolTip,
@@ -17,9 +17,10 @@ from translation_assistant.db import Database
 
 
 class SeriesManagerDialog(QDialog):
-    def __init__(self, db: Database, parent=None) -> None:
+    def __init__(self, db: Database, settings=None, parent=None) -> None:
         super().__init__(parent)
         self._db = db
+        self._settings = settings
         self._loading = False
         self._setup_ui()
         self._load()
@@ -53,6 +54,8 @@ class SeriesManagerDialog(QDialog):
         self._set_url_action.triggered.connect(self._on_set_url)
         self._set_wp_action = QAction("Set WP Fields…", self)
         self._set_wp_action.triggered.connect(self._on_set_wp_fields)
+        self._open_toc_action = QAction("Open WP TOC Page", self)
+        self._open_toc_action.triggered.connect(self._on_open_toc)
         self._add_profile_action = QAction("Add Profile", self)
         self._add_profile_action.triggered.connect(self._on_add_profile)
         self._import_profile_action = QAction("Import Phrases from CSV…", self)
@@ -112,9 +115,11 @@ class SeriesManagerDialog(QDialog):
             return
         self._add_profile_action.setEnabled(not s["profile"])
         self._import_profile_action.setEnabled(bool(s["profile"]))
+        self._open_toc_action.setEnabled(bool(self._toc_url(s["title"])))
         menu = QMenu(self)
         menu.addAction(self._set_url_action)
         menu.addAction(self._set_wp_action)
+        menu.addAction(self._open_toc_action)
         menu.addSeparator()
         menu.addAction(self._add_profile_action)
         menu.addAction(self._import_profile_action)
@@ -161,6 +166,25 @@ class SeriesManagerDialog(QDialog):
                 return
         self._db.set_series_url(s["title"], url)
         self._load()
+
+    def _toc_url(self, series_title: str) -> str:
+        if self._settings is None:
+            from translation_assistant.settings import AppSettings
+            self._settings = AppSettings()
+        endpoint = self._settings.wp_endpoint_url
+        slug = self._db.get_series_wp_meta(series_title)["series_slug"]
+        if not endpoint or not slug:
+            return ""
+        from translation_assistant.wp_publisher import toc_page_url
+        return toc_page_url(endpoint, slug)
+
+    def _on_open_toc(self) -> None:
+        s = self._current_series()
+        if s is None:
+            return
+        url = self._toc_url(s["title"])
+        if url:
+            QDesktopServices.openUrl(QUrl(url))
 
     def _on_fetch(self) -> None:
         s = self._current_series()

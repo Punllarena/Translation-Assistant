@@ -880,6 +880,34 @@ def test_series_manager_has_context_menu_actions(qapp, mem_db):
     assert hasattr(dlg, "_set_wp_action")
     assert hasattr(dlg, "_add_profile_action")
     assert hasattr(dlg, "_import_profile_action")
+    assert hasattr(dlg, "_open_toc_action")
+    dlg.reject()
+
+
+def test_series_manager_open_toc_opens_derived_url(qapp, mem_db, tmp_settings):
+    from translation_assistant.ui.dlg_series import SeriesManagerDialog
+    mem_db.set_series_url("My Series", "")
+    mem_db.set_series_wp_meta("My Series", "my-series", "MS")
+    tmp_settings.wp_endpoint_url = "https://site.com"
+    dlg = SeriesManagerDialog(mem_db, settings=tmp_settings)
+    dlg._table.setCurrentCell(0, 0)
+    with patch("translation_assistant.ui.dlg_series.QDesktopServices.openUrl") as open_url:
+        dlg._on_open_toc()
+    open_url.assert_called_once()
+    assert open_url.call_args[0][0].toString() == "https://site.com/my-series/"
+    dlg.reject()
+
+
+def test_series_manager_open_toc_noop_without_slug(qapp, mem_db, tmp_settings):
+    from translation_assistant.ui.dlg_series import SeriesManagerDialog
+    mem_db.set_series_url("My Series", "")
+    tmp_settings.wp_endpoint_url = "https://site.com"
+    dlg = SeriesManagerDialog(mem_db, settings=tmp_settings)
+    dlg._table.setCurrentCell(0, 0)
+    assert dlg._toc_url("My Series") == ""
+    with patch("translation_assistant.ui.dlg_series.QDesktopServices.openUrl") as open_url:
+        dlg._on_open_toc()
+    open_url.assert_not_called()
     dlg.reject()
 
 

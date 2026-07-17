@@ -129,6 +129,14 @@ def normalize_endpoint_url(url: str) -> str:
     return url
 
 
+def toc_page_url(endpoint_url: str, series_slug: str) -> str:
+    """Series TOC page URL — site root + slug, same shape as the server's page_url."""
+    base = endpoint_url.rstrip("/")
+    if base.endswith(_ENDPOINT_PATH):
+        base = base[: -len(_ENDPOINT_PATH)]
+    return f"{base}/{series_slug}/"
+
+
 _STATUS_PATH = "/wp-json/ta-publisher/v1/status"
 
 
