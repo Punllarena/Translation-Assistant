@@ -1083,11 +1083,44 @@ def test_get_wp_status_by_series_position_found(db):
     doc_id = db.create_document("Ch 1", series_title="MySeries", series_order=1)
     db.set_document_wp_status(doc_id, "future", "https://ex.com/ch1/")
     result = db.get_wp_status_by_series_position("MySeries", 1)
-    assert result == {"wp_status": "future", "wp_post_url": "https://ex.com/ch1/"}
+    assert result == {"wp_status": "future", "wp_post_url": "https://ex.com/ch1/", "wp_date": None}
 
 
 def test_get_wp_status_by_series_position_not_found(db):
     assert db.get_wp_status_by_series_position("NoSeries", 99) is None
+
+
+def test_get_wp_status_by_series_position_includes_wp_date(db):
+    doc_id = db.create_document("Ch 1", series_title="MySeries", series_order=1)
+    db.set_document_wp_status(doc_id, "future", None, "2026-07-20T12:00:00Z")
+    result = db.get_wp_status_by_series_position("MySeries", 1)
+    assert result["wp_date"] == "2026-07-20T12:00:00Z"
+
+
+def test_get_wp_dates_per_series(db):
+    a = db.create_document("Ch 1", series_title="A", series_order=1)
+    b = db.create_document("Ch 1", series_title="B", series_order=1)
+    c = db.create_document("Ch 2", series_title="A", series_order=2)
+    d = db.create_document("Ch 3", series_title="A", series_order=3)
+    db.set_document_wp_status(a, "publish", None, "2026-07-20T10:00:00Z")
+    db.set_document_wp_status(b, "future", None, "2026-07-20T11:00:00Z")
+    db.set_document_wp_status(c, "future", None, "2026-07-21T10:00:00Z")
+    db.set_document_wp_status(d, "draft", None, "2026-07-22T10:00:00Z")
+    assert sorted(db.get_wp_dates("A")) == ["2026-07-20T10:00:00Z", "2026-07-21T10:00:00Z"]
+
+
+def test_get_wp_dates_global(db):
+    a = db.create_document("Ch 1", series_title="A", series_order=1)
+    b = db.create_document("Ch 1", series_title="B", series_order=1)
+    db.set_document_wp_status(a, "publish", None, "2026-07-20T10:00:00Z")
+    db.set_document_wp_status(b, "future", None, "2026-07-20T11:00:00Z")
+    assert sorted(db.get_wp_dates(None)) == ["2026-07-20T10:00:00Z", "2026-07-20T11:00:00Z"]
+
+
+def test_get_wp_dates_skips_null_dates(db):
+    a = db.create_document("Ch 1", series_title="A", series_order=1)
+    db.set_document_wp_status(a, "publish", None, None)
+    assert db.get_wp_dates("A") == []
 
 
 def test_list_documents_includes_wp_status(db):

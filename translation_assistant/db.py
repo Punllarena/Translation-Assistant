@@ -487,11 +487,23 @@ class Database:
         self, series_title: str, series_order: int
     ) -> dict | None:
         row = self._conn.execute(
-            "SELECT wp_status, wp_post_url FROM documents "
+            "SELECT wp_status, wp_post_url, wp_date FROM documents "
             "WHERE series_title = ? AND series_order = ?",
             (series_title, series_order),
         ).fetchone()
         return dict(row) if row else None
+
+    def get_wp_dates(self, series_title: str | None = None) -> list[str]:
+        """wp_date of published/scheduled documents; all series when None."""
+        sql = (
+            "SELECT wp_date FROM documents "
+            "WHERE wp_status IN ('publish', 'future') AND wp_date IS NOT NULL"
+        )
+        params: tuple = ()
+        if series_title is not None:
+            sql += " AND series_title = ?"
+            params = (series_title,)
+        return [r[0] for r in self._conn.execute(sql, params).fetchall()]
 
     def set_last_position(self, doc_id: int, pos: int) -> None:
         self._conn.execute(
