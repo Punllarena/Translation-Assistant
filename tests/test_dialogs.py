@@ -869,6 +869,17 @@ def test_wp_settings_dialog_clears_schedule_time_when_unchecked(qapp, tmp_settin
     assert tmp_settings.wp_default_schedule_time == ""
 
 
+def test_wp_settings_dialog_saves_chapters_per_day_and_scope(qapp, tmp_settings):
+    from translation_assistant.ui.dlg_wp_settings import WPSettingsDialog
+    dlg = WPSettingsDialog(tmp_settings)
+    dlg._chapters_spin.setValue(3)
+    dlg._scope_global_cb.setChecked(True)
+    with patch.object(dlg, "accept"):
+        dlg._on_save()
+    assert tmp_settings.wp_chapters_per_day == 3
+    assert tmp_settings.wp_schedule_scope_global is True
+
+
 # ---------------------------------------------------------------------------
 # SeriesManagerDialog — context menu actions
 # ---------------------------------------------------------------------------

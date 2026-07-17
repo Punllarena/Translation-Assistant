@@ -71,6 +71,15 @@ class WPSettingsDialog(QDialog):
         self._schedule_cb.toggled.connect(self._schedule_time_edit.setEnabled)
         form.addRow("Time:", self._schedule_time_edit)
 
+        self._chapters_spin = QSpinBox()
+        self._chapters_spin.setRange(1, 99)
+        self._chapters_spin.setValue(self._settings.wp_chapters_per_day)
+        form.addRow("Chapters per day:", self._chapters_spin)
+
+        self._scope_global_cb = QCheckBox("Count chapters/day across all series")
+        self._scope_global_cb.setChecked(self._settings.wp_schedule_scope_global)
+        form.addRow("", self._scope_global_cb)
+
         layout.addLayout(form)
 
         self._test_btn = QPushButton("Test Connection")
@@ -92,6 +101,8 @@ class WPSettingsDialog(QDialog):
             self._settings.wp_default_schedule_time = self._schedule_time_edit.time().toString("HH:mm")
         else:
             self._settings.wp_default_schedule_time = ""
+        self._settings.wp_chapters_per_day = self._chapters_spin.value()
+        self._settings.wp_schedule_scope_global = self._scope_global_cb.isChecked()
         self.accept()
 
     def _on_test(self) -> None:
