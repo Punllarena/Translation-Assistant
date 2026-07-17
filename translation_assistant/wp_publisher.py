@@ -5,6 +5,7 @@ import json
 import re
 import secrets
 import string
+from datetime import datetime, time, timedelta, timezone, tzinfo
 import urllib.request
 import urllib.parse
 from urllib.error import HTTPError, URLError
@@ -74,6 +75,51 @@ def compute_password_fields(
     password = "".join(secrets.choice(_ALPHANUM) for _ in range(12))
     unlock_idx = chapter_index - unlock_after
     return password, (unlock_idx if unlock_idx > unlock_after else None)
+
+
+_WP_DATE_FMT = "%Y-%m-%dT%H:%M:%SZ"
+
+
+def compute_auto_schedule(
+    prev_wp_date: str,
+    wp_dates: list[str],
+    chapters_per_day: int,
+    default_time: str,
+    tz: tzinfo | None = None,
+) -> datetime:
+    """Pick the schedule slot for the next chapter after a scheduled one.
+
+    Dates are UTC strings in WP format; "same day" is judged in ``tz``
+    (system local when None).  Returns a naive datetime in ``tz``: while the
+    predecessor's day holds fewer than ``chapters_per_day`` entries of
+    ``wp_dates``, one hour after that day's latest slot; otherwise the next
+    day at ``default_time`` (falling back to the predecessor's time).
+    """
+    def to_local(s: str) -> datetime:
+        return (
+            datetime.strptime(s, _WP_DATE_FMT)
+            .replace(tzinfo=timezone.utc)
+            .astimezone(tz)
+        )
+
+    prev_local = to_local(prev_wp_date)
+    target = prev_local.date()
+    same_day = [d for d in map(to_local, wp_dates) if d.date() == target]
+    if len(same_day) < chapters_per_day:
+        latest = max(same_day, default=prev_local)
+        return (latest + timedelta(hours=1)).replace(
+            tzinfo=None, second=0, microsecond=0
+        )
+    next_day = target + timedelta(days=1)
+    if default_time:
+        try:
+            h, m = map(int, default_time.split(":"))
+            return datetime.combine(next_day, time(h, m))
+        except ValueError:
+            pass
+    return datetime.combine(
+        next_day, prev_local.time().replace(second=0, microsecond=0)
+    )
 
 
 def build_payload(

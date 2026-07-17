@@ -304,3 +304,67 @@ def test_toc_page_url_strips_endpoint_path_and_trailing_slash():
         toc_page_url("https://site.com/wp-json/ta-publisher/v1/publish/", "my-series")
         == "https://site.com/my-series/"
     )
+
+
+# ---------------------------------------------------------------------------
+# compute_auto_schedule
+# ---------------------------------------------------------------------------
+
+from datetime import datetime, timezone
+
+from translation_assistant.wp_publisher import compute_auto_schedule
+
+UTC = timezone.utc
+
+
+def test_auto_schedule_joins_same_day_when_capacity_left():
+    dt = compute_auto_schedule(
+        "2026-07-20T12:00:00Z", ["2026-07-20T12:00:00Z"], 2, "20:00", tz=UTC
+    )
+    assert dt == datetime(2026, 7, 20, 13, 0)
+
+
+def test_auto_schedule_staggers_from_latest_same_day_slot():
+    dt = compute_auto_schedule(
+        "2026-07-20T12:00:00Z",
+        ["2026-07-20T12:00:00Z", "2026-07-20T15:00:00Z"],
+        3, "20:00", tz=UTC,
+    )
+    assert dt == datetime(2026, 7, 20, 16, 0)
+
+
+def test_auto_schedule_overflows_to_next_day_at_default_time():
+    dt = compute_auto_schedule(
+        "2026-07-20T12:00:00Z",
+        ["2026-07-20T10:00:00Z", "2026-07-20T12:00:00Z"],
+        2, "20:00", tz=UTC,
+    )
+    assert dt == datetime(2026, 7, 21, 20, 0)
+
+
+def test_auto_schedule_overflow_falls_back_to_prev_time_without_default():
+    dt = compute_auto_schedule(
+        "2026-07-20T12:30:00Z", ["2026-07-20T12:30:00Z"], 1, "", tz=UTC
+    )
+    assert dt == datetime(2026, 7, 21, 12, 30)
+
+
+def test_auto_schedule_bad_default_time_falls_back_to_prev_time():
+    dt = compute_auto_schedule(
+        "2026-07-20T12:30:00Z", ["2026-07-20T12:30:00Z"], 1, "bogus", tz=UTC
+    )
+    assert dt == datetime(2026, 7, 21, 12, 30)
+
+
+def test_auto_schedule_empty_dates_uses_prev_plus_hour():
+    dt = compute_auto_schedule("2026-07-20T12:00:00Z", [], 1, "20:00", tz=UTC)
+    assert dt == datetime(2026, 7, 20, 13, 0)
+
+
+def test_auto_schedule_ignores_other_days_in_count():
+    dt = compute_auto_schedule(
+        "2026-07-20T12:00:00Z",
+        ["2026-07-19T12:00:00Z", "2026-07-20T12:00:00Z", "2026-07-21T12:00:00Z"],
+        2, "20:00", tz=UTC,
+    )
+    assert dt == datetime(2026, 7, 20, 13, 0)
