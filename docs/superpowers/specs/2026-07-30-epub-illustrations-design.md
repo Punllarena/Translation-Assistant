@@ -58,10 +58,21 @@ all. It attaches to whichever chapter document is created *first* within an
 import batch, since there's no dedicated "volume" entity in the schema to
 hang it on instead (`volume_title` is just a string column on `documents`).
 
+Attaching per-*batch* rather than per-*volume* is only safe if a volume is
+never imported across two separate batches. It can be: a user may import a
+volume with some chapters unchecked, then later reopen the dialog on the
+same file to pull in the rest — each batch's "first document created in
+this batch" would otherwise attach its own cover, leaving the volume with
+duplicate `is_cover` rows. Guarded below by checking before attaching,
+rather than assuming single-batch import.
+
 `db.py` additions:
 - `add_document_image(document_id, anchor_position, is_cover, src_path, data) -> int`
 - `get_document_images(document_id) -> list[dict]` — ordered by
   `(anchor_position, id)`, `is_cover` rows included (callers filter as needed).
+- `volume_has_cover(series_title: str, volume_title: str) -> bool` — joins
+  `document_images` to `documents` filtered on `series_title`/`volume_title`/
+  `is_cover=1`. Powers the import-time guard below.
 
 ## Import (`epub.py`)
 
@@ -113,9 +124,13 @@ silently skipped.
 
 After `create_document()` for each checked chapter, insert its images via
 `add_document_image(doc_id, anchor_position, is_cover=0, src_path, data)`.
-If `open_book()` returned a `cover_href`, read its bytes once and attach to
-the first document created in this import batch
-(`add_document_image(first_doc_id, anchor_position=0, is_cover=1, ...)`).
+If `open_book()` returned a `cover_href` **and**
+`db.volume_has_cover(series_title, volume_title)` is `False`, read the cover
+bytes once and attach to the first document created in this import batch
+(`add_document_image(first_doc_id, anchor_position=0, is_cover=1, ...)`). The
+guard makes a second, later batch against the same volume (e.g. importing
+previously-unchecked chapters) a no-op for the cover instead of creating a
+duplicate.
 
 ## Export
 
@@ -190,6 +205,11 @@ Extends spec #1's synthetic-EPUB fixture with:
 `build_epub_content` interleaving, `build_epub()` round-trip (write then
 re-parse with `open_book()`/`extract_chapter_content` to confirm images
 survive at the same anchor).
+
+`tests/test_dlg_import_epub.py`: importing the same volume in two batches
+(first batch with some chapters unchecked, second batch importing the rest)
+attaches the cover only once — `volume_has_cover` returns `True` after the
+first batch and the second batch's import skips cover-attach entirely.
 
 `tests/test_card_list.py`: image widget appears at the right position in the
 card list's layout, doesn't participate in card indexing/navigation.
