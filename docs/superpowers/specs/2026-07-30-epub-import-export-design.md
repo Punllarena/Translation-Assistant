@@ -201,20 +201,8 @@ synthetic EPUB fixtures built in `tmp_path`, not these files.
 
 ## Deferred: inline illustration preservation
 
-Not in this spec. Anchoring a real illustration (standalone `<p><img
-class="fit" .../></p>`, as distinct from the gaiji case handled above) at its
-position in a chapter requires:
-- a third line "kind" in the `lines` table (alongside today's `%`/`$` prefix)
-  that every raw_lines consumer (`line_has_content`, `calculate_progress`,
-  `build_review_text`, `build_clipboard_output`, spellcheck, `card_list.py`
-  rendering, navigation) must skip or special-case instead of treating as text
-- a new `document_images` table (document_id, src_path, data BLOB) to store
-  image bytes inside the single SQLite file, consistent with "`db.py` is the
-  single SQLite access point"
-- import emitting an image line + blob insert; export reading the blob back
-  and re-embedding it (plus a cover-image equivalent) in the output EPUB's
-  manifest
-
-This touches `core.py`, `db.py`, `card_list.py`, `main_widget.py`, and
-`epub.py` broadly enough to warrant its own brainstorm/spec/plan cycle rather
-than folding into this one.
+Not in this spec — see
+[2026-07-30-epub-illustrations-design.md](2026-07-30-epub-illustrations-design.md)
+for the follow-up spec covering standalone illustration paragraphs and the
+cover image, via a sidecar `document_images` table (not a change to
+`raw_lines`/`core.py`).
