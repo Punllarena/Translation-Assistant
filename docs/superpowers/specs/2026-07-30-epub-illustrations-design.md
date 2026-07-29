@@ -200,4 +200,5 @@ In-body chapter heading (`<h2 class="oo-midashi">`), span-level formatting
 (`bold`, `tcy` vertical-punctuation typesetting), and book-level metadata
 (`dc:creator`, `dc:language`, `dc:identifier`/ISBN, publisher/date). None of
 these are restored by this spec either — tracked separately per user request,
-not folded into illustration work.
+not folded into illustration work. Now designed in
+[2026-07-30-epub-metadata-heading-formatting-design.md](2026-07-30-epub-metadata-heading-formatting-design.md).
