@@ -22,6 +22,7 @@ from translation_assistant.core import (
     batch_import_folder,
     build_markdown_translation,
     build_markdown_ruby,
+    build_epub_paragraphs,
 )
 
 
@@ -568,6 +569,34 @@ class TestBuildMarkdownRuby:
 
     def test_empty_inputs(self):
         assert build_markdown_ruby([], []) == ""
+
+
+# ---------------------------------------------------------------------------
+# build_epub_paragraphs
+# ---------------------------------------------------------------------------
+
+def test_build_epub_paragraphs_basic():
+    raw = ["%A", "%B"]
+    tl = ["Alpha", "Beta"]
+    assert build_epub_paragraphs(raw, tl) == ["Alpha", "Beta"]
+
+def test_build_epub_paragraphs_merges_continuations():
+    raw = ["%A", "$B"]
+    tl = ["Alpha", "Beta"]
+    assert build_epub_paragraphs(raw, tl) == ["Alpha Beta"]
+
+def test_build_epub_paragraphs_skips_untranslated():
+    raw = ["%A", "%B"]
+    tl = ["", "Beta"]
+    assert build_epub_paragraphs(raw, tl) == ["Beta"]
+
+def test_build_epub_paragraphs_skips_blank_raw_lines():
+    raw = ["%A", "", "%B"]
+    tl = ["Alpha", "", "Beta"]
+    assert build_epub_paragraphs(raw, tl) == ["Alpha", "Beta"]
+
+def test_build_epub_paragraphs_empty_input():
+    assert build_epub_paragraphs([], []) == []
 
 
 # ---------------------------------------------------------------------------
