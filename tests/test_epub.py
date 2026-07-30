@@ -92,3 +92,49 @@ class TestOpenBookEpub3:
             zf.writestr("mimetype", "application/epub+zip")
         with pytest.raises(EpubError):
             open_book(path)
+
+
+_OPF_EPUB2 = """<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="2.0" unique-identifier="uid">
+<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+<dc:title>Test Volume EPUB2</dc:title>
+</metadata>
+<manifest>
+<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
+<item id="ch1" href="text/ch1.xhtml" media-type="application/xhtml+xml"/>
+</manifest>
+<spine toc="ncx">
+<itemref idref="ch1"/>
+</spine>
+</package>
+"""
+
+_TOC_NCX = """<?xml version="1.0" encoding="UTF-8"?>
+<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">
+<navMap>
+<navPoint id="np1"><navLabel><text>Chapter 1</text></navLabel><content src="text/ch1.xhtml"/></navPoint>
+</navMap>
+</ncx>
+"""
+
+
+def _make_epub2(tmp_path: Path) -> Path:
+    path = tmp_path / "test2.epub"
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr("mimetype", "application/epub+zip")
+        zf.writestr("META-INF/container.xml", _CONTAINER_XML)
+        zf.writestr("OEBPS/content.opf", _OPF_EPUB2)
+        zf.writestr("OEBPS/toc.ncx", _TOC_NCX)
+        zf.writestr("OEBPS/text/ch1.xhtml", "<html><body><p>Hello.</p></body></html>")
+    return path
+
+
+class TestOpenBookEpub2:
+    def test_title(self, tmp_path):
+        book = open_book(_make_epub2(tmp_path))
+        assert book["title"] == "Test Volume EPUB2"
+
+    def test_chapter_from_ncx(self, tmp_path):
+        book = open_book(_make_epub2(tmp_path))
+        assert [c["title"] for c in book["chapters"]] == ["Chapter 1"]
+        assert book["chapters"][0]["href"] == "OEBPS/text/ch1.xhtml"
