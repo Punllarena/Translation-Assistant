@@ -580,6 +580,60 @@ class TestImportExport:
         assert not called  # dialog not shown when no doc loaded
 
 
+class TestExportEpubSeries:
+    def _load_translated_doc(self, win, mem_db=None):
+        db = win._db
+        doc_id = db.create_document(
+            "Ch 1", series_title="S", series_order=1, chapter_title="Ch 1", volume_title="Vol 1"
+        )
+        db.save_lines(doc_id, [
+            {"line_number": 0, "prefix": "%", "raw_text": "A", "translated_text": "Alpha"},
+        ])
+        return doc_id
+
+    def test_writes_one_epub_per_volume(self, win, tmp_path, monkeypatch):
+        self._load_translated_doc(win)
+        win._doc_id = win._db.get_document_ids_by_series("S")[0]
+        monkeypatch.setattr(
+            "translation_assistant.ui.main_widget.QFileDialog.getExistingDirectory",
+            lambda *a, **kw: str(tmp_path),
+        )
+        with patch("translation_assistant.ui.main_widget.QMessageBox.information"):
+            win._on_export_epub_series()
+        assert (tmp_path / "S" / "Vol 1.epub").exists()
+
+    def test_skips_whole_volume_if_any_chapter_incomplete(self, win, tmp_path, monkeypatch):
+        db = win._db
+        doc_id = db.create_document(
+            "Ch 1", series_title="S", series_order=1, chapter_title="Ch 1", volume_title="Vol 1"
+        )
+        db.save_lines(doc_id, [
+            {"line_number": 0, "prefix": "%", "raw_text": "A", "translated_text": ""},  # untranslated
+        ])
+        win._doc_id = doc_id
+        monkeypatch.setattr(
+            "translation_assistant.ui.main_widget.QFileDialog.getExistingDirectory",
+            lambda *a, **kw: str(tmp_path),
+        )
+        with patch("translation_assistant.ui.main_widget.QMessageBox.information"):
+            win._on_export_epub_series()
+        assert not (tmp_path / "S" / "Vol 1.epub").exists()
+
+    def test_skips_existing_file(self, win, tmp_path, monkeypatch):
+        self._load_translated_doc(win)
+        win._doc_id = win._db.get_document_ids_by_series("S")[0]
+        series_dir = tmp_path / "S"
+        series_dir.mkdir()
+        (series_dir / "Vol 1.epub").write_bytes(b"existing content")
+        monkeypatch.setattr(
+            "translation_assistant.ui.main_widget.QFileDialog.getExistingDirectory",
+            lambda *a, **kw: str(tmp_path),
+        )
+        with patch("translation_assistant.ui.main_widget.QMessageBox.information"):
+            win._on_export_epub_series()
+        assert (series_dir / "Vol 1.epub").read_bytes() == b"existing content"
+
+
 # ---------------------------------------------------------------------------
 # Punctuation insertion
 # ---------------------------------------------------------------------------

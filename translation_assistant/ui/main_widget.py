@@ -266,6 +266,10 @@ class TranslationAssistantWidget(QWidget):
         self.action_export_md_ruby_series.triggered.connect(self._on_export_md_ruby_series)
         self.action_export_md_ruby_series.setEnabled(False)
 
+        self.action_export_epub_series = QAction("Export Series EPUB…", self)
+        self.action_export_epub_series.triggered.connect(self._on_export_epub_series)
+        self.action_export_epub_series.setEnabled(False)
+
         # Build punctuation actions list (CombinedMainWindow puts these in a submenu)
         _punct_labels = [
             "Single Quote : 「　」",
@@ -617,6 +621,7 @@ class TranslationAssistantWidget(QWidget):
         _has_series = bool(_doc_meta.get("series_title", ""))
         self.action_export_md_tl_series.setEnabled(_has_series)
         self.action_export_md_ruby_series.setEnabled(_has_series)
+        self.action_export_epub_series.setEnabled(_has_series)
         self._translated_line.setFocus()
         self._start_clipboard_timer()
         self._restart_autosave_timer()
@@ -1198,6 +1203,66 @@ class TranslationAssistantWidget(QWidget):
             lines.append(f"{skipped_exists} file(s) skipped (already exist)")
         if skipped_incomplete:
             lines.append(f"{skipped_incomplete} file(s) skipped (incomplete translation)")
+        QMessageBox.information(self, "Export Complete", "\n\n".join(lines))
+
+    def _on_export_epub_series(self) -> None:
+        self._save_current_translation()
+        if self._doc_id is None:
+            return
+        meta = self._db.get_document(self._doc_id)
+        series_title = meta.get("series_title", "")
+        if not series_title:
+            return
+        with self._topmost_suspended():
+            parent = QFileDialog.getExistingDirectory(
+                self, f"Export Series EPUB: {series_title} — select parent folder"
+            )
+        if not parent:
+            return
+        folder = Path(parent) / (_sanitize_filename(series_title) or "series")
+        folder.mkdir(exist_ok=True)
+
+        from translation_assistant.core import build_epub_paragraphs, calculate_progress, db_rows_to_arrays
+        from translation_assistant.epub import build_epub
+
+        doc_ids = self._db.get_document_ids_by_series(series_title)
+        volumes: dict[str, list[int]] = {}
+        for doc_id in doc_ids:
+            doc_meta = self._db.get_document(doc_id)
+            volumes.setdefault(doc_meta.get("volume_title", ""), []).append(doc_id)
+
+        written = 0
+        skipped_incomplete = 0
+        skipped_exists = 0
+        for volume_title, vol_doc_ids in volumes.items():
+            chapters = []
+            incomplete = False
+            for doc_id in vol_doc_ids:
+                doc_meta = self._db.get_document(doc_id)
+                rows = self._db.get_lines(doc_id)
+                raw_lines, translated_lines = db_rows_to_arrays(rows)
+                pct, _ = calculate_progress(raw_lines, translated_lines)
+                if pct < 100:
+                    incomplete = True
+                    break
+                heading = doc_meta.get("chapter_title") or doc_meta.get("title", "")
+                chapters.append((heading, build_epub_paragraphs(raw_lines, translated_lines)))
+            if incomplete:
+                skipped_incomplete += 1
+                continue
+            filename = f"{_sanitize_filename(volume_title) or 'volume'}.epub"
+            dest = folder / filename
+            if dest.exists():
+                skipped_exists += 1
+                continue
+            dest.write_bytes(build_epub(volume_title, chapters))
+            written += 1
+
+        lines = [f"Exported {written} volume(s) to:\n{folder}"]
+        if skipped_exists:
+            lines.append(f"{skipped_exists} volume(s) skipped (file already exists)")
+        if skipped_incomplete:
+            lines.append(f"{skipped_incomplete} volume(s) skipped (incomplete translation)")
         QMessageBox.information(self, "Export Complete", "\n\n".join(lines))
 
     def _on_export_md_tl_doc(self) -> None:
