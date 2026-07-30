@@ -69,6 +69,75 @@ def open_book(path: Path) -> dict:
         return {"title": title, "chapters": chapters}
 
 
+def extract_chapter_text(path: Path, href: str) -> str:
+    """
+    Reads the given xhtml from the zip, walks <p> tags, and returns
+    paragraphs joined by "\\n" — ready for core.build_new_file().
+
+    Per <p>, text is built by:
+      - <ruby>base<rt>reading</rt></ruby>  -> "base(reading)"
+      - inline <img alt="..."> (non-empty alt) -> alt text (gaiji glyph
+        substitution — some publishers render a character like the wave
+        dash as an image; skipping this would silently drop it).
+      - a <p> whose only meaningful child is a single <img> (a standalone
+        illustration paragraph) is skipped entirely — no placeholder
+        emitted. Illustration preservation is a follow-up feature; for
+        this module, dropping them matches today's behavior for every
+        other plain-text source in the app.
+    """
+    with zipfile.ZipFile(path) as zf:
+        xhtml = _read(zf, href)
+    soup = BeautifulSoup(xhtml, "html.parser")
+    paragraphs = [text for p in soup.find_all("p") if (text := _para_text(p))]
+    return "\n".join(paragraphs)
+
+
+def _is_standalone_illustration(p) -> bool:
+    """True if a <p>'s only meaningful child is a single <img>."""
+    children = [c for c in p.children if not (isinstance(c, str) and not c.strip())]
+    return len(children) == 1 and getattr(children[0], "name", None) == "img"
+
+
+def _para_text(p) -> str:
+    if _is_standalone_illustration(p):
+        return ""
+    return _extract_inline(p).strip()
+
+
+def _extract_inline(node) -> str:
+    """
+    Recursively render a tag's text content:
+      - <ruby>base<rt>reading</rt></ruby> -> "base(reading)"
+      - <img alt="..."> -> alt text
+      - everything else recurses into children (so ruby/gaiji still resolve
+        when nested inside e.g. a <span>).
+    """
+    parts = []
+    for child in node.children:
+        if not hasattr(child, "name") or child.name is None:
+            parts.append(str(child))
+            continue
+        if child.name == "ruby":
+            rb = child.find("rb")
+            if rb is not None:
+                base = rb.get_text()
+            else:
+                base = "".join(
+                    str(c) for c in child.children
+                    if not (hasattr(c, "name") and c.name in ("rt", "rp"))
+                )
+            rt = child.find("rt")
+            reading = rt.get_text() if rt else ""
+            parts.append(f"{base}({reading})" if reading else base)
+        elif child.name == "img":
+            alt = child.get("alt", "")
+            if alt:
+                parts.append(alt)
+        else:
+            parts.append(_extract_inline(child))
+    return "".join(parts)
+
+
 def _read_toc(zf: zipfile.ZipFile, opf: BeautifulSoup, opf_dir: str) -> list[tuple[str, str]]:
     """Returns [(chapter_title, resolved_href), ...] in TOC order."""
     nav_item = opf.find("item", attrs={"properties": lambda v: v and "nav" in v.split()})

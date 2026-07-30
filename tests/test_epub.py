@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from translation_assistant.epub import EpubError, open_book
+from translation_assistant.epub import EpubError, open_book, extract_chapter_text
 
 
 _CONTAINER_XML = """<?xml version="1.0" encoding="UTF-8"?>
@@ -138,3 +138,46 @@ class TestOpenBookEpub2:
         book = open_book(_make_epub2(tmp_path))
         assert [c["title"] for c in book["chapters"]] == ["Chapter 1"]
         assert book["chapters"][0]["href"] == "OEBPS/text/ch1.xhtml"
+
+
+def _make_chapter_epub(tmp_path: Path, body: str) -> tuple[Path, str]:
+    """Single-chapter EPUB3 fixture; returns (path, resolved chapter href)."""
+    path = tmp_path / "chapter_test.epub"
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr("mimetype", "application/epub+zip")
+        zf.writestr("META-INF/container.xml", _CONTAINER_XML)
+        zf.writestr("OEBPS/content.opf", _OPF_EPUB3)
+        zf.writestr("OEBPS/nav.xhtml", _NAV_XHTML)
+        zf.writestr("OEBPS/text/ch1.xhtml", f"<html><body>{body}</body></html>")
+        zf.writestr("OEBPS/text/ch2.xhtml", "<html><body><p>Filler.</p></body></html>")
+    return path, "OEBPS/text/ch1.xhtml"
+
+
+class TestExtractChapterText:
+    def test_plain_paragraphs_joined_by_newline(self, tmp_path):
+        path, href = _make_chapter_epub(tmp_path, "<p>First.</p><p>Second.</p>")
+        assert extract_chapter_text(path, href) == "First.\nSecond."
+
+    def test_ruby_flattened_to_base_reading(self, tmp_path):
+        body = "<p><ruby>漢字<rt>かんじ</rt></ruby>です。</p>"
+        path, href = _make_chapter_epub(tmp_path, body)
+        assert extract_chapter_text(path, href) == "漢字(かんじ)です。"
+
+    def test_gaiji_img_alt_folded_into_text(self, tmp_path):
+        body = '<p>あ<img class="gaiji-line" src="g.png" alt="〜"/>い</p>'
+        path, href = _make_chapter_epub(tmp_path, body)
+        assert extract_chapter_text(path, href) == "あ〜い"
+
+    def test_standalone_illustration_paragraph_skipped(self, tmp_path):
+        body = '<p>Before.</p><p><img class="fit" src="pic.png"/></p><p>After.</p>'
+        path, href = _make_chapter_epub(tmp_path, body)
+        assert extract_chapter_text(path, href) == "Before.\nAfter."
+
+    def test_ruby_nested_inside_span(self, tmp_path):
+        body = '<p><span class="bold"><ruby>漢字<rt>かんじ</rt></ruby></span></p>'
+        path, href = _make_chapter_epub(tmp_path, body)
+        assert extract_chapter_text(path, href) == "漢字(かんじ)"
+
+    def test_no_paragraphs_returns_empty_string(self, tmp_path):
+        path, href = _make_chapter_epub(tmp_path, "<div>No p tags here</div>")
+        assert extract_chapter_text(path, href) == ""
