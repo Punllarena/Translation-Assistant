@@ -3,9 +3,11 @@ EPUB import/export — framework-agnostic (no Qt, no db import), mirrors the
 parsing style of scraper.py. Zip/XML handling only via stdlib zipfile +
 xml.sax.saxutils.escape and the already-installed beautifulsoup4.
 """
+import io
 import posixpath
 import zipfile
 from pathlib import Path
+from xml.sax.saxutils import escape
 
 from bs4 import BeautifulSoup
 
@@ -172,3 +174,99 @@ def _read_toc(zf: zipfile.ZipFile, opf: BeautifulSoup, opf_dir: str) -> list[tup
         title = label_el.get_text(strip=True) if label_el else ""
         entries.append((title, _resolve(ncx_dir, content_el["src"])))
     return entries
+
+
+_CONTAINER_XML_OUT = """<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles>
+    <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+  </rootfiles>
+</container>
+"""
+
+_OPF_TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid" xml:lang="{lang}">
+<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+<dc:title>{title}</dc:title>
+<dc:language>{lang}</dc:language>
+<dc:identifier id="uid">{identifier}</dc:identifier>
+</metadata>
+<manifest>
+{manifest}
+</manifest>
+<spine>
+{spine}
+</spine>
+</package>
+"""
+
+_NAV_TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="{lang}">
+<head><title>Table of Contents</title></head>
+<body>
+<nav epub:type="toc">
+<ol>
+{items}
+</ol>
+</nav>
+</body>
+</html>
+"""
+
+_CHAPTER_TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="{lang}">
+<head><title>{title}</title></head>
+<body>
+{body}</body>
+</html>
+"""
+
+
+def build_epub(volume_title: str, chapters: list[tuple[str, list[str]]],
+               *, language: str = "en") -> bytes:
+    """
+    chapters: [(chapter_title, paragraphs), ...] in output order.
+    Assembles a minimal valid EPUB3 zip in memory using stdlib zipfile +
+    xml.sax.saxutils.escape — no new dependency. mimetype is stored
+    uncompressed as the first entry (required by the EPUB spec so readers
+    can identify the format without inflating the zip).
+
+    ponytail: no stylesheet is generated — reader default styling only.
+    """
+    import uuid
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("mimetype", "application/epub+zip", compress_type=zipfile.ZIP_STORED)
+        zf.writestr("META-INF/container.xml", _CONTAINER_XML_OUT)
+
+        manifest_items = []
+        spine_items = []
+        nav_lis = []
+        for i, (chapter_title, paragraphs) in enumerate(chapters, start=1):
+            chap_id = f"chap{i}"
+            href = f"text/chap{i}.xhtml"
+            body = "".join(f"<p>{escape(p)}</p>\n" for p in paragraphs)
+            xhtml = _CHAPTER_TEMPLATE.format(title=escape(chapter_title), body=body, lang=language)
+            zf.writestr(f"OEBPS/{href}", xhtml)
+            manifest_items.append(
+                f'<item id="{chap_id}" href="{href}" media-type="application/xhtml+xml"/>'
+            )
+            spine_items.append(f'<itemref idref="{chap_id}"/>')
+            nav_lis.append(f'<li><a href="{href}">{escape(chapter_title)}</a></li>')
+
+        zf.writestr("OEBPS/nav.xhtml", _NAV_TEMPLATE.format(lang=language, items="\n".join(nav_lis)))
+        manifest_items.append(
+            '<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>'
+        )
+
+        opf = _OPF_TEMPLATE.format(
+            title=escape(volume_title),
+            lang=language,
+            identifier=f"urn:uuid:{uuid.uuid4()}",
+            manifest="\n".join(manifest_items),
+            spine="\n".join(spine_items),
+        )
+        zf.writestr("OEBPS/content.opf", opf)
+
+    return buf.getvalue()

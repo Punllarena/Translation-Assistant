@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from translation_assistant.epub import EpubError, open_book, extract_chapter_text
+from translation_assistant.epub import EpubError, open_book, extract_chapter_text, build_epub
 
 
 _CONTAINER_XML = """<?xml version="1.0" encoding="UTF-8"?>
@@ -181,3 +181,50 @@ class TestExtractChapterText:
     def test_no_paragraphs_returns_empty_string(self, tmp_path):
         path, href = _make_chapter_epub(tmp_path, "<div>No p tags here</div>")
         assert extract_chapter_text(path, href) == ""
+
+
+class TestBuildEpub:
+    def test_returns_bytes(self):
+        result = build_epub("My Volume", [("Chapter 1", ["Hello.", "World."])])
+        assert isinstance(result, bytes)
+        assert len(result) > 0
+
+    def test_is_valid_zip(self, tmp_path):
+        result = build_epub("My Volume", [("Chapter 1", ["Hello."])])
+        out = tmp_path / "out.epub"
+        out.write_bytes(result)
+        assert zipfile.is_zipfile(out)
+
+    def test_mimetype_is_first_entry_uncompressed(self, tmp_path):
+        result = build_epub("My Volume", [("Chapter 1", ["Hello."])])
+        out = tmp_path / "out.epub"
+        out.write_bytes(result)
+        with zipfile.ZipFile(out) as zf:
+            info = zf.infolist()[0]
+            assert info.filename == "mimetype"
+            assert info.compress_type == zipfile.ZIP_STORED
+
+    def test_round_trip_title_and_chapters(self, tmp_path):
+        result = build_epub("My Volume", [("Chapter 1", ["Hello world."]), ("Chapter 2", ["Second chapter."])])
+        out = tmp_path / "out.epub"
+        out.write_bytes(result)
+        book = open_book(out)
+        assert book["title"] == "My Volume"
+        assert [c["title"] for c in book["chapters"]] == ["Chapter 1", "Chapter 2"]
+
+    def test_round_trip_paragraph_text_survives(self, tmp_path):
+        result = build_epub("My Volume", [("Chapter 1", ["Hello world.", "Second paragraph."])])
+        out = tmp_path / "out.epub"
+        out.write_bytes(result)
+        book = open_book(out)
+        href = book["chapters"][0]["href"]
+        text = extract_chapter_text(out, href)
+        assert text == "Hello world.\nSecond paragraph."
+
+    def test_xml_special_characters_escaped(self, tmp_path):
+        result = build_epub("My Volume", [("Chapter 1", ["A & B < C > D"])])
+        out = tmp_path / "out.epub"
+        out.write_bytes(result)
+        book = open_book(out)
+        href = book["chapters"][0]["href"]
+        assert extract_chapter_text(out, href) == "A & B < C > D"
