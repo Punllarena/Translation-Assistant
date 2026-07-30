@@ -8,7 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from translation_assistant.epub import EpubError, open_book, extract_chapter_text, build_epub
+from translation_assistant.epub import (
+    EpubError, open_book, extract_chapter_text, extract_chapter_content, build_epub,
+)
 
 
 _CONTAINER_XML = """<?xml version="1.0" encoding="UTF-8"?>
@@ -255,6 +257,83 @@ class TestExtractChapterText:
     def test_no_paragraphs_returns_empty_string(self, tmp_path):
         path, href = _make_chapter_epub(tmp_path, "<div>No p tags here</div>")
         assert extract_chapter_text(path, href) == ""
+
+
+def _make_illustration_epub(tmp_path: Path, body: str) -> tuple[Path, str]:
+    path = tmp_path / "illust.epub"
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr("mimetype", "application/epub+zip")
+        zf.writestr("META-INF/container.xml", _CONTAINER_XML)
+        zf.writestr("OEBPS/content.opf", _OPF_EPUB3)
+        zf.writestr("OEBPS/nav.xhtml", _NAV_XHTML)
+        zf.writestr("OEBPS/text/ch1.xhtml", f"<html><body>{body}</body></html>")
+        zf.writestr("OEBPS/text/ch2.xhtml", "<html><body><p>Filler.</p></body></html>")
+        zf.writestr("OEBPS/images/pic1.png", b"fake-png-1")
+        zf.writestr("OEBPS/images/pic2.png", b"fake-png-2")
+    return path, "OEBPS/text/ch1.xhtml"
+
+
+class TestExtractChapterContent:
+    def test_text_matches_extract_chapter_text_equivalent(self, tmp_path):
+        path, href = _make_illustration_epub(tmp_path, "<p>First.</p><p>Second.</p>")
+        text, images = extract_chapter_content(path, href)
+        assert text == "First.\nSecond."
+        assert images == []
+
+    def test_illustration_after_single_sentence_paragraph(self, tmp_path):
+        body = '<p>Before.</p><p><img class="fit" src="../images/pic1.png"/></p><p>After.</p>'
+        path, href = _make_illustration_epub(tmp_path, body)
+        text, images = extract_chapter_content(path, href)
+        assert text == "Before.\nAfter."
+        assert len(images) == 1
+        assert images[0]["anchor_position"] == 1  # after "Before." -> 1 raw_line
+        assert images[0]["src_path"] == "OEBPS/images/pic1.png"
+        assert images[0]["data"] == b"fake-png-1"
+
+    def test_anchor_position_accounts_for_sentence_splitting(self, tmp_path):
+        # "First.Second." (one paragraph, two sentences) splits into 2 raw_lines
+        # via build_new_file's 。-splitting -- the image after it must anchor at 2, not 1.
+        body = '<p>First。Second。</p><p><img class="fit" src="../images/pic1.png"/></p><p>Third.</p>'
+        path, href = _make_illustration_epub(tmp_path, body)
+        text, images = extract_chapter_content(path, href)
+        assert len(images) == 1
+        assert images[0]["anchor_position"] == 2
+
+    def test_two_illustrations_no_text_between(self, tmp_path):
+        body = (
+            '<p>Before.</p>'
+            '<p><img class="fit" src="../images/pic1.png"/></p>'
+            '<p><img class="fit" src="../images/pic2.png"/></p>'
+            '<p>After.</p>'
+        )
+        path, href = _make_illustration_epub(tmp_path, body)
+        text, images = extract_chapter_content(path, href)
+        assert text == "Before.\nAfter."
+        assert len(images) == 2
+        assert images[0]["anchor_position"] == images[1]["anchor_position"] == 1
+        assert images[0]["src_path"] == "OEBPS/images/pic1.png"
+        assert images[1]["src_path"] == "OEBPS/images/pic2.png"
+
+    def test_illustration_at_start_of_chapter(self, tmp_path):
+        body = '<p><img class="fit" src="../images/pic1.png"/></p><p>Only text.</p>'
+        path, href = _make_illustration_epub(tmp_path, body)
+        text, images = extract_chapter_content(path, href)
+        assert text == "Only text."
+        assert images[0]["anchor_position"] == 0
+
+    def test_illustration_at_end_of_chapter(self, tmp_path):
+        body = '<p>Only text.</p><p><img class="fit" src="../images/pic1.png"/></p>'
+        path, href = _make_illustration_epub(tmp_path, body)
+        text, images = extract_chapter_content(path, href)
+        assert text == "Only text."
+        assert images[0]["anchor_position"] == 1
+
+    def test_missing_image_bytes_skipped_not_fatal(self, tmp_path):
+        body = '<p>Before.</p><p><img class="fit" src="../images/missing.png"/></p><p>After.</p>'
+        path, href = _make_illustration_epub(tmp_path, body)
+        text, images = extract_chapter_content(path, href)
+        assert text == "Before.\nAfter."
+        assert images == []  # broken manifest reference -- caught, chapter import continues
 
 
 class TestBuildEpub:

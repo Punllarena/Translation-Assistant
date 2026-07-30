@@ -11,6 +11,8 @@ from xml.sax.saxutils import escape
 
 from bs4 import BeautifulSoup
 
+from translation_assistant.core import build_new_file, parse_file_content
+
 
 class EpubError(ValueError):
     """Raised when an EPUB file can't be parsed."""
@@ -129,6 +131,60 @@ def extract_chapter_text(path: Path, href: str) -> str:
     soup = BeautifulSoup(xhtml, "html.parser")
     paragraphs = [text for p in soup.find_all("p") if (text := _para_text(p))]
     return "\n".join(paragraphs)
+
+
+def extract_chapter_content(path: Path, href: str) -> tuple[str, list[dict]]:
+    """
+    Returns (text, images).
+    text: same joined-paragraph string extract_chapter_text produces, ready
+    for core.build_new_file().
+    images: [{"anchor_position": int, "src_path": str, "data": bytes}, ...]
+    in chapter order. Does not include the cover -- that comes from
+    open_book()'s cover_href, read separately.
+
+    anchor_position indexes into the *final* raw_lines array. Since
+    build_new_file() splits each paragraph into multiple %/$ sentence lines,
+    "between source paragraph 3 and 4" isn't the same offset as "between
+    raw_lines[3] and raw_lines[4]" once paragraph 3 has split into two
+    sentences. Resolved by running each individual paragraph alone through
+    build_new_file()+parse_file_content() as a throwaway counting pass and
+    accumulating a running raw-line offset -- this never feeds the actual
+    output, only the count, since build_new_file()'s sentence-splitting is
+    local per input line.
+    """
+    with zipfile.ZipFile(path) as zf:
+        xhtml = _read(zf, href)
+        soup = BeautifulSoup(xhtml, "html.parser")
+
+        text_paragraphs: list[str] = []
+        images: list[dict] = []
+        offset = 0
+        base_dir = posixpath.dirname(href)
+
+        for p in soup.find_all("p"):
+            if _is_standalone_illustration(p):
+                img = p.find("img")
+                src = img.get("src", "") if img is not None else ""
+                if not src:
+                    continue
+                resolved_src = _resolve(base_dir, src)
+                try:
+                    data = zf.read(resolved_src)
+                except KeyError:
+                    continue  # broken manifest reference -- skip, not fatal
+                images.append({
+                    "anchor_position": offset, "src_path": resolved_src, "data": data,
+                })
+                continue
+
+            para_text = _para_text(p)
+            if not para_text:
+                continue
+            text_paragraphs.append(para_text)
+            para_raw_lines, _, _ = parse_file_content(build_new_file(para_text))
+            offset += len(para_raw_lines)
+
+    return "\n".join(text_paragraphs), images
 
 
 def _is_standalone_illustration(p) -> bool:
