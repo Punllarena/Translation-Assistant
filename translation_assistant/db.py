@@ -67,6 +67,17 @@ CREATE TABLE IF NOT EXISTS lines (
 
 CREATE INDEX IF NOT EXISTS idx_lines_document ON lines(document_id, line_number);
 
+CREATE TABLE IF NOT EXISTS document_images (
+    id              INTEGER PRIMARY KEY,
+    document_id     INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    anchor_position INTEGER NOT NULL DEFAULT 0,
+    is_cover        INTEGER NOT NULL DEFAULT 0,
+    src_path        TEXT    NOT NULL,
+    data            BLOB    NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_document_images_doc ON document_images(document_id, anchor_position);
+
 CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER NOT NULL
 );
@@ -429,6 +440,33 @@ class Database:
             (series_title, volume_title),
         ).fetchall()
         return {r[0] for r in rows}
+
+    def add_document_image(self, document_id: int, anchor_position: int,
+                           is_cover: bool, src_path: str, data: bytes) -> int:
+        cur = self._conn.execute(
+            "INSERT INTO document_images (document_id, anchor_position, is_cover, src_path, data) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (document_id, anchor_position, 1 if is_cover else 0, src_path, data),
+        )
+        self._conn.commit()
+        return cur.lastrowid
+
+    def get_document_images(self, document_id: int) -> list[dict]:
+        rows = self._conn.execute(
+            "SELECT id, anchor_position, is_cover, src_path, data FROM document_images "
+            "WHERE document_id = ? ORDER BY anchor_position, id",
+            (document_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def volume_has_cover(self, series_title: str, volume_title: str) -> bool:
+        row = self._conn.execute(
+            "SELECT 1 FROM document_images di "
+            "JOIN documents d ON d.id = di.document_id "
+            "WHERE d.series_title = ? AND d.volume_title = ? AND di.is_cover = 1 LIMIT 1",
+            (series_title, volume_title),
+        ).fetchone()
+        return row is not None
 
     def get_document_ids_by_series(self, series_title: str) -> list[int]:
         rows = self._conn.execute(
