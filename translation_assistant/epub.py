@@ -49,6 +49,22 @@ def _dedupe_by_href(entries: list[tuple[str, str]]) -> list[tuple[str, str]]:
     return result
 
 
+def _find_cover_href(opf: BeautifulSoup, opf_dir: str) -> str | None:
+    """EPUB3: manifest item with properties="cover-image".
+    EPUB2 fallback: <meta name="cover" content="ID"> + manifest item with that id."""
+    cover_item = opf.find("item", attrs={"properties": lambda v: v and "cover-image" in v.split()})
+    if cover_item is not None:
+        return _resolve(opf_dir, cover_item["href"])
+
+    cover_meta = opf.find("meta", attrs={"name": "cover"})
+    if cover_meta is not None and cover_meta.get("content"):
+        item = opf.find("item", attrs={"id": cover_meta["content"]})
+        if item is not None:
+            return _resolve(opf_dir, item["href"])
+
+    return None
+
+
 def open_book(path: Path) -> dict:
     """
     Returns {"title": str, "chapters": [{"order": int, "title": str,
@@ -76,6 +92,7 @@ def open_book(path: Path) -> dict:
         title = title_el.get_text(strip=True) if title_el else ""
 
         toc_entries = _dedupe_by_href(_read_toc(zf, opf, opf_dir))
+        cover_href = _find_cover_href(opf, opf_dir)
 
         chapters = []
         for order, (chap_title, href) in enumerate(toc_entries, start=1):
@@ -88,7 +105,7 @@ def open_book(path: Path) -> dict:
                 "order": order, "title": chap_title, "href": href, "char_count": char_count,
             })
 
-        return {"title": title, "chapters": chapters}
+        return {"title": title, "chapters": chapters, "cover_href": cover_href}
 
 
 def extract_chapter_text(path: Path, href: str) -> str:

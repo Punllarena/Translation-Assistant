@@ -302,3 +302,70 @@ class TestBuildEpub:
         book = open_book(out)
         href = book["chapters"][0]["href"]
         assert extract_chapter_text(out, href) == "A & B < C > D"
+
+
+_OPF_EPUB3_COVER = """<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid">
+<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+<dc:title>Test Volume</dc:title>
+</metadata>
+<manifest>
+<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+<item id="cover-img" href="images/cover.jpg" media-type="image/jpeg" properties="cover-image"/>
+<item id="ch1" href="text/ch1.xhtml" media-type="application/xhtml+xml"/>
+</manifest>
+<spine>
+<itemref idref="ch1"/>
+</spine>
+</package>
+"""
+
+_OPF_EPUB2_COVER = """<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="2.0" unique-identifier="uid">
+<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+<dc:title>Test Volume</dc:title>
+<meta name="cover" content="cover-img"/>
+</metadata>
+<manifest>
+<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
+<item id="cover-img" href="images/cover.jpg" media-type="image/jpeg"/>
+<item id="ch1" href="text/ch1.xhtml" media-type="application/xhtml+xml"/>
+</manifest>
+<spine toc="ncx">
+<itemref idref="ch1"/>
+</spine>
+</package>
+"""
+
+
+def _make_epub_with_cover(tmp_path: Path, opf: str, *, ncx: bool = False) -> Path:
+    path = tmp_path / "cover.epub"
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr("mimetype", "application/epub+zip")
+        zf.writestr("META-INF/container.xml", _CONTAINER_XML)
+        zf.writestr("OEBPS/content.opf", opf)
+        if ncx:
+            zf.writestr("OEBPS/toc.ncx", _TOC_NCX)
+        else:
+            zf.writestr("OEBPS/nav.xhtml", _NAV_XHTML.replace(
+                '<li><a href="text/ch2.xhtml">Chapter 2</a></li>', ""
+            ))
+        zf.writestr("OEBPS/images/cover.jpg", b"fake-jpeg-bytes")
+        zf.writestr("OEBPS/text/ch1.xhtml", "<html><body><p>Hello.</p></body></html>")
+    return path
+
+
+class TestOpenBookCover:
+    def test_epub3_cover_href_resolved(self, tmp_path):
+        path = _make_epub_with_cover(tmp_path, _OPF_EPUB3_COVER)
+        book = open_book(path)
+        assert book["cover_href"] == "OEBPS/images/cover.jpg"
+
+    def test_epub2_cover_meta_fallback(self, tmp_path):
+        path = _make_epub_with_cover(tmp_path, _OPF_EPUB2_COVER, ncx=True)
+        book = open_book(path)
+        assert book["cover_href"] == "OEBPS/images/cover.jpg"
+
+    def test_no_cover_returns_none(self, tmp_path):
+        book = open_book(_make_epub3(tmp_path))
+        assert book["cover_href"] is None
