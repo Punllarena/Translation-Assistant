@@ -125,3 +125,59 @@ class TestImportEpubDialog:
 
         doc_ids = mem_db.get_document_ids_by_series("My Series")
         assert len(doc_ids) == 2  # Chapter 1 not duplicated; Chapter 2 added once
+
+    def test_source_url_not_set_to_chapter_href(self, qapp, mem_db, tmp_path, monkeypatch):
+        """A zip-internal href is not fetchable — it must not enable Re-fetch."""
+        path = _make_epub(tmp_path)
+        monkeypatch.setattr(
+            "translation_assistant.ui.dlg_import_epub.QFileDialog.getOpenFileName",
+            lambda *a, **kw: (str(path), ""),
+        )
+        dlg = ImportEpubDialog(mem_db)
+        dlg._on_browse()
+        dlg._series_edit.setText("My Series")
+        dlg._volume_edit.setText("Volume 1")
+        dlg._on_import()
+        doc_id = mem_db.get_document_ids_by_series("My Series")[0]
+        assert mem_db.get_document(doc_id)["source_url"] == ""
+
+
+class TestImportEpubBlankTitles:
+    def _browsed_dialog(self, mem_db, tmp_path, monkeypatch):
+        path = _make_epub(tmp_path)
+        monkeypatch.setattr(
+            "translation_assistant.ui.dlg_import_epub.QFileDialog.getOpenFileName",
+            lambda *a, **kw: (str(path), ""),
+        )
+        dlg = ImportEpubDialog(mem_db)
+        dlg._on_browse()
+        return dlg
+
+    def _run(self, dlg, series, volume, monkeypatch):
+        warned = []
+        monkeypatch.setattr(
+            "translation_assistant.ui.dlg_import_epub.QMessageBox.warning",
+            lambda *a, **kw: warned.append(a),
+        )
+        dlg._series_edit.setText(series)
+        dlg._volume_edit.setText(volume)
+        dlg._on_import()
+        return warned
+
+    def test_blank_series_title_warns_and_imports_nothing(self, qapp, mem_db, tmp_path, monkeypatch):
+        dlg = self._browsed_dialog(mem_db, tmp_path, monkeypatch)
+        warned = self._run(dlg, "", "Volume 1", monkeypatch)
+        assert warned
+        assert mem_db.list_documents() == []
+
+    def test_blank_volume_title_warns_and_imports_nothing(self, qapp, mem_db, tmp_path, monkeypatch):
+        dlg = self._browsed_dialog(mem_db, tmp_path, monkeypatch)
+        warned = self._run(dlg, "My Series", "", monkeypatch)
+        assert warned
+        assert mem_db.list_documents() == []
+
+    def test_whitespace_only_title_treated_as_blank(self, qapp, mem_db, tmp_path, monkeypatch):
+        dlg = self._browsed_dialog(mem_db, tmp_path, monkeypatch)
+        warned = self._run(dlg, "   ", "Volume 1", monkeypatch)
+        assert warned
+        assert mem_db.list_documents() == []

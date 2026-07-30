@@ -94,6 +94,80 @@ class TestOpenBookEpub3:
             open_book(path)
 
 
+_NAV_NESTED = """<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+<body>
+<nav epub:type="toc">
+<ol>
+<li><a href="text/ch1.xhtml">Part 1</a>
+  <ol>
+    <li><a href="text/ch1.xhtml#s1">Section 1</a></li>
+    <li><a href="text/ch1.xhtml#s2">Section 2</a></li>
+  </ol>
+</li>
+<li><a href="text/ch2.xhtml">Part 2</a></li>
+</ol>
+</nav>
+</body>
+</html>
+"""
+
+_NAV_LANDMARKS_FIRST = """<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+<body>
+<nav epub:type="landmarks">
+<ol>
+<li><a epub:type="cover" href="text/ch2.xhtml">Cover</a></li>
+</ol>
+</nav>
+<nav epub:type="toc">
+<ol>
+<li><a href="text/ch1.xhtml">Chapter 1</a></li>
+<li><a href="text/ch2.xhtml">Chapter 2</a></li>
+</ol>
+</nav>
+</body>
+</html>
+"""
+
+
+def _make_epub3_with_nav(tmp_path: Path, nav_xhtml: str, name: str = "navtest.epub") -> Path:
+    path = tmp_path / name
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr("mimetype", "application/epub+zip")
+        zf.writestr("META-INF/container.xml", _CONTAINER_XML)
+        zf.writestr("OEBPS/content.opf", _OPF_EPUB3)
+        zf.writestr("OEBPS/nav.xhtml", nav_xhtml)
+        zf.writestr("OEBPS/text/ch1.xhtml", "<html><body><p>One.</p></body></html>")
+        zf.writestr("OEBPS/text/ch2.xhtml", "<html><body><p>Two.</p></body></html>")
+    return path
+
+
+class TestNavQuirks:
+    def test_nested_toc_entries_deduped_to_one_chapter_per_file(self, tmp_path):
+        """Part -> Section#fragment must not yield 3 chapters all pointing at ch1."""
+        book = open_book(_make_epub3_with_nav(tmp_path, _NAV_NESTED))
+        hrefs = [c["href"] for c in book["chapters"]]
+        assert hrefs.count("OEBPS/text/ch1.xhtml") == 1
+        assert hrefs == ["OEBPS/text/ch1.xhtml", "OEBPS/text/ch2.xhtml"]
+        assert [c["title"] for c in book["chapters"]] == ["Part 1", "Part 2"]
+
+    def test_dedupe_renumbers_order_contiguously(self, tmp_path):
+        book = open_book(_make_epub3_with_nav(tmp_path, _NAV_NESTED))
+        assert [c["order"] for c in book["chapters"]] == [1, 2]
+
+    def test_toc_nav_preferred_over_earlier_landmarks_nav(self, tmp_path):
+        """A landmarks <nav> listed first must not shadow the real toc."""
+        book = open_book(_make_epub3_with_nav(tmp_path, _NAV_LANDMARKS_FIRST))
+        assert [c["title"] for c in book["chapters"]] == ["Chapter 1", "Chapter 2"]
+
+    def test_untyped_nav_still_used_as_fallback(self, tmp_path):
+        """EPUB2-ish nav docs omitting epub:type must still work."""
+        nav = _NAV_XHTML.replace('<nav epub:type="toc">', "<nav>")
+        book = open_book(_make_epub3_with_nav(tmp_path, nav))
+        assert [c["title"] for c in book["chapters"]] == ["Chapter 1", "Chapter 2"]
+
+
 _OPF_EPUB2 = """<?xml version="1.0" encoding="UTF-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" version="2.0" unique-identifier="uid">
 <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">

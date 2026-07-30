@@ -633,6 +633,84 @@ class TestExportEpubSeries:
             win._on_export_epub_series()
         assert (series_dir / "Vol 1.epub").read_bytes() == b"existing content"
 
+    def test_empty_chapter_does_not_block_volume(self, win, tmp_path, monkeypatch):
+        """A chapter with zero raw_lines can never reach 100% — it must not
+        discard the whole volume; it is silently omitted instead."""
+        db = win._db
+        self._load_translated_doc(win)
+        empty_id = db.create_document(
+            "Colophon", series_title="S", series_order=2,
+            chapter_title="Colophon", volume_title="Vol 1",
+        )
+        db.save_lines(empty_id, [])
+        win._doc_id = db.get_document_ids_by_series("S")[0]
+        monkeypatch.setattr(
+            "translation_assistant.ui.main_widget.QFileDialog.getExistingDirectory",
+            lambda *a, **kw: str(tmp_path),
+        )
+        with patch("translation_assistant.ui.main_widget.QMessageBox.information"):
+            win._on_export_epub_series()
+        dest = tmp_path / "S" / "Vol 1.epub"
+        assert dest.exists()
+
+    def test_empty_chapter_omitted_from_exported_volume(self, win, tmp_path, monkeypatch):
+        from translation_assistant.epub import open_book
+        db = win._db
+        self._load_translated_doc(win)
+        empty_id = db.create_document(
+            "Colophon", series_title="S", series_order=2,
+            chapter_title="Colophon", volume_title="Vol 1",
+        )
+        db.save_lines(empty_id, [])
+        win._doc_id = db.get_document_ids_by_series("S")[0]
+        monkeypatch.setattr(
+            "translation_assistant.ui.main_widget.QFileDialog.getExistingDirectory",
+            lambda *a, **kw: str(tmp_path),
+        )
+        with patch("translation_assistant.ui.main_widget.QMessageBox.information"):
+            win._on_export_epub_series()
+        book = open_book(tmp_path / "S" / "Vol 1.epub")
+        assert [c["title"] for c in book["chapters"]] == ["Ch 1"]
+
+    def test_volume_of_only_empty_chapters_writes_nothing(self, win, tmp_path, monkeypatch):
+        """Skipping empty chapters must not leave a chapterless book behind."""
+        db = win._db
+        doc_id = db.create_document(
+            "Colophon", series_title="S", series_order=1,
+            chapter_title="Colophon", volume_title="Vol 1",
+        )
+        db.save_lines(doc_id, [])
+        win._doc_id = doc_id
+        monkeypatch.setattr(
+            "translation_assistant.ui.main_widget.QFileDialog.getExistingDirectory",
+            lambda *a, **kw: str(tmp_path),
+        )
+        with patch("translation_assistant.ui.main_widget.QMessageBox.information"):
+            win._on_export_epub_series()
+        assert not (tmp_path / "S" / "Vol 1.epub").exists()
+
+    def test_blank_volume_title_falls_back_to_series_title(self, win, tmp_path, monkeypatch):
+        """Legacy (syosetu) docs have volume_title='' — the book must still
+        carry a dc:title, and the filename stays 'volume.epub'."""
+        from translation_assistant.epub import open_book
+        db = win._db
+        doc_id = db.create_document(
+            "Ch 1", series_title="S", series_order=1, chapter_title="Ch 1"
+        )
+        db.save_lines(doc_id, [
+            {"line_number": 0, "prefix": "%", "raw_text": "A", "translated_text": "Alpha"},
+        ])
+        win._doc_id = doc_id
+        monkeypatch.setattr(
+            "translation_assistant.ui.main_widget.QFileDialog.getExistingDirectory",
+            lambda *a, **kw: str(tmp_path),
+        )
+        with patch("translation_assistant.ui.main_widget.QMessageBox.information"):
+            win._on_export_epub_series()
+        dest = tmp_path / "S" / "volume.epub"
+        assert dest.exists()
+        assert open_book(dest)["title"] == "S"
+
 
 # ---------------------------------------------------------------------------
 # Punctuation insertion

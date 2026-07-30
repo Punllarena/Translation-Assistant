@@ -29,6 +29,26 @@ def _resolve(base_dir: str, href: str) -> str:
     return posixpath.normpath(posixpath.join(base_dir, href))
 
 
+def _dedupe_by_href(entries: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    """
+    Keep the first entry per resolved href.
+
+    A nested TOC (Part -> Section#fragment) flattens to several entries that
+    all resolve to the same file once the #fragment is stripped. Since
+    extract_chapter_text() extracts the WHOLE file, keeping all of them would
+    create N documents each holding the entire file's text. One document per
+    unique file is the correct degradation for a whole-file text extractor.
+    """
+    seen = set()
+    result = []
+    for title, href in entries:
+        if href in seen:
+            continue
+        seen.add(href)
+        result.append((title, href))
+    return result
+
+
 def open_book(path: Path) -> dict:
     """
     Returns {"title": str, "chapters": [{"order": int, "title": str,
@@ -55,7 +75,7 @@ def open_book(path: Path) -> dict:
         title_el = opf.find("dc:title")
         title = title_el.get_text(strip=True) if title_el else ""
 
-        toc_entries = _read_toc(zf, opf, opf_dir)
+        toc_entries = _dedupe_by_href(_read_toc(zf, opf, opf_dir))
 
         chapters = []
         for order, (chap_title, href) in enumerate(toc_entries, start=1):
@@ -147,7 +167,14 @@ def _read_toc(zf: zipfile.ZipFile, opf: BeautifulSoup, opf_dir: str) -> list[tup
         nav_href = _resolve(opf_dir, nav_item["href"])
         nav_soup = BeautifulSoup(_read(zf, nav_href), "html.parser")
         nav_dir = posixpath.dirname(nav_href)
-        toc_nav = nav_soup.find("nav")
+        # An EPUB3 nav doc may hold several <nav>s (toc / landmarks / page-list)
+        # in any order, so prefer the toc-typed one. html.parser keeps the
+        # colon in "epub:type" verbatim (same reason dc:title works above).
+        # Fall back to the first <nav> for EPUB2-ish files that omit the attr.
+        toc_nav = (
+            nav_soup.find("nav", attrs={"epub:type": lambda v: v and "toc" in v.split()})
+            or nav_soup.find("nav")
+        )
         if toc_nav is None:
             raise EpubError("EPUB3 nav document has no <nav> element")
         return [

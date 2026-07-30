@@ -142,6 +142,13 @@ class ImportEpubDialog(QDialog):
             return
         series_title = self._series_edit.text().strip()
         volume_title = self._volume_edit.text().strip()
+        if not series_title or not volume_title:
+            # Blank titles would make the dedup lookup match every series-less
+            # legacy document in the DB, silently skipping real chapters.
+            QMessageBox.warning(
+                self, "Missing Title", "Series title and volume title are required."
+            )
+            return
 
         already_imported = self._db.get_volume_chapter_titles(series_title, volume_title)
         next_order = self._db.get_next_series_order(series_title)
@@ -149,6 +156,7 @@ class ImportEpubDialog(QDialog):
         imported = []
         skipped = []
         errors = []
+        empty = []
         for i in range(self._chapter_list.count()):
             item = self._chapter_list.item(i)
             if item.checkState() != Qt.CheckState.Checked:
@@ -168,17 +176,21 @@ class ImportEpubDialog(QDialog):
                     series_order=next_order,
                     chapter_title=ch["title"],
                     volume_title=volume_title,
-                    source_url=ch["href"],
+                    # No source_url: a zip-internal href is not a fetchable URL,
+                    # and a non-empty source_url makes dlg_open offer "Re-fetch".
                 )
                 self._db.save_lines(doc_id, rows)
                 next_order += 1
                 imported.append(ch["title"])
+                if not raw_lines:
+                    empty.append(ch["title"])
             except Exception as exc:
                 errors.append((ch["title"], str(exc)))
 
-        self._show_summary(imported, skipped, errors)
+        self._show_summary(imported, skipped, errors, empty)
 
-    def _show_summary(self, imported: list[str], skipped: list[str], errors: list[tuple[str, str]]) -> None:
+    def _show_summary(self, imported: list[str], skipped: list[str],
+                      errors: list[tuple[str, str]], empty: list[str] | None = None) -> None:
         if imported:
             self._summary_header.setText("<b>Import complete.</b>")
         else:
@@ -192,6 +204,12 @@ class ImportEpubDialog(QDialog):
         if skipped:
             lines.append("")
             lines.append("Skipped: " + ", ".join(skipped))
+        if empty:
+            lines.append("")
+            lines.append(
+                "No text extracted (0 lines) — these will always read as 0% "
+                "translated and are omitted from EPUB export: " + ", ".join(empty)
+            )
         if errors:
             lines.append("")
             for title, msg in errors:

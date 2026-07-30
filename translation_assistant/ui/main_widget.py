@@ -1241,6 +1241,13 @@ class TranslationAssistantWidget(QWidget):
                 doc_meta = self._db.get_document(doc_id)
                 rows = self._db.get_lines(doc_id)
                 raw_lines, translated_lines = db_rows_to_arrays(rows)
+                if not raw_lines:
+                    # A chapter that extracted to zero lines (e.g. an EPUB
+                    # colophon whose text lived outside <p> tags) can never be
+                    # "finished" — calculate_progress returns 0%. Treat it as
+                    # vacuously complete and omit it: it contributes no
+                    # paragraphs either way, so it must not block the volume.
+                    continue
                 pct, _ = calculate_progress(raw_lines, translated_lines)
                 if pct < 100:
                     incomplete = True
@@ -1250,12 +1257,17 @@ class TranslationAssistantWidget(QWidget):
             if incomplete:
                 skipped_incomplete += 1
                 continue
-            filename = f"{_sanitize_filename(volume_title) or 'volume'}.epub"
+            if not chapters:
+                continue  # every chapter was empty — don't write a chapterless book
+            filename =f"{_sanitize_filename(volume_title) or 'volume'}.epub"
             dest = folder / filename
             if dest.exists():
                 skipped_exists += 1
                 continue
-            dest.write_bytes(build_epub(volume_title, chapters))
+            # Pre-EPUB (e.g. syosetu-imported) docs have volume_title='', which
+            # would yield an empty <dc:title>. Fall back to the series title for
+            # the book title only — the filename/grouping key stays as-is.
+            dest.write_bytes(build_epub(volume_title or series_title, chapters))
             written += 1
 
         lines = [f"Exported {written} volume(s) to:\n{folder}"]
