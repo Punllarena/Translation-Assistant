@@ -1,0 +1,94 @@
+"""
+Tests for translation_assistant.epub — pure unit tests against synthetic
+EPUB fixtures built with zipfile. No dependency on the real sample files
+in EPUB/ (gitignored, purchased content, manual-testing only).
+"""
+import zipfile
+from pathlib import Path
+
+import pytest
+
+from translation_assistant.epub import EpubError, open_book
+
+
+_CONTAINER_XML = """<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles>
+    <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+  </rootfiles>
+</container>
+"""
+
+_OPF_EPUB3 = """<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid">
+<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+<dc:title>Test Volume</dc:title>
+</metadata>
+<manifest>
+<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+<item id="ch1" href="text/ch1.xhtml" media-type="application/xhtml+xml"/>
+<item id="ch2" href="text/ch2.xhtml" media-type="application/xhtml+xml"/>
+</manifest>
+<spine>
+<itemref idref="ch1"/>
+<itemref idref="ch2"/>
+</spine>
+</package>
+"""
+
+_NAV_XHTML = """<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+<body>
+<nav epub:type="toc">
+<ol>
+<li><a href="text/ch1.xhtml">Chapter 1</a></li>
+<li><a href="text/ch2.xhtml">Chapter 2</a></li>
+</ol>
+</nav>
+</body>
+</html>
+"""
+
+
+def _make_epub3(tmp_path: Path, *, ch1_body="<p>Hello world.</p>", ch2_body="<p>More text here.</p>") -> Path:
+    path = tmp_path / "test.epub"
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr("mimetype", "application/epub+zip")
+        zf.writestr("META-INF/container.xml", _CONTAINER_XML)
+        zf.writestr("OEBPS/content.opf", _OPF_EPUB3)
+        zf.writestr("OEBPS/nav.xhtml", _NAV_XHTML)
+        zf.writestr("OEBPS/text/ch1.xhtml", f"<html><body>{ch1_body}</body></html>")
+        zf.writestr("OEBPS/text/ch2.xhtml", f"<html><body>{ch2_body}</body></html>")
+    return path
+
+
+class TestOpenBookEpub3:
+    def test_title(self, tmp_path):
+        book = open_book(_make_epub3(tmp_path))
+        assert book["title"] == "Test Volume"
+
+    def test_chapter_order_and_titles(self, tmp_path):
+        book = open_book(_make_epub3(tmp_path))
+        assert [c["title"] for c in book["chapters"]] == ["Chapter 1", "Chapter 2"]
+        assert [c["order"] for c in book["chapters"]] == [1, 2]
+
+    def test_chapter_href_resolved(self, tmp_path):
+        book = open_book(_make_epub3(tmp_path))
+        assert book["chapters"][0]["href"] == "OEBPS/text/ch1.xhtml"
+
+    def test_char_count(self, tmp_path):
+        book = open_book(_make_epub3(tmp_path, ch1_body="<p>Hello world.</p>"))
+        assert book["chapters"][0]["char_count"] == len("Hello world.")
+
+    def test_not_a_zip_raises(self, tmp_path):
+        path = tmp_path / "bad.epub"
+        path.write_text("not a zip")
+        with pytest.raises(EpubError):
+            open_book(path)
+
+    def test_missing_container_xml_raises(self, tmp_path):
+        path = tmp_path / "bad.epub"
+        with zipfile.ZipFile(path, "w") as zf:
+            zf.writestr("mimetype", "application/epub+zip")
+        with pytest.raises(EpubError):
+            open_book(path)
