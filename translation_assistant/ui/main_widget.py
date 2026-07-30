@@ -189,6 +189,9 @@ class TranslationAssistantWidget(QWidget):
         self.action_batch_import = QAction("Import Folder…", self)
         self.action_batch_import.triggered.connect(self._on_batch_import)
 
+        self.action_import_epub = QAction("Import EPUB…", self)
+        self.action_import_epub.triggered.connect(self._on_import_epub)
+
         self.action_save = QAction("Save", self)
         self.action_save.triggered.connect(self._on_save)
         self.action_save.setShortcut("Ctrl+S")
@@ -1102,6 +1105,12 @@ class TranslationAssistantWidget(QWidget):
         from translation_assistant.ui.dlg_batch_import import BatchImportDialog
         with self._topmost_suspended():
             dlg = BatchImportDialog(self._db, self._settings, parent=self)
+            dlg.exec()
+
+    def _on_import_epub(self) -> None:
+        from translation_assistant.ui.dlg_import_epub import ImportEpubDialog
+        with self._topmost_suspended():
+            dlg = ImportEpubDialog(self._db, parent=self)
             dlg.exec()
 
     def _on_export(self) -> None:

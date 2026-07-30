@@ -66,6 +66,9 @@ class TestInstantiation:
     def test_has_export_action(self, win):
         assert hasattr(win, "action_export")
 
+    def test_has_import_epub_action(self, win):
+        assert hasattr(win, "action_import_epub")
+
     def test_export_disabled_initially(self, win):
         assert not win.action_export.isEnabled()
 

@@ -103,6 +103,7 @@ class CombinedMainWindow(QMainWindow):
         file_menu.addSeparator()
         file_menu.addAction(ta.action_import)
         file_menu.addAction(ta.action_batch_import)
+        file_menu.addAction(ta.action_import_epub)
         file_menu.addAction(ta.action_export)
         md_menu = QMenu("Export Markdown", self)
         md_menu.addAction(ta.action_export_md_tl_doc)
