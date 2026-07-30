@@ -101,6 +101,7 @@ class Database:
             ("series_title",  "TEXT    NOT NULL DEFAULT ''"),
             ("series_order",  "INTEGER NOT NULL DEFAULT 0"),
             ("chapter_title", "TEXT    NOT NULL DEFAULT ''"),
+            ("volume_title",  "TEXT    NOT NULL DEFAULT ''"),
         ]:
             if col not in existing:
                 self._conn.execute(f"ALTER TABLE documents ADD COLUMN {col} {defn}")
@@ -287,11 +288,12 @@ class Database:
                         series_title: str = "",
                         series_order: int = 0,
                         chapter_title: str = "",
-                        source_url: str = "") -> int:
+                        source_url: str = "",
+                        volume_title: str = "") -> int:
         cur = self._conn.execute(
-            "INSERT INTO documents (title, series_title, series_order, chapter_title, source_url) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (title, series_title, series_order, chapter_title, source_url),
+            "INSERT INTO documents (title, series_title, series_order, chapter_title, source_url, volume_title) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (title, series_title, series_order, chapter_title, source_url, volume_title),
         )
         self._conn.commit()
         return cur.lastrowid
@@ -421,6 +423,13 @@ class Database:
         ).fetchall()
         return [r[0] for r in rows]
 
+    def get_volume_chapter_titles(self, series_title: str, volume_title: str) -> set[str]:
+        rows = self._conn.execute(
+            "SELECT chapter_title FROM documents WHERE series_title = ? AND volume_title = ?",
+            (series_title, volume_title),
+        ).fetchall()
+        return {r[0] for r in rows}
+
     def get_document_ids_by_series(self, series_title: str) -> list[int]:
         rows = self._conn.execute(
             "SELECT id FROM documents WHERE series_title = ? ORDER BY series_order",
@@ -458,7 +467,7 @@ class Database:
     def get_document(self, doc_id: int) -> dict:
         row = self._conn.execute(
             "SELECT id, title, series_title, series_order, chapter_title, "
-            "source_language, created_at, updated_at, last_position, source_url "
+            "source_language, created_at, updated_at, last_position, source_url, volume_title "
             "FROM documents WHERE id = ?",
             (doc_id,),
         ).fetchone()

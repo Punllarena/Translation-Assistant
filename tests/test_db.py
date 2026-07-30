@@ -251,6 +251,37 @@ def test_set_last_position(db):
     assert doc["last_position"] == 42
 
 
+def test_create_document_stores_volume_title(db):
+    doc_id = db.create_document(
+        "Ch 1", series_title="My Series", volume_title="Volume 1", chapter_title="Ch 1"
+    )
+    meta = db.get_document(doc_id)
+    assert meta["volume_title"] == "Volume 1"
+
+
+def test_create_document_volume_title_defaults_empty(db):
+    doc_id = db.create_document("Ch 1")
+    meta = db.get_document(doc_id)
+    assert meta["volume_title"] == ""
+
+
+def test_get_volume_chapter_titles_empty_when_none(db):
+    assert db.get_volume_chapter_titles("My Series", "Volume 1") == set()
+
+
+def test_get_volume_chapter_titles_returns_titles_for_volume(db):
+    db.create_document("d1", series_title="S", volume_title="V1", chapter_title="Ch 1")
+    db.create_document("d2", series_title="S", volume_title="V1", chapter_title="Ch 2")
+    db.create_document("d3", series_title="S", volume_title="V2", chapter_title="Ch 1")
+    assert db.get_volume_chapter_titles("S", "V1") == {"Ch 1", "Ch 2"}
+
+
+def test_get_volume_chapter_titles_isolated_by_series(db):
+    db.create_document("d1", series_title="S1", volume_title="V1", chapter_title="Ch 1")
+    db.create_document("d2", series_title="S2", volume_title="V1", chapter_title="Ch 1")
+    assert db.get_volume_chapter_titles("S1", "V1") == {"Ch 1"}
+
+
 # ---------------------------------------------------------------------------
 # Lines
 # ---------------------------------------------------------------------------
