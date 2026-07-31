@@ -1447,6 +1447,9 @@ class TranslationAssistantWidget(QWidget):
                 return
 
         lines = self._db.get_lines(self._doc_id)
+        doc_images = self._db.get_document_images(self._doc_id)
+        inline_images = [im for im in doc_images if not im["is_cover"]]
+        cover_image = next((im for im in doc_images if im["is_cover"]), None)
         if not any(ln["translated_text"].strip() for ln in lines):
             QMessageBox.warning(self, "Nothing to Publish", "No translated lines to publish.")
             return
@@ -1579,6 +1582,8 @@ class TranslationAssistantWidget(QWidget):
                 unlock_chapter_index=self._last_unlock_idx,
                 scheduled_date=self._last_scheduled_date,
                 attribution=self._settings.wp_attribution_enabled,
+                images=inline_images,
+                cover=cover_image,
             )
         except ValueError as exc:
             QMessageBox.warning(self, "Payload Error", str(exc))
