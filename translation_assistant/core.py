@@ -484,36 +484,6 @@ def build_markdown_translation(
 
 
 # ---------------------------------------------------------------------------
-# build_epub_paragraphs
-# ---------------------------------------------------------------------------
-
-
-def build_epub_paragraphs(raw_lines: list[str], translated_lines: list[str]) -> list[str]:
-    """
-    Same %/$ grouping and empty-group skipping as build_markdown_translation,
-    but returns a list of paragraph strings instead of a Markdown document.
-    """
-    paragraphs: list[str] = []
-    count = 0
-    n = len(raw_lines)
-    while count < n:
-        line = raw_lines[count]
-        if line:
-            group_size = 1
-            while (count + group_size < n
-                   and raw_lines[count + group_size].startswith("$")):
-                group_size += 1
-            translations = [translated_lines[count + x] for x in range(group_size)]
-            text = " ".join(t for t in translations if t).strip()
-            if text:
-                paragraphs.append(text)
-            count += group_size
-        else:
-            count += 1
-    return paragraphs
-
-
-# ---------------------------------------------------------------------------
 # build_epub_content
 # ---------------------------------------------------------------------------
 
@@ -522,8 +492,9 @@ def build_epub_content(
     raw_lines: list[str], translated_lines: list[str], images: list[dict],
 ) -> list[tuple[str, str]]:
     """
-    Returns ordered [("text", paragraph), ("image", src_path), ...], merging
-    build_epub_paragraphs' output with images at their anchor_position.
+    Returns ordered [("text", paragraph), ("image", src_path), ...]. Uses the
+    same %/$ grouping and empty-group skipping as build_markdown_translation,
+    merged with images at their anchor_position.
     images: [{"anchor_position": int, "src_path": str}, ...]. Callers pass
     them pre-sorted by (anchor_position, id) -- db.get_document_images()
     already returns that order -- so equal anchors here simply preserve

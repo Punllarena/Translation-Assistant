@@ -1222,7 +1222,8 @@ class TranslationAssistantWidget(QWidget):
         folder = Path(parent) / (_sanitize_filename(series_title) or "series")
         folder.mkdir(exist_ok=True)
 
-        from translation_assistant.core import build_epub_paragraphs, calculate_progress, db_rows_to_arrays
+        import mimetypes
+        from translation_assistant.core import build_epub_content, calculate_progress, db_rows_to_arrays
         from translation_assistant.epub import build_epub
 
         doc_ids = self._db.get_document_ids_by_series(series_title)
@@ -1236,6 +1237,7 @@ class TranslationAssistantWidget(QWidget):
         skipped_exists = 0
         for volume_title, vol_doc_ids in volumes.items():
             chapters = []
+            cover = None
             incomplete = False
             for doc_id in vol_doc_ids:
                 doc_meta = self._db.get_document(doc_id)
@@ -1252,14 +1254,26 @@ class TranslationAssistantWidget(QWidget):
                 if pct < 100:
                     incomplete = True
                     break
+                all_images = self._db.get_document_images(doc_id)
+                inline_images = [im for im in all_images if not im["is_cover"]]
+                if cover is None:
+                    cover_row = next((im for im in all_images if im["is_cover"]), None)
+                    if cover_row is not None:
+                        media_type = mimetypes.guess_type(cover_row["src_path"])[0] or "application/octet-stream"
+                        cover = {"data": cover_row["data"], "media_type": media_type}
+
                 heading = doc_meta.get("chapter_title") or doc_meta.get("title", "")
-                chapters.append((heading, build_epub_paragraphs(raw_lines, translated_lines)))
+                content_items = build_epub_content(raw_lines, translated_lines, inline_images)
+                chapter_images = [
+                    {"src_path": im["src_path"], "data": im["data"]} for im in inline_images
+                ]
+                chapters.append((heading, content_items, chapter_images))
             if incomplete:
                 skipped_incomplete += 1
                 continue
             if not chapters:
                 continue  # every chapter was empty — don't write a chapterless book
-            filename =f"{_sanitize_filename(volume_title) or 'volume'}.epub"
+            filename = f"{_sanitize_filename(volume_title) or 'volume'}.epub"
             dest = folder / filename
             if dest.exists():
                 skipped_exists += 1
@@ -1267,7 +1281,7 @@ class TranslationAssistantWidget(QWidget):
             # Pre-EPUB (e.g. syosetu-imported) docs have volume_title='', which
             # would yield an empty <dc:title>. Fall back to the series title for
             # the book title only — the filename/grouping key stays as-is.
-            dest.write_bytes(build_epub(volume_title or series_title, chapters))
+            dest.write_bytes(build_epub(volume_title or series_title, chapters, cover=cover))
             written += 1
 
         lines = [f"Exported {written} volume(s) to:\n{folder}"]
