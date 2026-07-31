@@ -4,12 +4,24 @@ parsing style of scraper.py. Zip/XML handling only via stdlib zipfile +
 xml.sax.saxutils.escape and the already-installed beautifulsoup4.
 """
 import io
+import mimetypes
 import posixpath
 import zipfile
 from pathlib import Path
 from xml.sax.saxutils import escape
 
 from bs4 import BeautifulSoup
+
+from translation_assistant.core import build_new_file, parse_file_content
+
+
+def _escape_attr(s: str) -> str:
+    """Escape a string for safe use inside a double-quoted XML attribute.
+
+    xml.sax.saxutils.escape() only escapes &, <, > -- not " -- so it is
+    insufficient on its own for attribute values (as opposed to text nodes).
+    """
+    return escape(s, {'"': "&quot;"})
 
 
 class EpubError(ValueError):
@@ -35,7 +47,7 @@ def _dedupe_by_href(entries: list[tuple[str, str]]) -> list[tuple[str, str]]:
 
     A nested TOC (Part -> Section#fragment) flattens to several entries that
     all resolve to the same file once the #fragment is stripped. Since
-    extract_chapter_text() extracts the WHOLE file, keeping all of them would
+    extract_chapter_content() extracts the WHOLE file, keeping all of them would
     create N documents each holding the entire file's text. One document per
     unique file is the correct degradation for a whole-file text extractor.
     """
@@ -47,6 +59,22 @@ def _dedupe_by_href(entries: list[tuple[str, str]]) -> list[tuple[str, str]]:
         seen.add(href)
         result.append((title, href))
     return result
+
+
+def _find_cover_href(opf: BeautifulSoup, opf_dir: str) -> str | None:
+    """EPUB3: manifest item with properties="cover-image".
+    EPUB2 fallback: <meta name="cover" content="ID"> + manifest item with that id."""
+    cover_item = opf.find("item", attrs={"properties": lambda v: v and "cover-image" in v.split()})
+    if cover_item is not None:
+        return _resolve(opf_dir, cover_item["href"])
+
+    cover_meta = opf.find("meta", attrs={"name": "cover"})
+    if cover_meta is not None and cover_meta.get("content"):
+        item = opf.find("item", attrs={"id": cover_meta["content"]})
+        if item is not None:
+            return _resolve(opf_dir, item["href"])
+
+    return None
 
 
 def open_book(path: Path) -> dict:
@@ -76,6 +104,7 @@ def open_book(path: Path) -> dict:
         title = title_el.get_text(strip=True) if title_el else ""
 
         toc_entries = _dedupe_by_href(_read_toc(zf, opf, opf_dir))
+        cover_href = _find_cover_href(opf, opf_dir)
 
         chapters = []
         for order, (chap_title, href) in enumerate(toc_entries, start=1):
@@ -88,30 +117,61 @@ def open_book(path: Path) -> dict:
                 "order": order, "title": chap_title, "href": href, "char_count": char_count,
             })
 
-        return {"title": title, "chapters": chapters}
+        return {"title": title, "chapters": chapters, "cover_href": cover_href}
 
 
-def extract_chapter_text(path: Path, href: str) -> str:
+def extract_chapter_content(path: Path, href: str) -> tuple[str, list[dict]]:
     """
-    Reads the given xhtml from the zip, walks <p> tags, and returns
-    paragraphs joined by "\\n" — ready for core.build_new_file().
+    Returns (text, images).
+    text: joined-paragraph string, ready
+    for core.build_new_file().
+    images: [{"anchor_position": int, "src_path": str, "data": bytes}, ...]
+    in chapter order. Does not include the cover -- that comes from
+    open_book()'s cover_href, read separately.
 
-    Per <p>, text is built by:
-      - <ruby>base<rt>reading</rt></ruby>  -> "base(reading)"
-      - inline <img alt="..."> (non-empty alt) -> alt text (gaiji glyph
-        substitution — some publishers render a character like the wave
-        dash as an image; skipping this would silently drop it).
-      - a <p> whose only meaningful child is a single <img> (a standalone
-        illustration paragraph) is skipped entirely — no placeholder
-        emitted. Illustration preservation is a follow-up feature; for
-        this module, dropping them matches today's behavior for every
-        other plain-text source in the app.
+    anchor_position indexes into the *final* raw_lines array. Since
+    build_new_file() splits each paragraph into multiple %/$ sentence lines,
+    "between source paragraph 3 and 4" isn't the same offset as "between
+    raw_lines[3] and raw_lines[4]" once paragraph 3 has split into two
+    sentences. Resolved by running each individual paragraph alone through
+    build_new_file()+parse_file_content() as a throwaway counting pass and
+    accumulating a running raw-line offset -- this never feeds the actual
+    output, only the count, since build_new_file()'s sentence-splitting is
+    local per input line.
     """
     with zipfile.ZipFile(path) as zf:
         xhtml = _read(zf, href)
-    soup = BeautifulSoup(xhtml, "html.parser")
-    paragraphs = [text for p in soup.find_all("p") if (text := _para_text(p))]
-    return "\n".join(paragraphs)
+        soup = BeautifulSoup(xhtml, "html.parser")
+
+        text_paragraphs: list[str] = []
+        images: list[dict] = []
+        offset = 0
+        base_dir = posixpath.dirname(href)
+
+        for p in soup.find_all("p"):
+            if _is_standalone_illustration(p):
+                img = p.find("img")
+                src = img.get("src", "") if img is not None else ""
+                if not src:
+                    continue
+                resolved_src = _resolve(base_dir, src)
+                try:
+                    data = zf.read(resolved_src)
+                except KeyError:
+                    continue  # broken manifest reference -- skip, not fatal
+                images.append({
+                    "anchor_position": offset, "src_path": resolved_src, "data": data,
+                })
+                continue
+
+            para_text = _para_text(p)
+            if not para_text:
+                continue
+            text_paragraphs.append(para_text)
+            para_raw_lines, _, _ = parse_file_content(build_new_file(para_text))
+            offset += len(para_raw_lines)
+
+    return "\n".join(text_paragraphs), images
 
 
 def _is_standalone_illustration(p) -> bool:
@@ -217,6 +277,7 @@ _OPF_TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
 <dc:title>{title}</dc:title>
 <dc:language>{lang}</dc:language>
 <dc:identifier id="uid">{identifier}</dc:identifier>
+{cover_meta}
 </metadata>
 <manifest>
 {manifest}
@@ -249,16 +310,31 @@ _CHAPTER_TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
 """
 
 
-def build_epub(volume_title: str, chapters: list[tuple[str, list[str]]],
-               *, language: str = "en") -> bytes:
+def build_epub(
+    volume_title: str,
+    chapters: list[tuple[str, list[tuple[str, str]], list[dict]]],
+    *, language: str = "en",
+    cover: dict | None = None,
+) -> bytes:
     """
-    chapters: [(chapter_title, paragraphs), ...] in output order.
+    chapters: [(chapter_title, content_items, chapter_images), ...] in output
+    order. content_items is core.build_epub_content()'s return shape
+    ([("text", paragraph) | ("image", src_path), ...]); chapter_images is
+    [{"src_path": str, "data": bytes}, ...] -- the actual bytes to embed,
+    keyed by the same src_path strings content_items references.
+    cover: {"data": bytes, "media_type": str} or None. When present, the
+    cover image gets a manifest item with properties="cover-image" plus a
+    <meta name="cover" content="..."> entry for older-reader compatibility.
+
     Assembles a minimal valid EPUB3 zip in memory using stdlib zipfile +
     xml.sax.saxutils.escape — no new dependency. mimetype is stored
     uncompressed as the first entry (required by the EPUB spec so readers
     can identify the format without inflating the zip).
 
-    ponytail: no stylesheet is generated — reader default styling only.
+    ponytail: no stylesheet is generated -- reader default styling only.
+    ponytail: no dedicated cover.xhtml title page -- the manifest/meta cover
+    metadata alone is enough for the readers that matter; add a real cover
+    page later only if a specific reader needs one.
     """
     import uuid
 
@@ -270,11 +346,47 @@ def build_epub(volume_title: str, chapters: list[tuple[str, list[str]]],
         manifest_items = []
         spine_items = []
         nav_lis = []
-        for i, (chapter_title, paragraphs) in enumerate(chapters, start=1):
+        image_id = 0
+        used_image_hrefs: set[str] = set()  # zip-relative hrefs already claimed, across all chapters
+
+        for i, (chapter_title, content_items, chapter_images) in enumerate(chapters, start=1):
             chap_id = f"chap{i}"
             href = f"text/chap{i}.xhtml"
-            body = "".join(f"<p>{escape(p)}</p>\n" for p in paragraphs)
-            xhtml = _CHAPTER_TEMPLATE.format(title=escape(chapter_title), body=body, lang=language)
+            image_bytes_by_src = {img["src_path"]: img["data"] for img in chapter_images}
+            written_images: dict[str, str] = {}  # src_path -> zip-relative href written this chapter
+
+            body_parts = []
+            for kind, value in content_items:
+                if kind == "text":
+                    body_parts.append(f"<p>{escape(value)}</p>\n")
+                else:
+                    src_path = value
+                    if src_path not in written_images:
+                        image_id += 1
+                        data = image_bytes_by_src.get(src_path)
+                        if data is None:
+                            continue  # referenced image has no bytes -- skip, not fatal
+                        # Preserve the original basename where possible (readable,
+                        # round-trips predictably); fall back to a numbered prefix
+                        # only on a collision (two different src_paths sharing a
+                        # basename, e.g. two chapters each with an "images/pic.png").
+                        basename = posixpath.basename(src_path) or f"{image_id}.img"
+                        img_href = f"images/{basename}"
+                        if img_href in used_image_hrefs:
+                            img_href = f"images/{image_id}_{basename}"
+                        used_image_hrefs.add(img_href)
+                        zf.writestr(f"OEBPS/{img_href}", data)
+                        media_type = mimetypes.guess_type(src_path)[0] or "application/octet-stream"
+                        manifest_items.append(
+                            f'<item id="img{image_id}" href="{_escape_attr(img_href)}" '
+                            f'media-type="{_escape_attr(media_type)}"/>'
+                        )
+                        written_images[src_path] = img_href
+                    body_parts.append(f'<p><img src="../{written_images[src_path]}"/></p>\n')
+
+            xhtml = _CHAPTER_TEMPLATE.format(
+                title=escape(chapter_title), body="".join(body_parts), lang=language,
+            )
             zf.writestr(f"OEBPS/{href}", xhtml)
             manifest_items.append(
                 f'<item id="{chap_id}" href="{href}" media-type="application/xhtml+xml"/>'
@@ -287,12 +399,30 @@ def build_epub(volume_title: str, chapters: list[tuple[str, list[str]]],
             '<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>'
         )
 
+        cover_meta = ""
+        if cover is not None:
+            ext = mimetypes.guess_extension(cover["media_type"]) or ".img"
+            cover_href = f"images/cover{ext}"
+            if cover_href in used_image_hrefs:
+                n = 1
+                while f"images/cover_{n}{ext}" in used_image_hrefs:
+                    n += 1
+                cover_href = f"images/cover_{n}{ext}"
+            used_image_hrefs.add(cover_href)
+            zf.writestr(f"OEBPS/{cover_href}", cover["data"])
+            manifest_items.append(
+                f'<item id="cover-image" href="{_escape_attr(cover_href)}" '
+                f'media-type="{_escape_attr(cover["media_type"])}" properties="cover-image"/>'
+            )
+            cover_meta = '<meta name="cover" content="cover-image"/>'
+
         opf = _OPF_TEMPLATE.format(
             title=escape(volume_title),
             lang=language,
             identifier=f"urn:uuid:{uuid.uuid4()}",
             manifest="\n".join(manifest_items),
             spine="\n".join(spine_items),
+            cover_meta=cover_meta,
         )
         zf.writestr("OEBPS/content.opf", opf)
 

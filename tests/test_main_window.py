@@ -711,6 +711,84 @@ class TestExportEpubSeries:
         assert dest.exists()
         assert open_book(dest)["title"] == "S"
 
+    def test_exported_epub_contains_inline_image(self, win, tmp_path, monkeypatch):
+        db = win._db
+        doc_id = db.create_document(
+            "Ch 1", series_title="S", series_order=1, chapter_title="Ch 1", volume_title="Vol 1"
+        )
+        db.save_lines(doc_id, [
+            {"line_number": 0, "prefix": "%", "raw_text": "A", "translated_text": "Alpha"},
+        ])
+        db.add_document_image(doc_id, 1, False, "images/pic.png", b"fake-bytes")
+        win._doc_id = doc_id
+        monkeypatch.setattr(
+            "translation_assistant.ui.main_widget.QFileDialog.getExistingDirectory",
+            lambda *a, **kw: str(tmp_path),
+        )
+        with patch("translation_assistant.ui.main_widget.QMessageBox.information"):
+            win._on_export_epub_series()
+        import zipfile
+        out = tmp_path / "S" / "Vol 1.epub"
+        with zipfile.ZipFile(out) as zf:
+            names = zf.namelist()
+        assert any(n.endswith("pic.png") for n in names)
+
+    def test_exported_epub_contains_cover(self, win, tmp_path, monkeypatch):
+        db = win._db
+        doc_id = db.create_document(
+            "Ch 1", series_title="S", series_order=1, chapter_title="Ch 1", volume_title="Vol 1"
+        )
+        db.save_lines(doc_id, [
+            {"line_number": 0, "prefix": "%", "raw_text": "A", "translated_text": "Alpha"},
+        ])
+        db.add_document_image(doc_id, 0, True, "images/cover.jpg", b"fake-cover-bytes")
+        win._doc_id = doc_id
+        monkeypatch.setattr(
+            "translation_assistant.ui.main_widget.QFileDialog.getExistingDirectory",
+            lambda *a, **kw: str(tmp_path),
+        )
+        with patch("translation_assistant.ui.main_widget.QMessageBox.information"):
+            win._on_export_epub_series()
+        import zipfile
+        out = tmp_path / "S" / "Vol 1.epub"
+        with zipfile.ZipFile(out) as zf:
+            opf = zf.read("OEBPS/content.opf").decode("utf-8")
+        assert "cover-image" in opf
+
+    def test_cover_on_empty_chapter_is_not_dropped(self, win, tmp_path, monkeypatch):
+        """A cover image attached to a chapter that extracts to zero
+        raw_lines (e.g. a bare-<img> title-page chapter) must still make it
+        into the exported EPUB's manifest, even though that chapter itself
+        contributes no content and is omitted from the spine."""
+        db = win._db
+        cover_id = db.create_document(
+            "Cover", series_title="S", series_order=1,
+            chapter_title="Cover", volume_title="Vol 1",
+        )
+        db.save_lines(cover_id, [])
+        db.add_document_image(cover_id, 0, True, "images/cover.jpg", b"fake-cover-bytes")
+
+        content_id = db.create_document(
+            "Ch 1", series_title="S", series_order=2, chapter_title="Ch 1", volume_title="Vol 1",
+        )
+        db.save_lines(content_id, [
+            {"line_number": 0, "prefix": "%", "raw_text": "A", "translated_text": "Alpha"},
+        ])
+
+        win._doc_id = content_id
+        monkeypatch.setattr(
+            "translation_assistant.ui.main_widget.QFileDialog.getExistingDirectory",
+            lambda *a, **kw: str(tmp_path),
+        )
+        with patch("translation_assistant.ui.main_widget.QMessageBox.information"):
+            win._on_export_epub_series()
+        import zipfile
+        out = tmp_path / "S" / "Vol 1.epub"
+        assert out.exists()
+        with zipfile.ZipFile(out) as zf:
+            opf = zf.read("OEBPS/content.opf").decode("utf-8")
+        assert "cover-image" in opf
+
 
 # ---------------------------------------------------------------------------
 # Punctuation insertion
@@ -1079,3 +1157,14 @@ class TestKeyboardAdditions:
         win._navigate_forward()
         assert self._key(win, Qt.Key.Key_Up, Qt.KeyboardModifier.ControlModifier) is True
         assert win._array_pointer == 0
+
+
+class TestCardListImagesWiring:
+    def test_open_document_passes_images_to_card_view(self, win):
+        doc_id = win._db.create_document("Ch 1", chapter_title="Ch 1")
+        win._db.save_lines(doc_id, [
+            {"line_number": 0, "prefix": "%", "raw_text": "A", "translated_text": ""},
+        ])
+        win._db.add_document_image(doc_id, 0, False, "images/pic.png", b"fake-bytes")
+        win.open_document(doc_id)
+        assert len(win._card_view._image_widgets) == 1

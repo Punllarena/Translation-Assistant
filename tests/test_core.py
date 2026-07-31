@@ -22,7 +22,7 @@ from translation_assistant.core import (
     batch_import_folder,
     build_markdown_translation,
     build_markdown_ruby,
-    build_epub_paragraphs,
+    build_epub_content,
 )
 
 
@@ -572,31 +572,47 @@ class TestBuildMarkdownRuby:
 
 
 # ---------------------------------------------------------------------------
-# build_epub_paragraphs
+# build_epub_content
 # ---------------------------------------------------------------------------
 
-def test_build_epub_paragraphs_basic():
+def test_build_epub_content_no_images_matches_paragraphs():
     raw = ["%A", "%B"]
     tl = ["Alpha", "Beta"]
-    assert build_epub_paragraphs(raw, tl) == ["Alpha", "Beta"]
+    result = build_epub_content(raw, tl, [])
+    assert result == [("text", "Alpha"), ("text", "Beta")]
 
-def test_build_epub_paragraphs_merges_continuations():
-    raw = ["%A", "$B"]
-    tl = ["Alpha", "Beta"]
-    assert build_epub_paragraphs(raw, tl) == ["Alpha Beta"]
-
-def test_build_epub_paragraphs_skips_untranslated():
+def test_build_epub_content_image_between_paragraphs():
     raw = ["%A", "%B"]
-    tl = ["", "Beta"]
-    assert build_epub_paragraphs(raw, tl) == ["Beta"]
+    tl = ["Alpha", "Beta"]
+    images = [{"anchor_position": 1, "src_path": "images/pic.png"}]
+    result = build_epub_content(raw, tl, images)
+    assert result == [("text", "Alpha"), ("image", "images/pic.png"), ("text", "Beta")]
 
-def test_build_epub_paragraphs_skips_blank_raw_lines():
-    raw = ["%A", "", "%B"]
-    tl = ["Alpha", "", "Beta"]
-    assert build_epub_paragraphs(raw, tl) == ["Alpha", "Beta"]
+def test_build_epub_content_image_at_start():
+    raw = ["%A"]
+    tl = ["Alpha"]
+    images = [{"anchor_position": 0, "src_path": "images/pic.png"}]
+    result = build_epub_content(raw, tl, images)
+    assert result == [("image", "images/pic.png"), ("text", "Alpha")]
 
-def test_build_epub_paragraphs_empty_input():
-    assert build_epub_paragraphs([], []) == []
+def test_build_epub_content_image_at_end():
+    raw = ["%A"]
+    tl = ["Alpha"]
+    images = [{"anchor_position": 1, "src_path": "images/pic.png"}]
+    result = build_epub_content(raw, tl, images)
+    assert result == [("text", "Alpha"), ("image", "images/pic.png")]
+
+def test_build_epub_content_two_images_same_anchor_preserve_order():
+    raw = ["%A"]
+    tl = ["Alpha"]
+    images = [
+        {"anchor_position": 1, "src_path": "images/pic1.png"},
+        {"anchor_position": 1, "src_path": "images/pic2.png"},
+    ]
+    result = build_epub_content(raw, tl, images)
+    assert result == [
+        ("text", "Alpha"), ("image", "images/pic1.png"), ("image", "images/pic2.png"),
+    ]
 
 
 # ---------------------------------------------------------------------------

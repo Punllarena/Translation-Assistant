@@ -7,8 +7,11 @@ import zipfile
 from pathlib import Path
 
 import pytest
+from bs4 import BeautifulSoup
 
-from translation_assistant.epub import EpubError, open_book, extract_chapter_text, build_epub
+from translation_assistant.epub import (
+    EpubError, open_book, extract_chapter_content, build_epub,
+)
 
 
 _CONTAINER_XML = """<?xml version="1.0" encoding="UTF-8"?>
@@ -230,47 +233,124 @@ def _make_chapter_epub(tmp_path: Path, body: str) -> tuple[Path, str]:
 class TestExtractChapterText:
     def test_plain_paragraphs_joined_by_newline(self, tmp_path):
         path, href = _make_chapter_epub(tmp_path, "<p>First.</p><p>Second.</p>")
-        assert extract_chapter_text(path, href) == "First.\nSecond."
+        assert extract_chapter_content(path, href)[0] == "First.\nSecond."
 
     def test_ruby_flattened_to_base_reading(self, tmp_path):
         body = "<p><ruby>漢字<rt>かんじ</rt></ruby>です。</p>"
         path, href = _make_chapter_epub(tmp_path, body)
-        assert extract_chapter_text(path, href) == "漢字(かんじ)です。"
+        assert extract_chapter_content(path, href)[0] == "漢字(かんじ)です。"
 
     def test_gaiji_img_alt_folded_into_text(self, tmp_path):
         body = '<p>あ<img class="gaiji-line" src="g.png" alt="〜"/>い</p>'
         path, href = _make_chapter_epub(tmp_path, body)
-        assert extract_chapter_text(path, href) == "あ〜い"
+        assert extract_chapter_content(path, href)[0] == "あ〜い"
 
     def test_standalone_illustration_paragraph_skipped(self, tmp_path):
         body = '<p>Before.</p><p><img class="fit" src="pic.png"/></p><p>After.</p>'
         path, href = _make_chapter_epub(tmp_path, body)
-        assert extract_chapter_text(path, href) == "Before.\nAfter."
+        assert extract_chapter_content(path, href)[0] == "Before.\nAfter."
 
     def test_ruby_nested_inside_span(self, tmp_path):
         body = '<p><span class="bold"><ruby>漢字<rt>かんじ</rt></ruby></span></p>'
         path, href = _make_chapter_epub(tmp_path, body)
-        assert extract_chapter_text(path, href) == "漢字(かんじ)"
+        assert extract_chapter_content(path, href)[0] == "漢字(かんじ)"
 
     def test_no_paragraphs_returns_empty_string(self, tmp_path):
         path, href = _make_chapter_epub(tmp_path, "<div>No p tags here</div>")
-        assert extract_chapter_text(path, href) == ""
+        assert extract_chapter_content(path, href)[0] == ""
+
+
+def _make_illustration_epub(tmp_path: Path, body: str) -> tuple[Path, str]:
+    path = tmp_path / "illust.epub"
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr("mimetype", "application/epub+zip")
+        zf.writestr("META-INF/container.xml", _CONTAINER_XML)
+        zf.writestr("OEBPS/content.opf", _OPF_EPUB3)
+        zf.writestr("OEBPS/nav.xhtml", _NAV_XHTML)
+        zf.writestr("OEBPS/text/ch1.xhtml", f"<html><body>{body}</body></html>")
+        zf.writestr("OEBPS/text/ch2.xhtml", "<html><body><p>Filler.</p></body></html>")
+        zf.writestr("OEBPS/images/pic1.png", b"fake-png-1")
+        zf.writestr("OEBPS/images/pic2.png", b"fake-png-2")
+    return path, "OEBPS/text/ch1.xhtml"
+
+
+class TestExtractChapterContent:
+    def test_text_matches_extract_chapter_text_equivalent(self, tmp_path):
+        path, href = _make_illustration_epub(tmp_path, "<p>First.</p><p>Second.</p>")
+        text, images = extract_chapter_content(path, href)
+        assert text == "First.\nSecond."
+        assert images == []
+
+    def test_illustration_after_single_sentence_paragraph(self, tmp_path):
+        body = '<p>Before.</p><p><img class="fit" src="../images/pic1.png"/></p><p>After.</p>'
+        path, href = _make_illustration_epub(tmp_path, body)
+        text, images = extract_chapter_content(path, href)
+        assert text == "Before.\nAfter."
+        assert len(images) == 1
+        assert images[0]["anchor_position"] == 1  # after "Before." -> 1 raw_line
+        assert images[0]["src_path"] == "OEBPS/images/pic1.png"
+        assert images[0]["data"] == b"fake-png-1"
+
+    def test_anchor_position_accounts_for_sentence_splitting(self, tmp_path):
+        # "First.Second." (one paragraph, two sentences) splits into 2 raw_lines
+        # via build_new_file's 。-splitting -- the image after it must anchor at 2, not 1.
+        body = '<p>First。Second。</p><p><img class="fit" src="../images/pic1.png"/></p><p>Third.</p>'
+        path, href = _make_illustration_epub(tmp_path, body)
+        text, images = extract_chapter_content(path, href)
+        assert len(images) == 1
+        assert images[0]["anchor_position"] == 2
+
+    def test_two_illustrations_no_text_between(self, tmp_path):
+        body = (
+            '<p>Before.</p>'
+            '<p><img class="fit" src="../images/pic1.png"/></p>'
+            '<p><img class="fit" src="../images/pic2.png"/></p>'
+            '<p>After.</p>'
+        )
+        path, href = _make_illustration_epub(tmp_path, body)
+        text, images = extract_chapter_content(path, href)
+        assert text == "Before.\nAfter."
+        assert len(images) == 2
+        assert images[0]["anchor_position"] == images[1]["anchor_position"] == 1
+        assert images[0]["src_path"] == "OEBPS/images/pic1.png"
+        assert images[1]["src_path"] == "OEBPS/images/pic2.png"
+
+    def test_illustration_at_start_of_chapter(self, tmp_path):
+        body = '<p><img class="fit" src="../images/pic1.png"/></p><p>Only text.</p>'
+        path, href = _make_illustration_epub(tmp_path, body)
+        text, images = extract_chapter_content(path, href)
+        assert text == "Only text."
+        assert images[0]["anchor_position"] == 0
+
+    def test_illustration_at_end_of_chapter(self, tmp_path):
+        body = '<p>Only text.</p><p><img class="fit" src="../images/pic1.png"/></p>'
+        path, href = _make_illustration_epub(tmp_path, body)
+        text, images = extract_chapter_content(path, href)
+        assert text == "Only text."
+        assert images[0]["anchor_position"] == 1
+
+    def test_missing_image_bytes_skipped_not_fatal(self, tmp_path):
+        body = '<p>Before.</p><p><img class="fit" src="../images/missing.png"/></p><p>After.</p>'
+        path, href = _make_illustration_epub(tmp_path, body)
+        text, images = extract_chapter_content(path, href)
+        assert text == "Before.\nAfter."
+        assert images == []  # broken manifest reference -- caught, chapter import continues
 
 
 class TestBuildEpub:
     def test_returns_bytes(self):
-        result = build_epub("My Volume", [("Chapter 1", ["Hello.", "World."])])
+        result = build_epub("My Volume", [("Chapter 1", [("text", "Hello."), ("text", "World.")], [])])
         assert isinstance(result, bytes)
         assert len(result) > 0
 
     def test_is_valid_zip(self, tmp_path):
-        result = build_epub("My Volume", [("Chapter 1", ["Hello."])])
+        result = build_epub("My Volume", [("Chapter 1", [("text", "Hello.")], [])])
         out = tmp_path / "out.epub"
         out.write_bytes(result)
         assert zipfile.is_zipfile(out)
 
     def test_mimetype_is_first_entry_uncompressed(self, tmp_path):
-        result = build_epub("My Volume", [("Chapter 1", ["Hello."])])
+        result = build_epub("My Volume", [("Chapter 1", [("text", "Hello.")], [])])
         out = tmp_path / "out.epub"
         out.write_bytes(result)
         with zipfile.ZipFile(out) as zf:
@@ -279,7 +359,10 @@ class TestBuildEpub:
             assert info.compress_type == zipfile.ZIP_STORED
 
     def test_round_trip_title_and_chapters(self, tmp_path):
-        result = build_epub("My Volume", [("Chapter 1", ["Hello world."]), ("Chapter 2", ["Second chapter."])])
+        result = build_epub("My Volume", [
+            ("Chapter 1", [("text", "Hello world.")], []),
+            ("Chapter 2", [("text", "Second chapter.")], []),
+        ])
         out = tmp_path / "out.epub"
         out.write_bytes(result)
         book = open_book(out)
@@ -287,18 +370,191 @@ class TestBuildEpub:
         assert [c["title"] for c in book["chapters"]] == ["Chapter 1", "Chapter 2"]
 
     def test_round_trip_paragraph_text_survives(self, tmp_path):
-        result = build_epub("My Volume", [("Chapter 1", ["Hello world.", "Second paragraph."])])
+        result = build_epub("My Volume", [
+            ("Chapter 1", [("text", "Hello world."), ("text", "Second paragraph.")], []),
+        ])
         out = tmp_path / "out.epub"
         out.write_bytes(result)
         book = open_book(out)
         href = book["chapters"][0]["href"]
-        text = extract_chapter_text(out, href)
+        text = extract_chapter_content(out, href)[0]
         assert text == "Hello world.\nSecond paragraph."
 
     def test_xml_special_characters_escaped(self, tmp_path):
-        result = build_epub("My Volume", [("Chapter 1", ["A & B < C > D"])])
+        result = build_epub("My Volume", [("Chapter 1", [("text", "A & B < C > D")], [])])
         out = tmp_path / "out.epub"
         out.write_bytes(result)
         book = open_book(out)
         href = book["chapters"][0]["href"]
-        assert extract_chapter_text(out, href) == "A & B < C > D"
+        assert extract_chapter_content(out, href)[0] == "A & B < C > D"
+
+
+_OPF_EPUB3_COVER = """<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid">
+<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+<dc:title>Test Volume</dc:title>
+</metadata>
+<manifest>
+<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+<item id="cover-img" href="images/cover.jpg" media-type="image/jpeg" properties="cover-image"/>
+<item id="ch1" href="text/ch1.xhtml" media-type="application/xhtml+xml"/>
+</manifest>
+<spine>
+<itemref idref="ch1"/>
+</spine>
+</package>
+"""
+
+_OPF_EPUB2_COVER = """<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="2.0" unique-identifier="uid">
+<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+<dc:title>Test Volume</dc:title>
+<meta name="cover" content="cover-img"/>
+</metadata>
+<manifest>
+<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
+<item id="cover-img" href="images/cover.jpg" media-type="image/jpeg"/>
+<item id="ch1" href="text/ch1.xhtml" media-type="application/xhtml+xml"/>
+</manifest>
+<spine toc="ncx">
+<itemref idref="ch1"/>
+</spine>
+</package>
+"""
+
+
+def _make_epub_with_cover(tmp_path: Path, opf: str, *, ncx: bool = False) -> Path:
+    path = tmp_path / "cover.epub"
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr("mimetype", "application/epub+zip")
+        zf.writestr("META-INF/container.xml", _CONTAINER_XML)
+        zf.writestr("OEBPS/content.opf", opf)
+        if ncx:
+            zf.writestr("OEBPS/toc.ncx", _TOC_NCX)
+        else:
+            zf.writestr("OEBPS/nav.xhtml", _NAV_XHTML.replace(
+                '<li><a href="text/ch2.xhtml">Chapter 2</a></li>', ""
+            ))
+        zf.writestr("OEBPS/images/cover.jpg", b"fake-jpeg-bytes")
+        zf.writestr("OEBPS/text/ch1.xhtml", "<html><body><p>Hello.</p></body></html>")
+    return path
+
+
+class TestOpenBookCover:
+    def test_epub3_cover_href_resolved(self, tmp_path):
+        path = _make_epub_with_cover(tmp_path, _OPF_EPUB3_COVER)
+        book = open_book(path)
+        assert book["cover_href"] == "OEBPS/images/cover.jpg"
+
+    def test_epub2_cover_meta_fallback(self, tmp_path):
+        path = _make_epub_with_cover(tmp_path, _OPF_EPUB2_COVER, ncx=True)
+        book = open_book(path)
+        assert book["cover_href"] == "OEBPS/images/cover.jpg"
+
+    def test_no_cover_returns_none(self, tmp_path):
+        book = open_book(_make_epub3(tmp_path))
+        assert book["cover_href"] is None
+
+
+class TestBuildEpubImages:
+    def test_chapter_with_image_round_trips(self, tmp_path):
+        content = [("text", "Before."), ("image", "images/pic.png"), ("text", "After.")]
+        chapter_images = [{"src_path": "images/pic.png", "data": b"fake-png-bytes"}]
+        result = build_epub("Vol", [("Ch 1", content, chapter_images)])
+        out = tmp_path / "out.epub"
+        out.write_bytes(result)
+        with zipfile.ZipFile(out) as zf:
+            assert zf.read("OEBPS/images/pic.png") == b"fake-png-bytes"
+            xhtml = zf.read("OEBPS/text/chap1.xhtml").decode("utf-8")
+        assert '<img src="../images/pic.png"' in xhtml
+        assert xhtml.index("Before.") < xhtml.index('<img') < xhtml.index("After.")
+
+    def test_no_images_still_works(self, tmp_path):
+        content = [("text", "Hello.")]
+        result = build_epub("Vol", [("Ch 1", content, [])])
+        out = tmp_path / "out.epub"
+        out.write_bytes(result)
+        assert zipfile.is_zipfile(out)
+
+    def test_cover_manifest_and_meta(self, tmp_path):
+        cover = {"data": b"fake-cover-bytes", "media_type": "image/jpeg"}
+        result = build_epub("Vol", [("Ch 1", [("text", "Hello.")], [])], cover=cover)
+        out = tmp_path / "out.epub"
+        out.write_bytes(result)
+        with zipfile.ZipFile(out) as zf:
+            assert zf.read("OEBPS/images/cover.jpg") == b"fake-cover-bytes"
+            opf = zf.read("OEBPS/content.opf").decode("utf-8")
+        assert 'properties="cover-image"' in opf
+        assert '<meta name="cover" content="cover-image"/>' in opf
+
+    def test_no_cover_no_cover_metadata(self, tmp_path):
+        result = build_epub("Vol", [("Ch 1", [("text", "Hello.")], [])])
+        out = tmp_path / "out.epub"
+        out.write_bytes(result)
+        with zipfile.ZipFile(out) as zf:
+            opf = zf.read("OEBPS/content.opf").decode("utf-8")
+        assert "cover" not in opf
+
+    def test_cover_href_collision_with_chapter_image_disambiguated(self, tmp_path):
+        # A chapter's own inline image happens to resolve to the exact same
+        # basename the cover would get ("images/cover.jpg" -- a plausible
+        # collision since cover fixtures conventionally use that basename).
+        # Both must survive as distinct, independently-readable zip entries
+        # and distinct manifest hrefs.
+        content = [("text", "Before."), ("image", "images/cover.jpg"), ("text", "After.")]
+        chapter_images = [{"src_path": "images/cover.jpg", "data": b"chapter-image-bytes"}]
+        cover = {"data": b"cover-image-bytes", "media_type": "image/jpeg"}
+        result = build_epub("Vol", [("Ch 1", content, chapter_images)], cover=cover)
+        out = tmp_path / "out.epub"
+        out.write_bytes(result)
+        with zipfile.ZipFile(out) as zf:
+            names = zf.namelist()
+            image_entries = [n for n in names if n.startswith("OEBPS/images/")]
+            assert len(image_entries) == len(set(image_entries)) == 2
+            # The chapter image keeps the natural basename; the cover gets
+            # disambiguated since it lost the race (chapters are written first).
+            assert zf.read("OEBPS/images/cover.jpg") == b"chapter-image-bytes"
+            assert zf.read("OEBPS/images/cover_1.jpg") == b"cover-image-bytes"
+            opf = zf.read("OEBPS/content.opf").decode("utf-8")
+        soup = BeautifulSoup(opf, "html.parser")
+        hrefs = [item["href"] for item in soup.find_all("item")]
+        assert hrefs.count("images/cover.jpg") == 1
+        assert hrefs.count("images/cover_1.jpg") == 1
+
+    def test_image_href_with_quote_does_not_break_xml_attribute(self, tmp_path):
+        # src_path can originate from an imported EPUB's internal filenames
+        # (attacker-controlled if a malicious EPUB is imported). A `"` in
+        # the basename must not let markup escape the href attribute.
+        src_path = 'images/pic".png'
+        content = [("text", "Before."), ("image", src_path), ("text", "After.")]
+        chapter_images = [{"src_path": src_path, "data": b"tricky-bytes"}]
+        result = build_epub("Vol", [("Ch 1", content, chapter_images)])
+        out = tmp_path / "out.epub"
+        out.write_bytes(result)
+        with zipfile.ZipFile(out) as zf:
+            opf = zf.read("OEBPS/content.opf").decode("utf-8")
+        # Unescaped, the raw `"` would break out of the href attribute and
+        # produce a stray dangling ".png"/> fragment parsed as markup.
+        assert '&quot;' in opf
+        soup = BeautifulSoup(opf, "html.parser")
+        img_items = [item for item in soup.find_all("item") if item.get("id", "").startswith("img")]
+        assert len(img_items) == 1
+        # The value round-trips as data -- exactly the original href, quote intact.
+        assert img_items[0]["href"] == src_path
+
+    def test_cover_media_type_with_quote_does_not_break_xml_attribute(self, tmp_path):
+        # cover["media_type"] is caller-supplied, not internally generated.
+        cover = {"data": b"cover-bytes", "media_type": 'image/jpeg" foo="bar'}
+        result = build_epub("Vol", [("Ch 1", [("text", "Hello.")], [])], cover=cover)
+        out = tmp_path / "out.epub"
+        out.write_bytes(result)
+        with zipfile.ZipFile(out) as zf:
+            opf = zf.read("OEBPS/content.opf").decode("utf-8")
+        soup = BeautifulSoup(opf, "html.parser")
+        cover_item = soup.find("item", id="cover-image")
+        assert cover_item is not None
+        # No injected "foo" attribute -- the whole string stayed as the
+        # media-type attribute's value rather than spawning a new attribute.
+        assert cover_item.get("foo") is None
+        assert cover_item["media-type"] == 'image/jpeg" foo="bar'
+        assert cover_item.get("properties") == "cover-image"

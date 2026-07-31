@@ -283,6 +283,61 @@ def test_get_volume_chapter_titles_isolated_by_series(db):
 
 
 # ---------------------------------------------------------------------------
+# Document images
+# ---------------------------------------------------------------------------
+
+def test_add_document_image_returns_id(db):
+    doc_id = db.create_document("Ch 1")
+    img_id = db.add_document_image(doc_id, 0, False, "images/pic.png", b"fakebytes")
+    assert isinstance(img_id, int)
+
+def test_get_document_images_empty_when_none(db):
+    doc_id = db.create_document("Ch 1")
+    assert db.get_document_images(doc_id) == []
+
+def test_get_document_images_returns_stored_fields(db):
+    doc_id = db.create_document("Ch 1")
+    db.add_document_image(doc_id, 3, False, "images/pic.png", b"fakebytes")
+    images = db.get_document_images(doc_id)
+    assert len(images) == 1
+    assert images[0]["anchor_position"] == 3
+    assert images[0]["is_cover"] == 0
+    assert images[0]["src_path"] == "images/pic.png"
+    assert images[0]["data"] == b"fakebytes"
+
+def test_get_document_images_ordered_by_anchor_then_id(db):
+    doc_id = db.create_document("Ch 1")
+    db.add_document_image(doc_id, 5, False, "b.png", b"b")
+    db.add_document_image(doc_id, 2, False, "a.png", b"a")
+    db.add_document_image(doc_id, 5, False, "c.png", b"c")
+    images = db.get_document_images(doc_id)
+    assert [im["src_path"] for im in images] == ["a.png", "b.png", "c.png"]
+
+def test_get_document_images_scoped_to_document(db):
+    doc1 = db.create_document("Ch 1")
+    doc2 = db.create_document("Ch 2")
+    db.add_document_image(doc1, 0, False, "a.png", b"a")
+    db.add_document_image(doc2, 0, False, "b.png", b"b")
+    assert len(db.get_document_images(doc1)) == 1
+    assert db.get_document_images(doc1)[0]["src_path"] == "a.png"
+
+def test_volume_has_cover_false_initially(db):
+    db.create_document("Ch 1", series_title="S", volume_title="V1")
+    assert db.volume_has_cover("S", "V1") is False
+
+def test_volume_has_cover_true_after_cover_added(db):
+    doc_id = db.create_document("Ch 1", series_title="S", volume_title="V1")
+    db.add_document_image(doc_id, 0, True, "cover.jpg", b"cover")
+    assert db.volume_has_cover("S", "V1") is True
+
+def test_volume_has_cover_isolated_by_volume(db):
+    doc1 = db.create_document("Ch 1", series_title="S", volume_title="V1")
+    db.create_document("Ch 1", series_title="S", volume_title="V2")
+    db.add_document_image(doc1, 0, True, "cover.jpg", b"cover")
+    assert db.volume_has_cover("S", "V2") is False
+
+
+# ---------------------------------------------------------------------------
 # Lines
 # ---------------------------------------------------------------------------
 
