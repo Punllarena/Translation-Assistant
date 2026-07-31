@@ -47,7 +47,7 @@ def _dedupe_by_href(entries: list[tuple[str, str]]) -> list[tuple[str, str]]:
 
     A nested TOC (Part -> Section#fragment) flattens to several entries that
     all resolve to the same file once the #fragment is stripped. Since
-    extract_chapter_text() extracts the WHOLE file, keeping all of them would
+    extract_chapter_content() extracts the WHOLE file, keeping all of them would
     create N documents each holding the entire file's text. One document per
     unique file is the correct degradation for a whole-file text extractor.
     """
@@ -120,33 +120,10 @@ def open_book(path: Path) -> dict:
         return {"title": title, "chapters": chapters, "cover_href": cover_href}
 
 
-def extract_chapter_text(path: Path, href: str) -> str:
-    """
-    Reads the given xhtml from the zip, walks <p> tags, and returns
-    paragraphs joined by "\\n" — ready for core.build_new_file().
-
-    Per <p>, text is built by:
-      - <ruby>base<rt>reading</rt></ruby>  -> "base(reading)"
-      - inline <img alt="..."> (non-empty alt) -> alt text (gaiji glyph
-        substitution — some publishers render a character like the wave
-        dash as an image; skipping this would silently drop it).
-      - a <p> whose only meaningful child is a single <img> (a standalone
-        illustration paragraph) is skipped entirely — no placeholder
-        emitted. Illustration preservation is a follow-up feature; for
-        this module, dropping them matches today's behavior for every
-        other plain-text source in the app.
-    """
-    with zipfile.ZipFile(path) as zf:
-        xhtml = _read(zf, href)
-    soup = BeautifulSoup(xhtml, "html.parser")
-    paragraphs = [text for p in soup.find_all("p") if (text := _para_text(p))]
-    return "\n".join(paragraphs)
-
-
 def extract_chapter_content(path: Path, href: str) -> tuple[str, list[dict]]:
     """
     Returns (text, images).
-    text: same joined-paragraph string extract_chapter_text produces, ready
+    text: joined-paragraph string, ready
     for core.build_new_file().
     images: [{"anchor_position": int, "src_path": str, "data": bytes}, ...]
     in chapter order. Does not include the cover -- that comes from

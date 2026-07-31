@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
 
 from translation_assistant.core import build_new_file, lines_to_db_rows, parse_file_content
 from translation_assistant.db import Database
-from translation_assistant.epub import EpubError, extract_chapter_text, open_book
+from translation_assistant.epub import EpubError, extract_chapter_content, open_book
 
 _DEFAULT_CHECK_THRESHOLD = 500
 
@@ -152,11 +152,21 @@ class ImportEpubDialog(QDialog):
 
         already_imported = self._db.get_volume_chapter_titles(series_title, volume_title)
         next_order = self._db.get_next_series_order(series_title)
+        cover_href = self._book.get("cover_href")
+        cover_data = None
+        if cover_href and not self._db.volume_has_cover(series_title, volume_title):
+            try:
+                import zipfile
+                with zipfile.ZipFile(self._book_path) as zf:
+                    cover_data = zf.read(cover_href)
+            except Exception:
+                cover_data = None
 
         imported = []
         skipped = []
         errors = []
         empty = []
+        first_new_doc_id = None
         for i in range(self._chapter_list.count()):
             item = self._chapter_list.item(i)
             if item.checkState() != Qt.CheckState.Checked:
@@ -166,7 +176,7 @@ class ImportEpubDialog(QDialog):
                 skipped.append(ch["title"])
                 continue
             try:
-                text = extract_chapter_text(self._book_path, ch["href"])
+                text, images = extract_chapter_content(self._book_path, ch["href"])
                 formatted = build_new_file(text)
                 raw_lines, translated_lines, _ = parse_file_content(formatted)
                 rows = lines_to_db_rows(raw_lines, translated_lines)
@@ -180,12 +190,21 @@ class ImportEpubDialog(QDialog):
                     # and a non-empty source_url makes dlg_open offer "Re-fetch".
                 )
                 self._db.save_lines(doc_id, rows)
+                for img in images:
+                    self._db.add_document_image(
+                        doc_id, img["anchor_position"], False, img["src_path"], img["data"]
+                    )
+                if first_new_doc_id is None:
+                    first_new_doc_id = doc_id
                 next_order += 1
                 imported.append(ch["title"])
                 if not raw_lines:
                     empty.append(ch["title"])
             except Exception as exc:
                 errors.append((ch["title"], str(exc)))
+
+        if cover_data is not None and first_new_doc_id is not None:
+            self._db.add_document_image(first_new_doc_id, 0, True, cover_href, cover_data)
 
         self._show_summary(imported, skipped, errors, empty)
 

@@ -10,7 +10,7 @@ import pytest
 from bs4 import BeautifulSoup
 
 from translation_assistant.epub import (
-    EpubError, open_book, extract_chapter_text, extract_chapter_content, build_epub,
+    EpubError, open_book, extract_chapter_content, build_epub,
 )
 
 
@@ -233,31 +233,31 @@ def _make_chapter_epub(tmp_path: Path, body: str) -> tuple[Path, str]:
 class TestExtractChapterText:
     def test_plain_paragraphs_joined_by_newline(self, tmp_path):
         path, href = _make_chapter_epub(tmp_path, "<p>First.</p><p>Second.</p>")
-        assert extract_chapter_text(path, href) == "First.\nSecond."
+        assert extract_chapter_content(path, href)[0] == "First.\nSecond."
 
     def test_ruby_flattened_to_base_reading(self, tmp_path):
         body = "<p><ruby>漢字<rt>かんじ</rt></ruby>です。</p>"
         path, href = _make_chapter_epub(tmp_path, body)
-        assert extract_chapter_text(path, href) == "漢字(かんじ)です。"
+        assert extract_chapter_content(path, href)[0] == "漢字(かんじ)です。"
 
     def test_gaiji_img_alt_folded_into_text(self, tmp_path):
         body = '<p>あ<img class="gaiji-line" src="g.png" alt="〜"/>い</p>'
         path, href = _make_chapter_epub(tmp_path, body)
-        assert extract_chapter_text(path, href) == "あ〜い"
+        assert extract_chapter_content(path, href)[0] == "あ〜い"
 
     def test_standalone_illustration_paragraph_skipped(self, tmp_path):
         body = '<p>Before.</p><p><img class="fit" src="pic.png"/></p><p>After.</p>'
         path, href = _make_chapter_epub(tmp_path, body)
-        assert extract_chapter_text(path, href) == "Before.\nAfter."
+        assert extract_chapter_content(path, href)[0] == "Before.\nAfter."
 
     def test_ruby_nested_inside_span(self, tmp_path):
         body = '<p><span class="bold"><ruby>漢字<rt>かんじ</rt></ruby></span></p>'
         path, href = _make_chapter_epub(tmp_path, body)
-        assert extract_chapter_text(path, href) == "漢字(かんじ)"
+        assert extract_chapter_content(path, href)[0] == "漢字(かんじ)"
 
     def test_no_paragraphs_returns_empty_string(self, tmp_path):
         path, href = _make_chapter_epub(tmp_path, "<div>No p tags here</div>")
-        assert extract_chapter_text(path, href) == ""
+        assert extract_chapter_content(path, href)[0] == ""
 
 
 def _make_illustration_epub(tmp_path: Path, body: str) -> tuple[Path, str]:
@@ -377,7 +377,7 @@ class TestBuildEpub:
         out.write_bytes(result)
         book = open_book(out)
         href = book["chapters"][0]["href"]
-        text = extract_chapter_text(out, href)
+        text = extract_chapter_content(out, href)[0]
         assert text == "Hello world.\nSecond paragraph."
 
     def test_xml_special_characters_escaped(self, tmp_path):
@@ -386,7 +386,7 @@ class TestBuildEpub:
         out.write_bytes(result)
         book = open_book(out)
         href = book["chapters"][0]["href"]
-        assert extract_chapter_text(out, href) == "A & B < C > D"
+        assert extract_chapter_content(out, href)[0] == "A & B < C > D"
 
 
 _OPF_EPUB3_COVER = """<?xml version="1.0" encoding="UTF-8"?>
