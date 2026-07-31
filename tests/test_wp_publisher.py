@@ -433,3 +433,29 @@ def test_build_image_payload_ties_break_on_id():
 
 def test_build_image_payload_empty_images():
     assert build_image_payload([{"translated_text": "x"}], []) == []
+
+
+def test_build_payload_includes_images_when_present():
+    doc_meta, series_meta, lines = _sample_meta()
+    images = [{"id": 1, "anchor_position": 1, "src_path": "a.jpg", "data": b"X"}]
+    payload = build_payload(doc_meta, series_meta, lines, api_key="key123", images=images)
+    assert payload["images"] == [
+        {"position": 1, "filename": "a.jpg", "mime": "image/jpeg", "data_base64": "WA=="}
+    ]
+
+def test_build_payload_omits_images_when_absent():
+    doc_meta, series_meta, lines = _sample_meta()
+    payload = build_payload(doc_meta, series_meta, lines, api_key="key123")
+    assert "images" not in payload
+
+def test_build_payload_includes_cover_when_present():
+    doc_meta, series_meta, lines = _sample_meta()
+    cover = {"src_path": "cover.png", "data": b"COVERBYTES"}
+    payload = build_payload(doc_meta, series_meta, lines, api_key="key123", cover=cover)
+    assert payload["cover"]["filename"] == "cover.png"
+    assert payload["cover"]["mime"] == "image/png"
+
+def test_build_payload_omits_cover_when_absent():
+    doc_meta, series_meta, lines = _sample_meta()
+    payload = build_payload(doc_meta, series_meta, lines, api_key="key123")
+    assert "cover" not in payload
