@@ -265,6 +265,30 @@ def test_create_document_volume_title_defaults_empty(db):
     assert meta["volume_title"] == ""
 
 
+def test_create_document_stores_volume_metadata(db):
+    doc_id = db.create_document(
+        "Ch 1",
+        volume_author="Author Name",
+        volume_illustrator="Illustrator Name",
+        volume_publisher="Test Publisher",
+        volume_identifier="urn:isbn:1234567890123",
+    )
+    meta = db.get_document(doc_id)
+    assert meta["volume_author"] == "Author Name"
+    assert meta["volume_illustrator"] == "Illustrator Name"
+    assert meta["volume_publisher"] == "Test Publisher"
+    assert meta["volume_identifier"] == "urn:isbn:1234567890123"
+
+
+def test_create_document_volume_metadata_defaults_empty(db):
+    doc_id = db.create_document("Ch 1")
+    meta = db.get_document(doc_id)
+    assert meta["volume_author"] == ""
+    assert meta["volume_illustrator"] == ""
+    assert meta["volume_publisher"] == ""
+    assert meta["volume_identifier"] == ""
+
+
 def test_get_volume_chapter_titles_empty_when_none(db):
     assert db.get_volume_chapter_titles("My Series", "Volume 1") == set()
 

@@ -74,6 +74,30 @@ class ImportEpubDialog(QDialog):
         volume_row.addWidget(self._volume_edit, 1)
         layout.addLayout(volume_row)
 
+        author_row = QHBoxLayout()
+        author_row.addWidget(QLabel("Author:"))
+        self._author_edit = QLineEdit()
+        author_row.addWidget(self._author_edit, 1)
+        layout.addLayout(author_row)
+
+        illustrator_row = QHBoxLayout()
+        illustrator_row.addWidget(QLabel("Illustrator:"))
+        self._illustrator_edit = QLineEdit()
+        illustrator_row.addWidget(self._illustrator_edit, 1)
+        layout.addLayout(illustrator_row)
+
+        publisher_row = QHBoxLayout()
+        publisher_row.addWidget(QLabel("Publisher:"))
+        self._publisher_edit = QLineEdit()
+        publisher_row.addWidget(self._publisher_edit, 1)
+        layout.addLayout(publisher_row)
+
+        identifier_row = QHBoxLayout()
+        identifier_row.addWidget(QLabel("ISBN:"))
+        self._identifier_edit = QLineEdit()
+        identifier_row.addWidget(self._identifier_edit, 1)
+        layout.addLayout(identifier_row)
+
         layout.addWidget(QLabel("Chapters:"))
         self._chapter_list = QListWidget()
         layout.addWidget(self._chapter_list, 1)
@@ -125,6 +149,10 @@ class ImportEpubDialog(QDialog):
         self._file_label.setText(str(self._book_path))
         self._series_edit.setText(book["title"])
         self._volume_edit.setText(book["title"])
+        self._author_edit.setText(book.get("author", ""))
+        self._illustrator_edit.setText(book.get("illustrator", ""))
+        self._publisher_edit.setText(book.get("publisher", ""))
+        self._identifier_edit.setText(book.get("identifier", ""))
 
         self._chapter_list.clear()
         for ch in book["chapters"]:
@@ -142,6 +170,10 @@ class ImportEpubDialog(QDialog):
             return
         series_title = self._series_edit.text().strip()
         volume_title = self._volume_edit.text().strip()
+        volume_author = self._author_edit.text().strip()
+        volume_illustrator = self._illustrator_edit.text().strip()
+        volume_publisher = self._publisher_edit.text().strip()
+        volume_identifier = self._identifier_edit.text().strip()
         if not series_title or not volume_title:
             # Blank titles would make the dedup lookup match every series-less
             # legacy document in the DB, silently skipping real chapters.
@@ -188,6 +220,10 @@ class ImportEpubDialog(QDialog):
                     volume_title=volume_title,
                     # No source_url: a zip-internal href is not a fetchable URL,
                     # and a non-empty source_url makes dlg_open offer "Re-fetch".
+                    volume_author=volume_author,
+                    volume_illustrator=volume_illustrator,
+                    volume_publisher=volume_publisher,
+                    volume_identifier=volume_identifier,
                 )
                 self._db.save_lines(doc_id, rows)
                 for img in images:

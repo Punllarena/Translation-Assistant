@@ -112,7 +112,11 @@ class Database:
             ("series_title",  "TEXT    NOT NULL DEFAULT ''"),
             ("series_order",  "INTEGER NOT NULL DEFAULT 0"),
             ("chapter_title", "TEXT    NOT NULL DEFAULT ''"),
-            ("volume_title",  "TEXT    NOT NULL DEFAULT ''"),
+            ("volume_title",       "TEXT    NOT NULL DEFAULT ''"),
+            ("volume_author",      "TEXT    NOT NULL DEFAULT ''"),
+            ("volume_illustrator", "TEXT    NOT NULL DEFAULT ''"),
+            ("volume_publisher",   "TEXT    NOT NULL DEFAULT ''"),
+            ("volume_identifier",  "TEXT    NOT NULL DEFAULT ''"),
         ]:
             if col not in existing:
                 self._conn.execute(f"ALTER TABLE documents ADD COLUMN {col} {defn}")
@@ -300,11 +304,17 @@ class Database:
                         series_order: int = 0,
                         chapter_title: str = "",
                         source_url: str = "",
-                        volume_title: str = "") -> int:
+                        volume_title: str = "",
+                        volume_author: str = "",
+                        volume_illustrator: str = "",
+                        volume_publisher: str = "",
+                        volume_identifier: str = "") -> int:
         cur = self._conn.execute(
-            "INSERT INTO documents (title, series_title, series_order, chapter_title, source_url, volume_title) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (title, series_title, series_order, chapter_title, source_url, volume_title),
+            "INSERT INTO documents (title, series_title, series_order, chapter_title, source_url, "
+            "volume_title, volume_author, volume_illustrator, volume_publisher, volume_identifier) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (title, series_title, series_order, chapter_title, source_url,
+             volume_title, volume_author, volume_illustrator, volume_publisher, volume_identifier),
         )
         self._conn.commit()
         return cur.lastrowid
@@ -505,7 +515,8 @@ class Database:
     def get_document(self, doc_id: int) -> dict:
         row = self._conn.execute(
             "SELECT id, title, series_title, series_order, chapter_title, "
-            "source_language, created_at, updated_at, last_position, source_url, volume_title "
+            "source_language, created_at, updated_at, last_position, source_url, "
+            "volume_title, volume_author, volume_illustrator, volume_publisher, volume_identifier "
             "FROM documents WHERE id = ?",
             (doc_id,),
         ).fetchone()

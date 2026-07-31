@@ -789,6 +789,32 @@ class TestExportEpubSeries:
             opf = zf.read("OEBPS/content.opf").decode("utf-8")
         assert "cover-image" in opf
 
+    def test_exported_epub_contains_metadata(self, win, tmp_path, monkeypatch):
+        db = win._db
+        doc_id = db.create_document(
+            "Ch 1", series_title="S", series_order=1, chapter_title="Ch 1", volume_title="Vol 1",
+            volume_author="Author Name", volume_illustrator="Illustrator Name",
+            volume_publisher="Test Publisher", volume_identifier="urn:isbn:1234567890123",
+        )
+        db.save_lines(doc_id, [
+            {"line_number": 0, "prefix": "%", "raw_text": "A", "translated_text": "Alpha"},
+        ])
+        win._doc_id = doc_id
+        monkeypatch.setattr(
+            "translation_assistant.ui.main_widget.QFileDialog.getExistingDirectory",
+            lambda *a, **kw: str(tmp_path),
+        )
+        with patch("translation_assistant.ui.main_widget.QMessageBox.information"):
+            win._on_export_epub_series()
+        import zipfile
+        out = tmp_path / "S" / "Vol 1.epub"
+        with zipfile.ZipFile(out) as zf:
+            opf = zf.read("OEBPS/content.opf").decode("utf-8")
+        assert "Author Name" in opf
+        assert "Illustrator Name" in opf
+        assert "Test Publisher" in opf
+        assert "urn:isbn:1234567890123" in opf
+
 
 # ---------------------------------------------------------------------------
 # Punctuation insertion

@@ -6,6 +6,7 @@ xml.sax.saxutils.escape and the already-installed beautifulsoup4.
 import io
 import mimetypes
 import posixpath
+import re
 import zipfile
 from pathlib import Path
 from xml.sax.saxutils import escape
@@ -77,6 +78,45 @@ def _find_cover_href(opf: BeautifulSoup, opf_dir: str) -> str | None:
     return None
 
 
+def _find_metadata(opf: BeautifulSoup) -> dict:
+    """
+    Extracts author/illustrator (from dc:creator + role-refining <meta>),
+    publisher, and identifier from the OPF's <metadata> block.
+
+    bs4's html.parser treats <meta> as an HTML void element, so
+    <meta refines="#creator01" property="role" ...>aut</meta> parses with
+    "aut" as the meta tag's *next sibling text node*, not its content --
+    meta.get_text() would return "". Read the role via next_sibling instead.
+    NavigableString objects have a .name attribute equal to None, so the
+    "is this a tag" check must be `getattr(node, "name", None) is None`,
+    not a bare hasattr check (which is True for text nodes too).
+    """
+    role_by_id: dict[str, str] = {}
+    for meta in opf.find_all("meta", attrs={"property": "role"}):
+        refines = meta.get("refines", "")
+        if not refines.startswith("#"):
+            continue
+        sib = meta.next_sibling
+        if sib is not None and getattr(sib, "name", None) is None:
+            role_by_id[refines[1:]] = str(sib).strip()
+
+    authors = []
+    illustrators = []
+    for creator in opf.find_all("dc:creator"):
+        role = role_by_id.get(creator.get("id", ""), "aut")
+        name = creator.get_text(strip=True)
+        (illustrators if role == "ill" else authors).append(name)
+
+    publisher_el = opf.find("dc:publisher")
+    identifier_el = opf.find("dc:identifier")
+    return {
+        "author": ", ".join(authors),
+        "illustrator": ", ".join(illustrators),
+        "publisher": publisher_el.get_text(strip=True) if publisher_el else "",
+        "identifier": identifier_el.get_text(strip=True) if identifier_el else "",
+    }
+
+
 def open_book(path: Path) -> dict:
     """
     Returns {"title": str, "chapters": [{"order": int, "title": str,
@@ -105,6 +145,7 @@ def open_book(path: Path) -> dict:
 
         toc_entries = _dedupe_by_href(_read_toc(zf, opf, opf_dir))
         cover_href = _find_cover_href(opf, opf_dir)
+        metadata = _find_metadata(opf)
 
         chapters = []
         for order, (chap_title, href) in enumerate(toc_entries, start=1):
@@ -117,7 +158,7 @@ def open_book(path: Path) -> dict:
                 "order": order, "title": chap_title, "href": href, "char_count": char_count,
             })
 
-        return {"title": title, "chapters": chapters, "cover_href": cover_href}
+        return {"title": title, "chapters": chapters, "cover_href": cover_href, **metadata}
 
 
 def extract_chapter_content(path: Path, href: str) -> tuple[str, list[dict]]:
@@ -191,8 +232,11 @@ def _extract_inline(node) -> str:
     Recursively render a tag's text content:
       - <ruby>base<rt>reading</rt></ruby> -> "base(reading)"
       - <img alt="..."> -> alt text
-      - everything else recurses into children (so ruby/gaiji still resolve
-        when nested inside e.g. a <span>).
+      - class="bold" -> "**...**" (inline text convention, same approach as
+        ruby -- the translator sees the markers and may wrap the matching
+        English substring the same way if they want bold to survive export)
+      - everything else recurses into children (so ruby/gaiji/bold still
+        resolve when nested inside further tags).
     """
     parts = []
     for child in node.children:
@@ -215,6 +259,8 @@ def _extract_inline(node) -> str:
             alt = child.get("alt", "")
             if alt:
                 parts.append(alt)
+        elif "bold" in (child.get("class") or []):
+            parts.append(f"**{_extract_inline(child)}**")
         else:
             parts.append(_extract_inline(child))
     return "".join(parts)
@@ -263,6 +309,24 @@ def _read_toc(zf: zipfile.ZipFile, opf: BeautifulSoup, opf_dir: str) -> list[tup
     return entries
 
 
+_BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
+
+
+def _paragraph_to_html(text: str) -> str:
+    """
+    Escapes text for XML, converting **bold** markers to <b> tags.
+    re.split with a capturing group returns alternating
+    [plain, bold, plain, bold, ..., plain] -- odd indices are the matched
+    bold runs.
+    """
+    parts = _BOLD_RE.split(text)
+    escaped = []
+    for i, part in enumerate(parts):
+        piece = escape(part)
+        escaped.append(f"<b>{piece}</b>" if i % 2 == 1 else piece)
+    return "".join(escaped)
+
+
 _CONTAINER_XML_OUT = """<?xml version="1.0" encoding="UTF-8"?>
 <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
   <rootfiles>
@@ -277,6 +341,8 @@ _OPF_TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
 <dc:title>{title}</dc:title>
 <dc:language>{lang}</dc:language>
 <dc:identifier id="uid">{identifier}</dc:identifier>
+{creator_entries}
+{publisher_entry}
 {cover_meta}
 </metadata>
 <manifest>
@@ -315,6 +381,10 @@ def build_epub(
     chapters: list[tuple[str, list[tuple[str, str]], list[dict]]],
     *, language: str = "en",
     cover: dict | None = None,
+    creator: str = "",
+    illustrator: str = "",
+    publisher: str = "",
+    identifier: str = "",
 ) -> bytes:
     """
     chapters: [(chapter_title, content_items, chapter_images), ...] in output
@@ -325,6 +395,14 @@ def build_epub(
     cover: {"data": bytes, "media_type": str} or None. When present, the
     cover image gets a manifest item with properties="cover-image" plus a
     <meta name="cover" content="..."> entry for older-reader compatibility.
+    creator/illustrator: author/illustrator names. When either is given, a
+    dc:creator entry is emitted with a role-refining <meta> (aut/ill),
+    matching the shape open_book() reads them from. Blank means omitted.
+    publisher: dc:publisher text, omitted when blank.
+    identifier: dc:identifier text (e.g. an ISBN urn). When blank, a
+    generated urn:uuid is used instead -- unlike creator/publisher, the OPF
+    always needs *some* unique identifier, so this one is never omitted,
+    only ever substituted.
 
     Assembles a minimal valid EPUB3 zip in memory using stdlib zipfile +
     xml.sax.saxutils.escape — no new dependency. mimetype is stored
@@ -355,10 +433,10 @@ def build_epub(
             image_bytes_by_src = {img["src_path"]: img["data"] for img in chapter_images}
             written_images: dict[str, str] = {}  # src_path -> zip-relative href written this chapter
 
-            body_parts = []
+            body_parts = [f"<h1>{escape(chapter_title)}</h1>\n"]
             for kind, value in content_items:
                 if kind == "text":
-                    body_parts.append(f"<p>{escape(value)}</p>\n")
+                    body_parts.append(f"<p>{_paragraph_to_html(value)}</p>\n")
                 else:
                     src_path = value
                     if src_path not in written_images:
@@ -416,13 +494,28 @@ def build_epub(
             )
             cover_meta = '<meta name="cover" content="cover-image"/>'
 
+        creator_entries = []
+        if creator:
+            creator_entries.append(f'<dc:creator id="creator-aut">{escape(creator)}</dc:creator>')
+            creator_entries.append(
+                '<meta refines="#creator-aut" property="role" scheme="marc:relators">aut</meta>'
+            )
+        if illustrator:
+            creator_entries.append(f'<dc:creator id="creator-ill">{escape(illustrator)}</dc:creator>')
+            creator_entries.append(
+                '<meta refines="#creator-ill" property="role" scheme="marc:relators">ill</meta>'
+            )
+        publisher_entry = f"<dc:publisher>{escape(publisher)}</dc:publisher>" if publisher else ""
+
         opf = _OPF_TEMPLATE.format(
             title=escape(volume_title),
             lang=language,
-            identifier=f"urn:uuid:{uuid.uuid4()}",
+            identifier=escape(identifier) if identifier else f"urn:uuid:{uuid.uuid4()}",
             manifest="\n".join(manifest_items),
             spine="\n".join(spine_items),
             cover_meta=cover_meta,
+            creator_entries="\n".join(creator_entries),
+            publisher_entry=publisher_entry,
         )
         zf.writestr("OEBPS/content.opf", opf)
 
