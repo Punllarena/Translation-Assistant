@@ -6,6 +6,7 @@ xml.sax.saxutils.escape and the already-installed beautifulsoup4.
 import io
 import mimetypes
 import posixpath
+import re
 import zipfile
 from pathlib import Path
 from xml.sax.saxutils import escape
@@ -308,6 +309,24 @@ def _read_toc(zf: zipfile.ZipFile, opf: BeautifulSoup, opf_dir: str) -> list[tup
     return entries
 
 
+_BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
+
+
+def _paragraph_to_html(text: str) -> str:
+    """
+    Escapes text for XML, converting **bold** markers to <b> tags.
+    re.split with a capturing group returns alternating
+    [plain, bold, plain, bold, ..., plain] -- odd indices are the matched
+    bold runs.
+    """
+    parts = _BOLD_RE.split(text)
+    escaped = []
+    for i, part in enumerate(parts):
+        piece = escape(part)
+        escaped.append(f"<b>{piece}</b>" if i % 2 == 1 else piece)
+    return "".join(escaped)
+
+
 _CONTAINER_XML_OUT = """<?xml version="1.0" encoding="UTF-8"?>
 <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
   <rootfiles>
@@ -400,10 +419,10 @@ def build_epub(
             image_bytes_by_src = {img["src_path"]: img["data"] for img in chapter_images}
             written_images: dict[str, str] = {}  # src_path -> zip-relative href written this chapter
 
-            body_parts = []
+            body_parts = [f"<h1>{escape(chapter_title)}</h1>\n"]
             for kind, value in content_items:
                 if kind == "text":
-                    body_parts.append(f"<p>{escape(value)}</p>\n")
+                    body_parts.append(f"<p>{_paragraph_to_html(value)}</p>\n")
                 else:
                     src_path = value
                     if src_path not in written_images:

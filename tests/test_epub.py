@@ -548,6 +548,42 @@ class TestOpenBookMetadata:
         assert book["author"] == "Author Name"
 
 
+class TestChapterHeadingAndBold:
+    def test_chapter_heading_emitted(self, tmp_path):
+        result = build_epub("Vol", [("Chapter One", [("text", "Hello.")], [])])
+        out = tmp_path / "out.epub"
+        out.write_bytes(result)
+        with zipfile.ZipFile(out) as zf:
+            xhtml = zf.read("OEBPS/text/chap1.xhtml").decode("utf-8")
+        assert "<h1>Chapter One</h1>" in xhtml
+        assert xhtml.index("<h1>") < xhtml.index("<p>Hello.</p>")
+
+    def test_bold_marker_converted_to_b_tag(self, tmp_path):
+        result = build_epub("Vol", [("Ch 1", [("text", "Before **bold** after.")], [])])
+        out = tmp_path / "out.epub"
+        out.write_bytes(result)
+        with zipfile.ZipFile(out) as zf:
+            xhtml = zf.read("OEBPS/text/chap1.xhtml").decode("utf-8")
+        assert "Before <b>bold</b> after." in xhtml
+
+    def test_bold_marker_with_special_chars_escaped(self, tmp_path):
+        result = build_epub("Vol", [("Ch 1", [("text", "**A & B**")], [])])
+        out = tmp_path / "out.epub"
+        out.write_bytes(result)
+        with zipfile.ZipFile(out) as zf:
+            xhtml = zf.read("OEBPS/text/chap1.xhtml").decode("utf-8")
+        assert "<b>A &amp; B</b>" in xhtml
+
+    def test_no_bold_marker_unaffected(self, tmp_path):
+        result = build_epub("Vol", [("Ch 1", [("text", "Plain text.")], [])])
+        out = tmp_path / "out.epub"
+        out.write_bytes(result)
+        with zipfile.ZipFile(out) as zf:
+            xhtml = zf.read("OEBPS/text/chap1.xhtml").decode("utf-8")
+        assert "<p>Plain text.</p>" in xhtml
+        assert "<b>" not in xhtml
+
+
 class TestBuildEpubImages:
     def test_chapter_with_image_round_trips(self, tmp_path):
         content = [("text", "Before."), ("image", "images/pic.png"), ("text", "After.")]
