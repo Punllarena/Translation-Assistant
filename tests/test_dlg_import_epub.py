@@ -13,7 +13,7 @@ from PySide6.QtCore import Qt
 from translation_assistant.db import Database
 from translation_assistant.ui.dlg_import_epub import ImportEpubDialog
 
-from .test_epub import _CONTAINER_XML, _OPF_EPUB3, _NAV_XHTML, _OPF_EPUB3_COVER
+from .test_epub import _CONTAINER_XML, _OPF_EPUB3, _NAV_XHTML, _OPF_EPUB3_COVER, _OPF_EPUB3_METADATA
 
 
 @pytest.fixture
@@ -260,3 +260,48 @@ class TestImportEpubImages:
             for im in mem_db.get_document_images(doc_id) if im["is_cover"]
         ]
         assert len(all_covers) == 1
+
+
+class TestImportEpubMetadataFields:
+    def test_fields_prefilled_from_opf(self, qapp, mem_db, tmp_path, monkeypatch):
+        path = tmp_path / "meta_vol.epub"
+        with zipfile.ZipFile(path, "w") as zf:
+            zf.writestr("mimetype", "application/epub+zip")
+            zf.writestr("META-INF/container.xml", _CONTAINER_XML)
+            zf.writestr("OEBPS/content.opf", _OPF_EPUB3_METADATA)
+            zf.writestr("OEBPS/nav.xhtml", _NAV_XHTML.replace(
+                '<li><a href="text/ch2.xhtml">Chapter 2</a></li>', ""
+            ))
+            zf.writestr("OEBPS/text/ch1.xhtml", "<html><body><p>Hello.</p></body></html>")
+        monkeypatch.setattr(
+            "translation_assistant.ui.dlg_import_epub.QFileDialog.getOpenFileName",
+            lambda *a, **kw: (str(path), ""),
+        )
+        dlg = ImportEpubDialog(mem_db)
+        dlg._on_browse()
+        assert dlg._author_edit.text() == "Author Name"
+        assert dlg._illustrator_edit.text() == "Illustrator Name"
+        assert dlg._publisher_edit.text() == "Test Publisher"
+        assert dlg._identifier_edit.text() == "urn:isbn:1234567890123"
+
+    def test_fields_editable_and_applied_to_created_documents(self, qapp, mem_db, tmp_path, monkeypatch):
+        path = _make_epub(tmp_path)
+        monkeypatch.setattr(
+            "translation_assistant.ui.dlg_import_epub.QFileDialog.getOpenFileName",
+            lambda *a, **kw: (str(path), ""),
+        )
+        dlg = ImportEpubDialog(mem_db)
+        dlg._on_browse()
+        dlg._series_edit.setText("S")
+        dlg._volume_edit.setText("V1")
+        dlg._author_edit.setText("Custom Author")
+        dlg._illustrator_edit.setText("Custom Illustrator")
+        dlg._publisher_edit.setText("Custom Publisher")
+        dlg._identifier_edit.setText("urn:isbn:0000000000000")
+        dlg._on_import()
+        doc_id = mem_db.get_document_ids_by_series("S")[0]
+        meta = mem_db.get_document(doc_id)
+        assert meta["volume_author"] == "Custom Author"
+        assert meta["volume_illustrator"] == "Custom Illustrator"
+        assert meta["volume_publisher"] == "Custom Publisher"
+        assert meta["volume_identifier"] == "urn:isbn:0000000000000"
