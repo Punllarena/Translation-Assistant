@@ -590,7 +590,9 @@ class TranslationAssistantWidget(QWidget):
             )
             self._array_pointer = p
 
-        self._card_view.load(raw_lines, translated_lines, self._glossary)
+        images = self._db.get_document_images(self._doc_id) if self._doc_id is not None else []
+        inline_images = [im for im in images if not im["is_cover"]]
+        self._card_view.load(raw_lines, translated_lines, self._glossary, inline_images)
 
         display, sentences, replaced = replace_and_parse(
             raw_lines[p], self._glossary, self._parse_chars

@@ -1157,3 +1157,14 @@ class TestKeyboardAdditions:
         win._navigate_forward()
         assert self._key(win, Qt.Key.Key_Up, Qt.KeyboardModifier.ControlModifier) is True
         assert win._array_pointer == 0
+
+
+class TestCardListImagesWiring:
+    def test_open_document_passes_images_to_card_view(self, win):
+        doc_id = win._db.create_document("Ch 1", chapter_title="Ch 1")
+        win._db.save_lines(doc_id, [
+            {"line_number": 0, "prefix": "%", "raw_text": "A", "translated_text": ""},
+        ])
+        win._db.add_document_image(doc_id, 0, False, "images/pic.png", b"fake-bytes")
+        win.open_document(doc_id)
+        assert len(win._card_view._image_widgets) == 1
