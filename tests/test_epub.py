@@ -251,7 +251,7 @@ class TestExtractChapterText:
         assert extract_chapter_content(path, href)[0] == "Before.\nAfter."
 
     def test_ruby_nested_inside_span(self, tmp_path):
-        body = '<p><span class="bold"><ruby>漢字<rt>かんじ</rt></ruby></span></p>'
+        body = '<p><span class="tcy"><ruby>漢字<rt>かんじ</rt></ruby></span></p>'
         path, href = _make_chapter_epub(tmp_path, body)
         assert extract_chapter_content(path, href)[0] == "漢字(かんじ)"
 
@@ -335,6 +335,28 @@ class TestExtractChapterContent:
         text, images = extract_chapter_content(path, href)
         assert text == "Before.\nAfter."
         assert images == []  # broken manifest reference -- caught, chapter import continues
+
+
+class TestBoldFlattening:
+    def test_bold_span_wrapped_in_markers(self, tmp_path):
+        body = '<p><span class="bold">emphasized text</span></p>'
+        path, href = _make_chapter_epub(tmp_path, body)
+        assert extract_chapter_content(path, href)[0] == "**emphasized text**"
+
+    def test_bold_span_mixed_with_plain_text(self, tmp_path):
+        body = '<p>Before <span class="bold">bold part</span> after.</p>'
+        path, href = _make_chapter_epub(tmp_path, body)
+        assert extract_chapter_content(path, href)[0] == "Before **bold part** after."
+
+    def test_ruby_inside_bold_span(self, tmp_path):
+        body = '<p><span class="bold"><ruby>漢字<rt>かんじ</rt></ruby></span></p>'
+        path, href = _make_chapter_epub(tmp_path, body)
+        assert extract_chapter_content(path, href)[0] == "**漢字(かんじ)**"
+
+    def test_tcy_span_unaffected_by_bold_handling(self, tmp_path):
+        body = '<p>A<span class="tcy">!?</span>B</p>'
+        path, href = _make_chapter_epub(tmp_path, body)
+        assert extract_chapter_content(path, href)[0] == "A!?B"
 
 
 class TestBuildEpub:

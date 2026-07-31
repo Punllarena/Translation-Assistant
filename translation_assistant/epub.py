@@ -231,8 +231,11 @@ def _extract_inline(node) -> str:
     Recursively render a tag's text content:
       - <ruby>base<rt>reading</rt></ruby> -> "base(reading)"
       - <img alt="..."> -> alt text
-      - everything else recurses into children (so ruby/gaiji still resolve
-        when nested inside e.g. a <span>).
+      - class="bold" -> "**...**" (inline text convention, same approach as
+        ruby -- the translator sees the markers and may wrap the matching
+        English substring the same way if they want bold to survive export)
+      - everything else recurses into children (so ruby/gaiji/bold still
+        resolve when nested inside further tags).
     """
     parts = []
     for child in node.children:
@@ -255,6 +258,8 @@ def _extract_inline(node) -> str:
             alt = child.get("alt", "")
             if alt:
                 parts.append(alt)
+        elif "bold" in (child.get("class") or []):
+            parts.append(f"**{_extract_inline(child)}**")
         else:
             parts.append(_extract_inline(child))
     return "".join(parts)
