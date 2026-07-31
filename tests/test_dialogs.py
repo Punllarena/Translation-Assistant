@@ -889,6 +889,7 @@ def test_series_manager_has_context_menu_actions(qapp, mem_db):
     dlg = SeriesManagerDialog(mem_db)
     assert hasattr(dlg, "_set_url_action")
     assert hasattr(dlg, "_set_wp_action")
+    assert hasattr(dlg, "_set_epub_action")
     assert hasattr(dlg, "_add_profile_action")
     assert hasattr(dlg, "_import_profile_action")
     assert hasattr(dlg, "_open_toc_action")
@@ -919,6 +920,23 @@ def test_series_manager_open_toc_noop_without_slug(qapp, mem_db, tmp_settings):
     with patch("translation_assistant.ui.dlg_series.QDesktopServices.openUrl") as open_url:
         dlg._on_open_toc()
     open_url.assert_not_called()
+    dlg.reject()
+
+
+def test_series_manager_set_epub_metadata_opens_dialog(qapp, mem_db):
+    from translation_assistant.ui.dlg_series import SeriesManagerDialog
+    from unittest.mock import MagicMock, patch
+    mem_db.create_document("Ch 1", series_title="My Series", volume_title="")
+    dlg = SeriesManagerDialog(mem_db)
+    dlg._table.setCurrentCell(0, 0)
+    mock_instance = MagicMock()
+    with patch(
+        "translation_assistant.ui.dlg_series.SeriesEpubMetadataDialog",
+        return_value=mock_instance,
+    ) as mock_cls:
+        dlg._on_set_epub_metadata()
+    mock_cls.assert_called_once_with(mem_db, "My Series", parent=dlg)
+    mock_instance.exec.assert_called_once()
     dlg.reject()
 
 
