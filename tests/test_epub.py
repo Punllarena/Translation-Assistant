@@ -584,6 +584,48 @@ class TestChapterHeadingAndBold:
         assert "<b>" not in xhtml
 
 
+class TestBuildEpubMetadata:
+    def test_creator_and_illustrator_emitted_with_roles(self, tmp_path):
+        result = build_epub(
+            "Vol", [("Ch 1", [("text", "Hello.")], [])],
+            creator="Author Name", illustrator="Illustrator Name",
+        )
+        out = tmp_path / "out.epub"
+        out.write_bytes(result)
+        with zipfile.ZipFile(out) as zf:
+            opf = zf.read("OEBPS/content.opf").decode("utf-8")
+        assert "<dc:creator" in opf and "Author Name" in opf
+        assert "Illustrator Name" in opf
+        assert 'property="role"' in opf
+
+    def test_publisher_emitted(self, tmp_path):
+        result = build_epub("Vol", [("Ch 1", [("text", "Hello.")], [])], publisher="Test Publisher")
+        out = tmp_path / "out.epub"
+        out.write_bytes(result)
+        with zipfile.ZipFile(out) as zf:
+            opf = zf.read("OEBPS/content.opf").decode("utf-8")
+        assert "<dc:publisher>Test Publisher</dc:publisher>" in opf
+
+    def test_identifier_used_when_given(self, tmp_path):
+        result = build_epub(
+            "Vol", [("Ch 1", [("text", "Hello.")], [])], identifier="urn:isbn:1234567890123",
+        )
+        out = tmp_path / "out.epub"
+        out.write_bytes(result)
+        with zipfile.ZipFile(out) as zf:
+            opf = zf.read("OEBPS/content.opf").decode("utf-8")
+        assert "urn:isbn:1234567890123" in opf
+
+    def test_blank_metadata_omits_tags(self, tmp_path):
+        result = build_epub("Vol", [("Ch 1", [("text", "Hello.")], [])])
+        out = tmp_path / "out.epub"
+        out.write_bytes(result)
+        with zipfile.ZipFile(out) as zf:
+            opf = zf.read("OEBPS/content.opf").decode("utf-8")
+        assert "<dc:creator" not in opf
+        assert "<dc:publisher" not in opf
+
+
 class TestBuildEpubImages:
     def test_chapter_with_image_round_trips(self, tmp_path):
         content = [("text", "Before."), ("image", "images/pic.png"), ("text", "After.")]

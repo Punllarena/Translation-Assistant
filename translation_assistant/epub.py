@@ -341,6 +341,8 @@ _OPF_TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
 <dc:title>{title}</dc:title>
 <dc:language>{lang}</dc:language>
 <dc:identifier id="uid">{identifier}</dc:identifier>
+{creator_entries}
+{publisher_entry}
 {cover_meta}
 </metadata>
 <manifest>
@@ -379,6 +381,10 @@ def build_epub(
     chapters: list[tuple[str, list[tuple[str, str]], list[dict]]],
     *, language: str = "en",
     cover: dict | None = None,
+    creator: str = "",
+    illustrator: str = "",
+    publisher: str = "",
+    identifier: str = "",
 ) -> bytes:
     """
     chapters: [(chapter_title, content_items, chapter_images), ...] in output
@@ -389,6 +395,14 @@ def build_epub(
     cover: {"data": bytes, "media_type": str} or None. When present, the
     cover image gets a manifest item with properties="cover-image" plus a
     <meta name="cover" content="..."> entry for older-reader compatibility.
+    creator/illustrator: author/illustrator names. When either is given, a
+    dc:creator entry is emitted with a role-refining <meta> (aut/ill),
+    matching the shape open_book() reads them from. Blank means omitted.
+    publisher: dc:publisher text, omitted when blank.
+    identifier: dc:identifier text (e.g. an ISBN urn). When blank, a
+    generated urn:uuid is used instead -- unlike creator/publisher, the OPF
+    always needs *some* unique identifier, so this one is never omitted,
+    only ever substituted.
 
     Assembles a minimal valid EPUB3 zip in memory using stdlib zipfile +
     xml.sax.saxutils.escape — no new dependency. mimetype is stored
@@ -480,13 +494,28 @@ def build_epub(
             )
             cover_meta = '<meta name="cover" content="cover-image"/>'
 
+        creator_entries = []
+        if creator:
+            creator_entries.append(f'<dc:creator id="creator-aut">{escape(creator)}</dc:creator>')
+            creator_entries.append(
+                '<meta refines="#creator-aut" property="role" scheme="marc:relators">aut</meta>'
+            )
+        if illustrator:
+            creator_entries.append(f'<dc:creator id="creator-ill">{escape(illustrator)}</dc:creator>')
+            creator_entries.append(
+                '<meta refines="#creator-ill" property="role" scheme="marc:relators">ill</meta>'
+            )
+        publisher_entry = f"<dc:publisher>{escape(publisher)}</dc:publisher>" if publisher else ""
+
         opf = _OPF_TEMPLATE.format(
             title=escape(volume_title),
             lang=language,
-            identifier=f"urn:uuid:{uuid.uuid4()}",
+            identifier=escape(identifier) if identifier else f"urn:uuid:{uuid.uuid4()}",
             manifest="\n".join(manifest_items),
             spine="\n".join(spine_items),
             cover_meta=cover_meta,
+            creator_entries="\n".join(creator_entries),
+            publisher_entry=publisher_entry,
         )
         zf.writestr("OEBPS/content.opf", opf)
 
