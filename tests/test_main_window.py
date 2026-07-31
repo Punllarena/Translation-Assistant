@@ -755,6 +755,40 @@ class TestExportEpubSeries:
             opf = zf.read("OEBPS/content.opf").decode("utf-8")
         assert "cover-image" in opf
 
+    def test_cover_on_empty_chapter_is_not_dropped(self, win, tmp_path, monkeypatch):
+        """A cover image attached to a chapter that extracts to zero
+        raw_lines (e.g. a bare-<img> title-page chapter) must still make it
+        into the exported EPUB's manifest, even though that chapter itself
+        contributes no content and is omitted from the spine."""
+        db = win._db
+        cover_id = db.create_document(
+            "Cover", series_title="S", series_order=1,
+            chapter_title="Cover", volume_title="Vol 1",
+        )
+        db.save_lines(cover_id, [])
+        db.add_document_image(cover_id, 0, True, "images/cover.jpg", b"fake-cover-bytes")
+
+        content_id = db.create_document(
+            "Ch 1", series_title="S", series_order=2, chapter_title="Ch 1", volume_title="Vol 1",
+        )
+        db.save_lines(content_id, [
+            {"line_number": 0, "prefix": "%", "raw_text": "A", "translated_text": "Alpha"},
+        ])
+
+        win._doc_id = content_id
+        monkeypatch.setattr(
+            "translation_assistant.ui.main_widget.QFileDialog.getExistingDirectory",
+            lambda *a, **kw: str(tmp_path),
+        )
+        with patch("translation_assistant.ui.main_widget.QMessageBox.information"):
+            win._on_export_epub_series()
+        import zipfile
+        out = tmp_path / "S" / "Vol 1.epub"
+        assert out.exists()
+        with zipfile.ZipFile(out) as zf:
+            opf = zf.read("OEBPS/content.opf").decode("utf-8")
+        assert "cover-image" in opf
+
 
 # ---------------------------------------------------------------------------
 # Punctuation insertion

@@ -1243,6 +1243,22 @@ class TranslationAssistantWidget(QWidget):
                 doc_meta = self._db.get_document(doc_id)
                 rows = self._db.get_lines(doc_id)
                 raw_lines, translated_lines = db_rows_to_arrays(rows)
+
+                # Read images (and capture the cover, if any) before the
+                # raw_lines-empty guard below. A "Cover"/title-page chapter
+                # that is essentially just a bare <img> tag extracts to zero
+                # raw_lines (extract_chapter_content strips standalone-image
+                # paragraphs to empty text), so if the cover check happened
+                # after the guard, a cover attached to such a chapter would
+                # be silently dropped from the exported EPUB.
+                all_images = self._db.get_document_images(doc_id)
+                inline_images = [im for im in all_images if not im["is_cover"]]
+                if cover is None:
+                    cover_row = next((im for im in all_images if im["is_cover"]), None)
+                    if cover_row is not None:
+                        media_type = mimetypes.guess_type(cover_row["src_path"])[0] or "application/octet-stream"
+                        cover = {"data": cover_row["data"], "media_type": media_type}
+
                 if not raw_lines:
                     # A chapter that extracted to zero lines (e.g. an EPUB
                     # colophon whose text lived outside <p> tags) can never be
@@ -1254,13 +1270,6 @@ class TranslationAssistantWidget(QWidget):
                 if pct < 100:
                     incomplete = True
                     break
-                all_images = self._db.get_document_images(doc_id)
-                inline_images = [im for im in all_images if not im["is_cover"]]
-                if cover is None:
-                    cover_row = next((im for im in all_images if im["is_cover"]), None)
-                    if cover_row is not None:
-                        media_type = mimetypes.guess_type(cover_row["src_path"])[0] or "application/octet-stream"
-                        cover = {"data": cover_row["data"], "media_type": media_type}
 
                 heading = doc_meta.get("chapter_title") or doc_meta.get("title", "")
                 content_items = build_epub_content(raw_lines, translated_lines, inline_images)
