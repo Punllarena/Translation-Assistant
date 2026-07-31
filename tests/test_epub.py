@@ -456,6 +456,76 @@ class TestOpenBookCover:
         assert book["cover_href"] is None
 
 
+_OPF_EPUB3_METADATA = """<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid">
+<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+<dc:title>Test Volume</dc:title>
+<dc:creator id="creator01">Author Name</dc:creator>
+<meta refines="#creator01" property="role" scheme="marc:relators">aut</meta>
+<dc:creator id="creator02">Illustrator Name</dc:creator>
+<meta refines="#creator02" property="role" scheme="marc:relators">ill</meta>
+<dc:publisher>Test Publisher</dc:publisher>
+<dc:identifier id="uid">urn:isbn:1234567890123</dc:identifier>
+</metadata>
+<manifest>
+<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+<item id="ch1" href="text/ch1.xhtml" media-type="application/xhtml+xml"/>
+</manifest>
+<spine>
+<itemref idref="ch1"/>
+</spine>
+</package>
+"""
+
+
+def _make_epub_with_metadata(tmp_path: Path) -> Path:
+    path = tmp_path / "metadata.epub"
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr("mimetype", "application/epub+zip")
+        zf.writestr("META-INF/container.xml", _CONTAINER_XML)
+        zf.writestr("OEBPS/content.opf", _OPF_EPUB3_METADATA)
+        zf.writestr("OEBPS/nav.xhtml", _NAV_XHTML.replace(
+            '<li><a href="text/ch2.xhtml">Chapter 2</a></li>', ""
+        ))
+        zf.writestr("OEBPS/text/ch1.xhtml", "<html><body><p>Hello.</p></body></html>")
+    return path
+
+
+class TestOpenBookMetadata:
+    def test_metadata_role_extraction_survives_void_meta_parsing(self, tmp_path):
+        book = open_book(_make_epub_with_metadata(tmp_path))
+        assert book["author"] == "Author Name"
+        assert book["illustrator"] == "Illustrator Name"
+
+    def test_publisher_and_identifier(self, tmp_path):
+        book = open_book(_make_epub_with_metadata(tmp_path))
+        assert book["publisher"] == "Test Publisher"
+        assert book["identifier"] == "urn:isbn:1234567890123"
+
+    def test_missing_metadata_defaults_empty(self, tmp_path):
+        book = open_book(_make_epub3(tmp_path))
+        assert book["author"] == ""
+        assert book["illustrator"] == ""
+        assert book["publisher"] == ""
+        assert book["identifier"] == ""
+
+    def test_creator_without_role_meta_defaults_to_author(self, tmp_path):
+        opf = _OPF_EPUB3_METADATA.replace(
+            '<meta refines="#creator01" property="role" scheme="marc:relators">aut</meta>\n', ""
+        )
+        path = tmp_path / "no_role.epub"
+        with zipfile.ZipFile(path, "w") as zf:
+            zf.writestr("mimetype", "application/epub+zip")
+            zf.writestr("META-INF/container.xml", _CONTAINER_XML)
+            zf.writestr("OEBPS/content.opf", opf)
+            zf.writestr("OEBPS/nav.xhtml", _NAV_XHTML.replace(
+                '<li><a href="text/ch2.xhtml">Chapter 2</a></li>', ""
+            ))
+            zf.writestr("OEBPS/text/ch1.xhtml", "<html><body><p>Hello.</p></body></html>")
+        book = open_book(path)
+        assert book["author"] == "Author Name"
+
+
 class TestBuildEpubImages:
     def test_chapter_with_image_round_trips(self, tmp_path):
         content = [("text", "Before."), ("image", "images/pic.png"), ("text", "After.")]

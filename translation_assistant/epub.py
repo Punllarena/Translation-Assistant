@@ -77,6 +77,45 @@ def _find_cover_href(opf: BeautifulSoup, opf_dir: str) -> str | None:
     return None
 
 
+def _find_metadata(opf: BeautifulSoup) -> dict:
+    """
+    Extracts author/illustrator (from dc:creator + role-refining <meta>),
+    publisher, and identifier from the OPF's <metadata> block.
+
+    bs4's html.parser treats <meta> as an HTML void element, so
+    <meta refines="#creator01" property="role" ...>aut</meta> parses with
+    "aut" as the meta tag's *next sibling text node*, not its content --
+    meta.get_text() would return "". Read the role via next_sibling instead.
+    NavigableString objects have a .name attribute equal to None, so the
+    "is this a tag" check must be `getattr(node, "name", None) is None`,
+    not a bare hasattr check (which is True for text nodes too).
+    """
+    role_by_id: dict[str, str] = {}
+    for meta in opf.find_all("meta", attrs={"property": "role"}):
+        refines = meta.get("refines", "")
+        if not refines.startswith("#"):
+            continue
+        sib = meta.next_sibling
+        if sib is not None and getattr(sib, "name", None) is None:
+            role_by_id[refines[1:]] = str(sib).strip()
+
+    authors = []
+    illustrators = []
+    for creator in opf.find_all("dc:creator"):
+        role = role_by_id.get(creator.get("id", ""), "aut")
+        name = creator.get_text(strip=True)
+        (illustrators if role == "ill" else authors).append(name)
+
+    publisher_el = opf.find("dc:publisher")
+    identifier_el = opf.find("dc:identifier")
+    return {
+        "author": ", ".join(authors),
+        "illustrator": ", ".join(illustrators),
+        "publisher": publisher_el.get_text(strip=True) if publisher_el else "",
+        "identifier": identifier_el.get_text(strip=True) if identifier_el else "",
+    }
+
+
 def open_book(path: Path) -> dict:
     """
     Returns {"title": str, "chapters": [{"order": int, "title": str,
@@ -105,6 +144,7 @@ def open_book(path: Path) -> dict:
 
         toc_entries = _dedupe_by_href(_read_toc(zf, opf, opf_dir))
         cover_href = _find_cover_href(opf, opf_dir)
+        metadata = _find_metadata(opf)
 
         chapters = []
         for order, (chap_title, href) in enumerate(toc_entries, start=1):
@@ -117,7 +157,7 @@ def open_book(path: Path) -> dict:
                 "order": order, "title": chap_title, "href": href, "char_count": char_count,
             })
 
-        return {"title": title, "chapters": chapters, "cover_href": cover_href}
+        return {"title": title, "chapters": chapters, "cover_href": cover_href, **metadata}
 
 
 def extract_chapter_content(path: Path, href: str) -> tuple[str, list[dict]]:
