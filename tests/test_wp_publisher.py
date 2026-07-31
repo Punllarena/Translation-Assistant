@@ -232,7 +232,9 @@ def test_publish_wp_password_resolution_inherit_global_off():
     assert resolve_wp_password_enabled(pw_settings, global_enabled=False) is False
 
 
-from translation_assistant.wp_publisher import check_status
+from translation_assistant.wp_publisher import (
+    check_status, build_image_payload,
+)
 
 
 def test_check_status_success():
@@ -368,3 +370,66 @@ def test_auto_schedule_ignores_other_days_in_count():
         2, "20:00", tz=UTC,
     )
     assert dt == datetime(2026, 7, 20, 13, 0)
+
+
+# ---------------------------------------------------------------------------
+# build_image_payload — anchor-to-paragraph mapping
+# ---------------------------------------------------------------------------
+
+def test_build_image_payload_simple_paragraph_boundary():
+    lines = [
+        {"prefix": "%", "translated_text": "First paragraph."},
+        {"prefix": "%", "translated_text": "Second paragraph."},
+    ]
+    images = [
+        {"id": 1, "anchor_position": 1, "src_path": "img1.jpg", "data": b"JPEGDATA"},
+    ]
+    result = build_image_payload(lines, images)
+    assert result == [
+        {
+            "position": 1,
+            "filename": "img1.jpg",
+            "mime": "image/jpeg",
+            "data_base64": "SlBFR0RBVEE=",
+        }
+    ]
+
+def test_build_image_payload_accounts_for_sentence_split():
+    # One source paragraph split into two sentence lines (% + $) — an
+    # image anchored after raw_lines[2] must land at paragraph position 1
+    # (after the merged first <p>), not 2.
+    lines = [
+        {"prefix": "%", "translated_text": "Sentence one."},
+        {"prefix": "$", "translated_text": "Sentence two, same paragraph."},
+        {"prefix": "%", "translated_text": "Next paragraph."},
+    ]
+    images = [
+        {"id": 5, "anchor_position": 2, "src_path": "img2.png", "data": b"PNGDATA"},
+    ]
+    result = build_image_payload(lines, images)
+    assert result[0]["position"] == 1
+
+def test_build_image_payload_before_first_and_after_last():
+    lines = [
+        {"prefix": "%", "translated_text": "Only paragraph."},
+    ]
+    images = [
+        {"id": 2, "anchor_position": 1, "src_path": "after.jpg", "data": b"A"},
+        {"id": 1, "anchor_position": 0, "src_path": "before.jpg", "data": b"B"},
+    ]
+    result = build_image_payload(lines, images)
+    assert [im["filename"] for im in result] == ["before.jpg", "after.jpg"]
+    assert result[0]["position"] == 0
+    assert result[1]["position"] == 1
+
+def test_build_image_payload_ties_break_on_id():
+    lines = [{"prefix": "%", "translated_text": "Paragraph."}]
+    images = [
+        {"id": 9, "anchor_position": 1, "src_path": "second.jpg", "data": b"X"},
+        {"id": 3, "anchor_position": 1, "src_path": "first.jpg", "data": b"Y"},
+    ]
+    result = build_image_payload(lines, images)
+    assert [im["filename"] for im in result] == ["first.jpg", "second.jpg"]
+
+def test_build_image_payload_empty_images():
+    assert build_image_payload([{"translated_text": "x"}], []) == []

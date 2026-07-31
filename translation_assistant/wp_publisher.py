@@ -1,7 +1,9 @@
 """
 WordPress publish — payload builder and HTTP client. No Qt imports.
 """
+import base64
 import json
+import mimetypes
 import re
 import secrets
 import string
@@ -48,6 +50,55 @@ def get_first_line(lines: list[dict]) -> str:
         if ln.get("prefix") != "$" and ln["translated_text"].strip():
             return ln["translated_text"]
     return ""
+
+
+def _encode_image(row: dict) -> dict:
+    mime = mimetypes.guess_type(row["src_path"])[0] or "application/octet-stream"
+    return {
+        "filename": row["src_path"],
+        "mime": mime,
+        "data_base64": base64.b64encode(row["data"]).decode("ascii"),
+    }
+
+
+def build_image_payload(lines: list[dict], images: list[dict]) -> list[dict]:
+    """Map document_images rows (line-indexed anchor_position) onto the
+    paragraph-indexed `position` the WP payload's `images` list uses.
+
+    Mirrors build_chapter_body's grouping loop so `position` always lands
+    on a paragraph boundary matching the <p> blocks that function emits.
+    Relies on anchor_position always sitting at a paragraph-group boundary
+    (never mid-$-continuation-run) — guaranteed by the EPUB importer.
+    """
+    if not images:
+        return []
+
+    sorted_images = sorted(images, key=lambda im: (im["anchor_position"], im["id"]))
+
+    boundaries: dict[int, int] = {}
+    emitted = 0
+    i = 0
+    n = len(lines)
+    while i < n:
+        boundaries[i] = emitted
+        if lines[i].get("prefix") == "$":
+            i += 1
+            continue
+        group = [lines[i]["translated_text"]]
+        i += 1
+        while i < n and lines[i].get("prefix") == "$":
+            group.append(lines[i]["translated_text"])
+            i += 1
+        text = " ".join(t for t in group if t.strip())
+        if text:
+            emitted += 1
+    boundaries[n] = emitted
+
+    result = []
+    for im in sorted_images:
+        position = boundaries.get(im["anchor_position"], emitted)
+        result.append({"position": position, **_encode_image(im)})
+    return result
 
 
 _ALPHANUM = string.ascii_letters + string.digits
