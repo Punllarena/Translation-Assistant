@@ -8,6 +8,7 @@ import html
 from PySide6.QtCore import (
     QEasingCurve, QEvent, QPropertyAnimation, Qt, QTimer, Signal,
 )
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QFrame, QGraphicsOpacityEffect, QHBoxLayout, QLabel, QScrollArea,
     QVBoxLayout, QWidget,
@@ -303,6 +304,7 @@ class CardListView(QScrollArea):
 
         self._cards: dict[int, LineCard] = {}
         self._ordered: list[LineCard] = []   # visual (y-ascending) order
+        self._image_widgets: list[QLabel] = []
         self._pending: list[tuple[int, str]] = []
         self._built_count = 0
         self._load_translations: list[str] = []
@@ -335,20 +337,35 @@ class CardListView(QScrollArea):
     # -- content -----------------------------------------------------------
 
     def load(self, raw_lines: list[str], translated_lines: list[str],
-             glossary: list[tuple[str, str]]) -> None:
+             glossary: list[tuple[str, str]], images: list[dict] | None = None) -> None:
         from translation_assistant.core import line_has_content
         self._detach_active()
         for card in self._cards.values():
             self._vbox.removeWidget(card)
             card.deleteLater()
+        for img_widget in self._image_widgets:
+            self._vbox.removeWidget(img_widget)
+            img_widget.deleteLater()
         self._cards = {}
         self._ordered = []
+        self._image_widgets = []
 
-        # ponytail: chunked build (100 cards/tick) — 1000 sync cards took 3.6s;
+        images = sorted(images or [], key=lambda im: im["anchor_position"])
+        pending: list[tuple] = []
+        img_idx = 0
+        for i, raw in enumerate(raw_lines):
+            while img_idx < len(images) and images[img_idx]["anchor_position"] <= i:
+                pending.append(("image", images[img_idx]))
+                img_idx += 1
+            if line_has_content(raw):
+                pending.append(("card", i, raw))
+        while img_idx < len(images):
+            pending.append(("image", images[img_idx]))
+            img_idx += 1
+
+        # ponytail: chunked build (100 entries/tick) — 1000 sync cards took 3.6s;
         # virtualize only if even this proves too slow on real chapters.
-        self._pending = [
-            (i, raw) for i, raw in enumerate(raw_lines) if line_has_content(raw)
-        ]
+        self._pending = pending
         self._built_count = 0
         self._load_translations = translated_lines
         self._load_glossary = glossary
@@ -356,7 +373,7 @@ class CardListView(QScrollArea):
         if self._pending:
             QTimer.singleShot(0, self._build_batch)
 
-        self._placeholder.setVisible(not (self._cards or self._pending))
+        self._placeholder.setVisible(not (self._cards or self._image_widgets or self._pending))
         self._update_edge_padding()
         self.verticalScrollBar().setValue(0)
 
@@ -365,18 +382,26 @@ class CardListView(QScrollArea):
             return
         insert_at = self._vbox.indexOf(self._placeholder)
         batch, self._pending = self._pending[:100], self._pending[100:]
-        for i, raw in batch:
-            self._built_count += 1
-            card = LineCard(i, self._built_count,
-                            glossary_html(raw, self._load_glossary),
-                            self._load_translations[i])
-            if self._font_pt is not None:
-                card.set_font_size(self._font_pt)
-            card.clicked.connect(self.card_clicked)
-            self._vbox.insertWidget(insert_at, card)
-            insert_at += 1
-            self._cards[i] = card
-            self._ordered.append(card)
+        for entry in batch:
+            if entry[0] == "card":
+                _, i, raw = entry
+                self._built_count += 1
+                card = LineCard(i, self._built_count,
+                                glossary_html(raw, self._load_glossary),
+                                self._load_translations[i])
+                if self._font_pt is not None:
+                    card.set_font_size(self._font_pt)
+                card.clicked.connect(self.card_clicked)
+                self._vbox.insertWidget(insert_at, card)
+                insert_at += 1
+                self._cards[i] = card
+                self._ordered.append(card)
+            else:
+                _, image = entry
+                widget = self._make_image_widget(image)
+                self._vbox.insertWidget(insert_at, widget)
+                insert_at += 1
+                self._image_widgets.append(widget)
         if self._pending:
             QTimer.singleShot(0, self._build_batch)
         elif self.active_index is not None:
@@ -387,6 +412,19 @@ class CardListView(QScrollArea):
                 self._scroll_to(card)
         # Wheel fade needs settled geometry — apply after the layout pass.
         QTimer.singleShot(0, self._apply_wheel)
+
+    def _make_image_widget(self, image: dict) -> QLabel:
+        """Plain, non-editable illustration widget — not a LineCard, no index,
+        not part of navigation/spellcheck/progress."""
+        label = QLabel()
+        label.setObjectName("CardImage")
+        pixmap = QPixmap()
+        pixmap.loadFromData(image["data"])
+        if not pixmap.isNull():
+            pixmap = pixmap.scaledToWidth(400, Qt.TransformationMode.SmoothTransformation)
+        label.setPixmap(pixmap)
+        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        return label
 
     def _ensure_built(self, index: int) -> None:
         while self._pending and index not in self._cards:

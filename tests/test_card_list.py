@@ -266,6 +266,52 @@ class TestCardListView:
         assert "only" in view.card(0).source_label.text()
 
 
+# A valid 1x1 red-pixel PNG, used wherever tests need real image bytes.
+_TINY_PNG = (
+    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+    b"\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\xcf\xc0"
+    b"\x00\x00\x00\x03\x00\x01\x18\xdd\x8d\xb0\x00\x00\x00\x00IEND\xaeB`\x82"
+)
+
+
+class TestCardListViewImages:
+    def test_image_appears_between_cards(self, view):
+        images = [{"anchor_position": 1, "data": _TINY_PNG}]
+        view.load(["%A", "%B"], ["", ""], [], images)
+        # index 0: card A, index 1: image widget, index 2: card B, then placeholder+stretch
+        assert view._vbox.itemAt(0).widget() is view.card(0)
+        assert view._vbox.itemAt(1).widget() in view._image_widgets
+        assert view._vbox.itemAt(2).widget() is view.card(1)
+
+    def test_image_at_start(self, view):
+        images = [{"anchor_position": 0, "data": _TINY_PNG}]
+        view.load(["%A"], [""], [], images)
+        assert view._vbox.itemAt(0).widget() in view._image_widgets
+        assert view._vbox.itemAt(1).widget() is view.card(0)
+
+    def test_image_at_end(self, view):
+        images = [{"anchor_position": 1, "data": _TINY_PNG}]
+        view.load(["%A"], [""], [], images)
+        assert view._vbox.itemAt(0).widget() is view.card(0)
+        assert view._vbox.itemAt(1).widget() in view._image_widgets
+
+    def test_no_images_backward_compatible(self, view):
+        view.load(["%A", "%B"], ["", ""], [])  # 3-arg call, as every existing test uses
+        assert view.card_count() == 2
+        assert view._image_widgets == []
+
+    def test_reload_clears_previous_images(self, view):
+        images = [{"anchor_position": 0, "data": _TINY_PNG}]
+        view.load(["%A"], [""], [], images)
+        view.load(["%B"], [""], [])
+        assert view._image_widgets == []
+
+    def test_image_does_not_get_a_card_index(self, view):
+        images = [{"anchor_position": 1, "data": _TINY_PNG}]
+        view.load(["%A", "%B"], ["", ""], [], images)
+        assert view.card_count() == 2  # only the two text lines, image is not a card
+
+
 @pytest.fixture
 def app_qss(qapp):
     """Apply the real stylesheet for the duration of one test."""
