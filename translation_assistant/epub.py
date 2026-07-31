@@ -4,6 +4,7 @@ parsing style of scraper.py. Zip/XML handling only via stdlib zipfile +
 xml.sax.saxutils.escape and the already-installed beautifulsoup4.
 """
 import io
+import mimetypes
 import posixpath
 import zipfile
 from pathlib import Path
@@ -290,6 +291,7 @@ _OPF_TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
 <dc:title>{title}</dc:title>
 <dc:language>{lang}</dc:language>
 <dc:identifier id="uid">{identifier}</dc:identifier>
+{cover_meta}
 </metadata>
 <manifest>
 {manifest}
@@ -322,16 +324,31 @@ _CHAPTER_TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
 """
 
 
-def build_epub(volume_title: str, chapters: list[tuple[str, list[str]]],
-               *, language: str = "en") -> bytes:
+def build_epub(
+    volume_title: str,
+    chapters: list[tuple[str, list[tuple[str, str]], list[dict]]],
+    *, language: str = "en",
+    cover: dict | None = None,
+) -> bytes:
     """
-    chapters: [(chapter_title, paragraphs), ...] in output order.
+    chapters: [(chapter_title, content_items, chapter_images), ...] in output
+    order. content_items is core.build_epub_content()'s return shape
+    ([("text", paragraph) | ("image", src_path), ...]); chapter_images is
+    [{"src_path": str, "data": bytes}, ...] -- the actual bytes to embed,
+    keyed by the same src_path strings content_items references.
+    cover: {"data": bytes, "media_type": str} or None. When present, the
+    cover image gets a manifest item with properties="cover-image" plus a
+    <meta name="cover" content="..."> entry for older-reader compatibility.
+
     Assembles a minimal valid EPUB3 zip in memory using stdlib zipfile +
     xml.sax.saxutils.escape — no new dependency. mimetype is stored
     uncompressed as the first entry (required by the EPUB spec so readers
     can identify the format without inflating the zip).
 
-    ponytail: no stylesheet is generated — reader default styling only.
+    ponytail: no stylesheet is generated -- reader default styling only.
+    ponytail: no dedicated cover.xhtml title page -- the manifest/meta cover
+    metadata alone is enough for the readers that matter; add a real cover
+    page later only if a specific reader needs one.
     """
     import uuid
 
@@ -343,11 +360,46 @@ def build_epub(volume_title: str, chapters: list[tuple[str, list[str]]],
         manifest_items = []
         spine_items = []
         nav_lis = []
-        for i, (chapter_title, paragraphs) in enumerate(chapters, start=1):
+        image_id = 0
+        used_image_hrefs: set[str] = set()  # zip-relative hrefs already claimed, across all chapters
+
+        for i, (chapter_title, content_items, chapter_images) in enumerate(chapters, start=1):
             chap_id = f"chap{i}"
             href = f"text/chap{i}.xhtml"
-            body = "".join(f"<p>{escape(p)}</p>\n" for p in paragraphs)
-            xhtml = _CHAPTER_TEMPLATE.format(title=escape(chapter_title), body=body, lang=language)
+            image_bytes_by_src = {img["src_path"]: img["data"] for img in chapter_images}
+            written_images: dict[str, str] = {}  # src_path -> zip-relative href written this chapter
+
+            body_parts = []
+            for kind, value in content_items:
+                if kind == "text":
+                    body_parts.append(f"<p>{escape(value)}</p>\n")
+                else:
+                    src_path = value
+                    if src_path not in written_images:
+                        image_id += 1
+                        data = image_bytes_by_src.get(src_path)
+                        if data is None:
+                            continue  # referenced image has no bytes -- skip, not fatal
+                        # Preserve the original basename where possible (readable,
+                        # round-trips predictably); fall back to a numbered prefix
+                        # only on a collision (two different src_paths sharing a
+                        # basename, e.g. two chapters each with an "images/pic.png").
+                        basename = posixpath.basename(src_path) or f"{image_id}.img"
+                        img_href = f"images/{basename}"
+                        if img_href in used_image_hrefs:
+                            img_href = f"images/{image_id}_{basename}"
+                        used_image_hrefs.add(img_href)
+                        zf.writestr(f"OEBPS/{img_href}", data)
+                        media_type = mimetypes.guess_type(src_path)[0] or "application/octet-stream"
+                        manifest_items.append(
+                            f'<item id="img{image_id}" href="{img_href}" media-type="{media_type}"/>'
+                        )
+                        written_images[src_path] = img_href
+                    body_parts.append(f'<p><img src="../{written_images[src_path]}"/></p>\n')
+
+            xhtml = _CHAPTER_TEMPLATE.format(
+                title=escape(chapter_title), body="".join(body_parts), lang=language,
+            )
             zf.writestr(f"OEBPS/{href}", xhtml)
             manifest_items.append(
                 f'<item id="{chap_id}" href="{href}" media-type="application/xhtml+xml"/>'
@@ -360,12 +412,24 @@ def build_epub(volume_title: str, chapters: list[tuple[str, list[str]]],
             '<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>'
         )
 
+        cover_meta = ""
+        if cover is not None:
+            ext = mimetypes.guess_extension(cover["media_type"]) or ".img"
+            cover_href = f"images/cover{ext}"
+            zf.writestr(f"OEBPS/{cover_href}", cover["data"])
+            manifest_items.append(
+                f'<item id="cover-image" href="{cover_href}" media-type="{cover["media_type"]}" '
+                f'properties="cover-image"/>'
+            )
+            cover_meta = '<meta name="cover" content="cover-image"/>'
+
         opf = _OPF_TEMPLATE.format(
             title=escape(volume_title),
             lang=language,
             identifier=f"urn:uuid:{uuid.uuid4()}",
             manifest="\n".join(manifest_items),
             spine="\n".join(spine_items),
+            cover_meta=cover_meta,
         )
         zf.writestr("OEBPS/content.opf", opf)
 

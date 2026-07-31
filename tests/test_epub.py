@@ -338,18 +338,18 @@ class TestExtractChapterContent:
 
 class TestBuildEpub:
     def test_returns_bytes(self):
-        result = build_epub("My Volume", [("Chapter 1", ["Hello.", "World."])])
+        result = build_epub("My Volume", [("Chapter 1", [("text", "Hello."), ("text", "World.")], [])])
         assert isinstance(result, bytes)
         assert len(result) > 0
 
     def test_is_valid_zip(self, tmp_path):
-        result = build_epub("My Volume", [("Chapter 1", ["Hello."])])
+        result = build_epub("My Volume", [("Chapter 1", [("text", "Hello.")], [])])
         out = tmp_path / "out.epub"
         out.write_bytes(result)
         assert zipfile.is_zipfile(out)
 
     def test_mimetype_is_first_entry_uncompressed(self, tmp_path):
-        result = build_epub("My Volume", [("Chapter 1", ["Hello."])])
+        result = build_epub("My Volume", [("Chapter 1", [("text", "Hello.")], [])])
         out = tmp_path / "out.epub"
         out.write_bytes(result)
         with zipfile.ZipFile(out) as zf:
@@ -358,7 +358,10 @@ class TestBuildEpub:
             assert info.compress_type == zipfile.ZIP_STORED
 
     def test_round_trip_title_and_chapters(self, tmp_path):
-        result = build_epub("My Volume", [("Chapter 1", ["Hello world."]), ("Chapter 2", ["Second chapter."])])
+        result = build_epub("My Volume", [
+            ("Chapter 1", [("text", "Hello world.")], []),
+            ("Chapter 2", [("text", "Second chapter.")], []),
+        ])
         out = tmp_path / "out.epub"
         out.write_bytes(result)
         book = open_book(out)
@@ -366,7 +369,9 @@ class TestBuildEpub:
         assert [c["title"] for c in book["chapters"]] == ["Chapter 1", "Chapter 2"]
 
     def test_round_trip_paragraph_text_survives(self, tmp_path):
-        result = build_epub("My Volume", [("Chapter 1", ["Hello world.", "Second paragraph."])])
+        result = build_epub("My Volume", [
+            ("Chapter 1", [("text", "Hello world."), ("text", "Second paragraph.")], []),
+        ])
         out = tmp_path / "out.epub"
         out.write_bytes(result)
         book = open_book(out)
@@ -375,7 +380,7 @@ class TestBuildEpub:
         assert text == "Hello world.\nSecond paragraph."
 
     def test_xml_special_characters_escaped(self, tmp_path):
-        result = build_epub("My Volume", [("Chapter 1", ["A & B < C > D"])])
+        result = build_epub("My Volume", [("Chapter 1", [("text", "A & B < C > D")], [])])
         out = tmp_path / "out.epub"
         out.write_bytes(result)
         book = open_book(out)
@@ -448,3 +453,43 @@ class TestOpenBookCover:
     def test_no_cover_returns_none(self, tmp_path):
         book = open_book(_make_epub3(tmp_path))
         assert book["cover_href"] is None
+
+
+class TestBuildEpubImages:
+    def test_chapter_with_image_round_trips(self, tmp_path):
+        content = [("text", "Before."), ("image", "images/pic.png"), ("text", "After.")]
+        chapter_images = [{"src_path": "images/pic.png", "data": b"fake-png-bytes"}]
+        result = build_epub("Vol", [("Ch 1", content, chapter_images)])
+        out = tmp_path / "out.epub"
+        out.write_bytes(result)
+        with zipfile.ZipFile(out) as zf:
+            assert zf.read("OEBPS/images/pic.png") == b"fake-png-bytes"
+            xhtml = zf.read("OEBPS/text/chap1.xhtml").decode("utf-8")
+        assert '<img src="../images/pic.png"' in xhtml
+        assert xhtml.index("Before.") < xhtml.index('<img') < xhtml.index("After.")
+
+    def test_no_images_still_works(self, tmp_path):
+        content = [("text", "Hello.")]
+        result = build_epub("Vol", [("Ch 1", content, [])])
+        out = tmp_path / "out.epub"
+        out.write_bytes(result)
+        assert zipfile.is_zipfile(out)
+
+    def test_cover_manifest_and_meta(self, tmp_path):
+        cover = {"data": b"fake-cover-bytes", "media_type": "image/jpeg"}
+        result = build_epub("Vol", [("Ch 1", [("text", "Hello.")], [])], cover=cover)
+        out = tmp_path / "out.epub"
+        out.write_bytes(result)
+        with zipfile.ZipFile(out) as zf:
+            assert zf.read("OEBPS/images/cover.jpg") == b"fake-cover-bytes"
+            opf = zf.read("OEBPS/content.opf").decode("utf-8")
+        assert 'properties="cover-image"' in opf
+        assert '<meta name="cover" content="cover-image"/>' in opf
+
+    def test_no_cover_no_cover_metadata(self, tmp_path):
+        result = build_epub("Vol", [("Ch 1", [("text", "Hello.")], [])])
+        out = tmp_path / "out.epub"
+        out.write_bytes(result)
+        with zipfile.ZipFile(out) as zf:
+            opf = zf.read("OEBPS/content.opf").decode("utf-8")
+        assert "cover" not in opf
