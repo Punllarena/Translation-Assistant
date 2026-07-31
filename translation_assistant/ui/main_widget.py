@@ -1240,9 +1240,12 @@ class TranslationAssistantWidget(QWidget):
         for volume_title, vol_doc_ids in volumes.items():
             chapters = []
             cover = None
+            volume_meta = None
             incomplete = False
             for doc_id in vol_doc_ids:
                 doc_meta = self._db.get_document(doc_id)
+                if volume_meta is None:
+                    volume_meta = doc_meta
                 rows = self._db.get_lines(doc_id)
                 raw_lines, translated_lines = db_rows_to_arrays(rows)
 
@@ -1292,7 +1295,13 @@ class TranslationAssistantWidget(QWidget):
             # Pre-EPUB (e.g. syosetu-imported) docs have volume_title='', which
             # would yield an empty <dc:title>. Fall back to the series title for
             # the book title only — the filename/grouping key stays as-is.
-            dest.write_bytes(build_epub(volume_title or series_title, chapters, cover=cover))
+            dest.write_bytes(build_epub(
+                volume_title or series_title, chapters, cover=cover,
+                creator=volume_meta.get("volume_author", ""),
+                illustrator=volume_meta.get("volume_illustrator", ""),
+                publisher=volume_meta.get("volume_publisher", ""),
+                identifier=volume_meta.get("volume_identifier", ""),
+            ))
             written += 1
 
         lines = [f"Exported {written} volume(s) to:\n{folder}"]
