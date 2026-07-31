@@ -15,6 +15,15 @@ from bs4 import BeautifulSoup
 from translation_assistant.core import build_new_file, parse_file_content
 
 
+def _escape_attr(s: str) -> str:
+    """Escape a string for safe use inside a double-quoted XML attribute.
+
+    xml.sax.saxutils.escape() only escapes &, <, > -- not " -- so it is
+    insufficient on its own for attribute values (as opposed to text nodes).
+    """
+    return escape(s, {'"': "&quot;"})
+
+
 class EpubError(ValueError):
     """Raised when an EPUB file can't be parsed."""
 
@@ -392,7 +401,8 @@ def build_epub(
                         zf.writestr(f"OEBPS/{img_href}", data)
                         media_type = mimetypes.guess_type(src_path)[0] or "application/octet-stream"
                         manifest_items.append(
-                            f'<item id="img{image_id}" href="{img_href}" media-type="{media_type}"/>'
+                            f'<item id="img{image_id}" href="{_escape_attr(img_href)}" '
+                            f'media-type="{_escape_attr(media_type)}"/>'
                         )
                         written_images[src_path] = img_href
                     body_parts.append(f'<p><img src="../{written_images[src_path]}"/></p>\n')
@@ -416,10 +426,16 @@ def build_epub(
         if cover is not None:
             ext = mimetypes.guess_extension(cover["media_type"]) or ".img"
             cover_href = f"images/cover{ext}"
+            if cover_href in used_image_hrefs:
+                n = 1
+                while f"images/cover_{n}{ext}" in used_image_hrefs:
+                    n += 1
+                cover_href = f"images/cover_{n}{ext}"
+            used_image_hrefs.add(cover_href)
             zf.writestr(f"OEBPS/{cover_href}", cover["data"])
             manifest_items.append(
-                f'<item id="cover-image" href="{cover_href}" media-type="{cover["media_type"]}" '
-                f'properties="cover-image"/>'
+                f'<item id="cover-image" href="{_escape_attr(cover_href)}" '
+                f'media-type="{_escape_attr(cover["media_type"])}" properties="cover-image"/>'
             )
             cover_meta = '<meta name="cover" content="cover-image"/>'
 

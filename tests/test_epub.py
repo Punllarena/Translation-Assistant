@@ -7,6 +7,7 @@ import zipfile
 from pathlib import Path
 
 import pytest
+from bs4 import BeautifulSoup
 
 from translation_assistant.epub import (
     EpubError, open_book, extract_chapter_text, extract_chapter_content, build_epub,
@@ -493,3 +494,67 @@ class TestBuildEpubImages:
         with zipfile.ZipFile(out) as zf:
             opf = zf.read("OEBPS/content.opf").decode("utf-8")
         assert "cover" not in opf
+
+    def test_cover_href_collision_with_chapter_image_disambiguated(self, tmp_path):
+        # A chapter's own inline image happens to resolve to the exact same
+        # basename the cover would get ("images/cover.jpg" -- a plausible
+        # collision since cover fixtures conventionally use that basename).
+        # Both must survive as distinct, independently-readable zip entries
+        # and distinct manifest hrefs.
+        content = [("text", "Before."), ("image", "images/cover.jpg"), ("text", "After.")]
+        chapter_images = [{"src_path": "images/cover.jpg", "data": b"chapter-image-bytes"}]
+        cover = {"data": b"cover-image-bytes", "media_type": "image/jpeg"}
+        result = build_epub("Vol", [("Ch 1", content, chapter_images)], cover=cover)
+        out = tmp_path / "out.epub"
+        out.write_bytes(result)
+        with zipfile.ZipFile(out) as zf:
+            names = zf.namelist()
+            image_entries = [n for n in names if n.startswith("OEBPS/images/")]
+            assert len(image_entries) == len(set(image_entries)) == 2
+            # The chapter image keeps the natural basename; the cover gets
+            # disambiguated since it lost the race (chapters are written first).
+            assert zf.read("OEBPS/images/cover.jpg") == b"chapter-image-bytes"
+            assert zf.read("OEBPS/images/cover_1.jpg") == b"cover-image-bytes"
+            opf = zf.read("OEBPS/content.opf").decode("utf-8")
+        soup = BeautifulSoup(opf, "html.parser")
+        hrefs = [item["href"] for item in soup.find_all("item")]
+        assert hrefs.count("images/cover.jpg") == 1
+        assert hrefs.count("images/cover_1.jpg") == 1
+
+    def test_image_href_with_quote_does_not_break_xml_attribute(self, tmp_path):
+        # src_path can originate from an imported EPUB's internal filenames
+        # (attacker-controlled if a malicious EPUB is imported). A `"` in
+        # the basename must not let markup escape the href attribute.
+        src_path = 'images/pic".png'
+        content = [("text", "Before."), ("image", src_path), ("text", "After.")]
+        chapter_images = [{"src_path": src_path, "data": b"tricky-bytes"}]
+        result = build_epub("Vol", [("Ch 1", content, chapter_images)])
+        out = tmp_path / "out.epub"
+        out.write_bytes(result)
+        with zipfile.ZipFile(out) as zf:
+            opf = zf.read("OEBPS/content.opf").decode("utf-8")
+        # Unescaped, the raw `"` would break out of the href attribute and
+        # produce a stray dangling ".png"/> fragment parsed as markup.
+        assert '&quot;' in opf
+        soup = BeautifulSoup(opf, "html.parser")
+        img_items = [item for item in soup.find_all("item") if item.get("id", "").startswith("img")]
+        assert len(img_items) == 1
+        # The value round-trips as data -- exactly the original href, quote intact.
+        assert img_items[0]["href"] == src_path
+
+    def test_cover_media_type_with_quote_does_not_break_xml_attribute(self, tmp_path):
+        # cover["media_type"] is caller-supplied, not internally generated.
+        cover = {"data": b"cover-bytes", "media_type": 'image/jpeg" foo="bar'}
+        result = build_epub("Vol", [("Ch 1", [("text", "Hello.")], [])], cover=cover)
+        out = tmp_path / "out.epub"
+        out.write_bytes(result)
+        with zipfile.ZipFile(out) as zf:
+            opf = zf.read("OEBPS/content.opf").decode("utf-8")
+        soup = BeautifulSoup(opf, "html.parser")
+        cover_item = soup.find("item", id="cover-image")
+        assert cover_item is not None
+        # No injected "foo" attribute -- the whole string stayed as the
+        # media-type attribute's value rather than spawning a new attribute.
+        assert cover_item.get("foo") is None
+        assert cover_item["media-type"] == 'image/jpeg" foo="bar'
+        assert cover_item.get("properties") == "cover-image"
