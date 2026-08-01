@@ -1606,15 +1606,19 @@ class TranslationAssistantWidget(QWidget):
         )
         from PySide6.QtCore import Qt
 
-        already = result.get("created") is False
+        created = result.get("created", False)
+        updated = result.get("updated", False)
         page_url = result.get("page_url", "")
         post_url = result.get("post_url", "")
 
-        if not already:
+        if created or updated:
             from datetime import datetime as _dt, timezone as _tz
             wp_status_val = "future" if self._last_scheduled_date else "publish"
             wp_date_val = self._last_scheduled_date or _dt.now(_tz.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-            self._db.set_document_wp_status(self._doc_id, wp_status_val, post_url or None, wp_date_val)
+            self._db.set_document_wp_status(
+                self._doc_id, wp_status_val, post_url or None, wp_date_val,
+                self._last_wp_chapter_index,
+            )
             self._update_wp_status_label()
 
         dlg = QDialog(self)
@@ -1623,7 +1627,13 @@ class TranslationAssistantWidget(QWidget):
         dlg.setMinimumWidth(420)
         layout = QVBoxLayout(dlg)
 
-        status_label = QLabel("Already published." if already else ("Scheduled!" if self._last_scheduled_date else "Published!"))
+        if created:
+            status_text = "Scheduled!" if self._last_scheduled_date else "Published!"
+        elif updated:
+            status_text = "Scheduled!" if self._last_scheduled_date else "Updated!"
+        else:
+            status_text = "Already published."
+        status_label = QLabel(status_text)
         layout.addWidget(status_label)
 
         form = QFormLayout()
@@ -1631,20 +1641,20 @@ class TranslationAssistantWidget(QWidget):
             page_label = QLabel(f'<a href="{page_url}">{page_url}</a>')
             page_label.setOpenExternalLinks(True)
             form.addRow("Page:", page_label)
-        if post_url and not already:
+        if post_url and (created or updated):
             post_label = QLabel(f'<a href="{post_url}">{post_url}</a>')
             post_label.setOpenExternalLinks(True)
             form.addRow("Post:", post_label)
         layout.addLayout(form)
 
-        if not already and self._last_pw:
+        if (created or updated) and self._last_pw:
             pw_edit = QLineEdit(self._last_pw)
             pw_edit.setReadOnly(True)
             pw_edit.selectAll()
             layout.addWidget(QLabel("Password (copy this):"))
             layout.addWidget(pw_edit)
 
-        if not already and self._last_unlock_idx is not None:
+        if (created or updated) and self._last_unlock_idx is not None:
             layout.addWidget(QLabel(f"Chapter {self._last_unlock_idx} is now unlocked."))
 
         btns = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)

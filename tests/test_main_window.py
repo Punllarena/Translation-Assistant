@@ -1228,3 +1228,47 @@ class TestPublishWpConfirmCopy:
         win._on_publish_wp()
 
         assert any("overwrite" in t.lower() for t in captured["labels"])
+
+
+class TestOnPublishDone:
+    def _prep(self, win):
+        _load(win, "Hello\n")
+        win._last_scheduled_date = None
+        win._last_pw = None
+        win._last_unlock_idx = None
+        win._last_wp_chapter_index = 1
+        return win._doc_id
+
+    def test_persists_status_on_created(self, win, monkeypatch):
+        doc_id = self._prep(win)
+        monkeypatch.setattr(
+            "translation_assistant.ui.main_widget.QDialog.exec", lambda self: 1,
+        )
+        win._on_publish_done({"created": True, "page_url": "https://ex.com/c1/", "post_url": "https://ex.com/p1/"})
+        info = win._db.get_document_wp_status(doc_id)
+        assert info["wp_status"] == "publish"
+        assert info["wp_chapter_index"] == 1
+
+    def test_persists_status_on_updated_without_created(self, win, monkeypatch):
+        doc_id = self._prep(win)
+        monkeypatch.setattr(
+            "translation_assistant.ui.main_widget.QDialog.exec", lambda self: 1,
+        )
+        win._on_publish_done({
+            "created": False, "updated": True,
+            "page_url": "https://ex.com/c1/", "post_url": "https://ex.com/p1/",
+        })
+        info = win._db.get_document_wp_status(doc_id)
+        assert info["wp_status"] == "publish"
+        assert info["wp_post_url"] == "https://ex.com/p1/"
+        assert info["wp_chapter_index"] == 1
+
+    def test_skips_status_write_when_neither_created_nor_updated(self, win, monkeypatch):
+        doc_id = self._prep(win)
+        win._db.set_document_wp_status(doc_id, "future", "https://old.example/", "2026-01-01T00:00:00Z", 1)
+        monkeypatch.setattr(
+            "translation_assistant.ui.main_widget.QDialog.exec", lambda self: 1,
+        )
+        win._on_publish_done({"created": False, "page_url": "https://ex.com/c1/", "post_url": ""})
+        info = win._db.get_document_wp_status(doc_id)
+        assert info["wp_status"] == "future"  # untouched
