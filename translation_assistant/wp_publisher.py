@@ -4,6 +4,7 @@ WordPress publish — payload builder and HTTP client. No Qt imports.
 import base64
 import json
 import mimetypes
+import posixpath
 import re
 import secrets
 import string
@@ -55,7 +56,7 @@ def get_first_line(lines: list[dict]) -> str:
 def _encode_image(row: dict) -> dict:
     mime = mimetypes.guess_type(row["src_path"])[0] or "application/octet-stream"
     return {
-        "filename": row["src_path"],
+        "filename": posixpath.basename(row["src_path"]) or row["src_path"],
         "mime": mime,
         "data_base64": base64.b64encode(row["data"]).decode("ascii"),
     }
@@ -96,7 +97,12 @@ def build_image_payload(lines: list[dict], images: list[dict]) -> list[dict]:
 
     result = []
     for im in sorted_images:
-        position = boundaries.get(im["anchor_position"], emitted)
+        anchor = im["anchor_position"]
+        if anchor in boundaries:
+            position = boundaries[anchor]
+        else:
+            preceding = [k for k in boundaries if k <= anchor]
+            position = boundaries[max(preceding)] if preceding else emitted
         result.append({"position": position, **_encode_image(im)})
     return result
 
@@ -209,16 +215,16 @@ def build_payload(
         )
     if doc_meta["series_order"] != 0:
         payload["first_line"] = get_first_line(lines)
+        if images:
+            payload["images"] = build_image_payload(lines, images)
+        if cover is not None:
+            payload["cover"] = _encode_image(cover)
     if password is not None:
         payload["password"] = password
     if unlock_chapter_index is not None:
         payload["unlock_chapter_index"] = unlock_chapter_index
     if scheduled_date is not None:
         payload["publish_date"] = scheduled_date
-    if images:
-        payload["images"] = build_image_payload(lines, images)
-    if cover is not None:
-        payload["cover"] = _encode_image(cover)
     return payload
 
 

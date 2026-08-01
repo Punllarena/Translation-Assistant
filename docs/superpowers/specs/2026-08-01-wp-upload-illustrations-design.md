@@ -169,8 +169,11 @@ POST is sufficient at this scale.
 - `build_payload`: `images`/`cover` keys present/absent correctly based on
   params; base64/mime encoding round-trips.
 
-Plugin-side (PHP, wherever `class-publisher.php` currently has test
-coverage — mirrors the pattern of existing `TAP_Publisher` tests):
+Plugin-side (PHP): there is no automated PHP test harness (no PHPUnit
+setup) in the `translation-assistant-publisher` repo. PHP-side
+verification for this feature was done manually against a local Docker WP
+instance, matching the Global Constraints already stated in the
+implementation plan. That manual verification covered:
 - `convert_to_blocks()` with images: `wp:image` blocks appear at the right
   paragraph boundaries, cover block appears before `NAV_BLOCK`.
 - `attach_image()` failure for one image among several: publish still
