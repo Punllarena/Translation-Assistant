@@ -145,7 +145,7 @@ class SettingsDialog(QDialog):
                 form.addRow("System prompt:", self._ollama_prompt_edit)
 
                 self._ollama_prefetch_spin = QSpinBox()
-                self._ollama_prefetch_spin.setRange(0, 20)
+                self._ollama_prefetch_spin.setRange(0, 500)
                 self._ollama_prefetch_spin.setToolTip(
                     "Pre-translate this many upcoming lines while idle (0 = off)"
                 )
