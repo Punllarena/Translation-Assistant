@@ -8,7 +8,7 @@ from pathlib import Path
 from PySide6.QtCore import QEvent, Qt, QThread, QTimer, Signal, Slot
 from PySide6.QtGui import QAction, QFont, QKeyEvent, QTextCursor
 from PySide6.QtWidgets import (
-    QApplication, QFileDialog, QFrame, QInputDialog, QLabel, QMenu,
+    QApplication, QDialog, QFileDialog, QFrame, QInputDialog, QLabel, QMenu,
     QMessageBox, QProgressBar, QStatusBar, QTextEdit, QVBoxLayout, QWidget,
 )
 
@@ -1456,7 +1456,7 @@ class TranslationAssistantWidget(QWidget):
 
         chapter_label = "Synopsis" if doc_meta["series_order"] == 0 else f"Chapter {doc_meta['series_order']}"
 
-        from PySide6.QtWidgets import QCheckBox, QDateTimeEdit, QDialog, QDialogButtonBox, QVBoxLayout
+        from PySide6.QtWidgets import QCheckBox, QDateTimeEdit, QDialogButtonBox, QVBoxLayout
         from PySide6.QtCore import QDateTime, QTime, Qt as _Qt
 
         confirm_dlg = QDialog(self)
@@ -1471,7 +1471,10 @@ class TranslationAssistantWidget(QWidget):
         _status_lbl = QLabel(f"WP status: {_cached_text}")
         _cl.addWidget(_status_lbl)
 
-        _cl.addWidget(QLabel(f'Publish <b>{doc_meta["chapter_title"]}</b> ({chapter_label}) to WordPress?'))
+        _publish_prompt = f'Publish <b>{doc_meta["chapter_title"]}</b> ({chapter_label}) to WordPress?'
+        if _cached["wp_status"] == "publish":
+            _publish_prompt += " — republishing will overwrite the live chapter."
+        _cl.addWidget(QLabel(_publish_prompt))
 
         if prev_scheduled:
             _warn = QLabel(
@@ -1552,7 +1555,7 @@ class TranslationAssistantWidget(QWidget):
             _status_lbl.setText(f"WP status: {_map.get(result.get('status', ''), 'Unknown')}")
             self._db.set_document_wp_status(
                 self._doc_id, result.get("status") or None, result.get("post_url"),
-                result.get("date"),
+                result.get("date"), _cached.get("wp_chapter_index"),
             )
             self._update_wp_status_label()
 
@@ -1584,11 +1587,13 @@ class TranslationAssistantWidget(QWidget):
                 attribution=self._settings.wp_attribution_enabled,
                 images=inline_images,
                 cover=cover_image,
+                previous_chapter_index=_cached.get("wp_chapter_index"),
             )
         except ValueError as exc:
             QMessageBox.warning(self, "Payload Error", str(exc))
             return
 
+        self._last_wp_chapter_index = doc_meta["series_order"]
         self.action_publish_wp.setEnabled(False)
         self._publish_worker = _PublishWorker(endpoint_url, payload, parent=self)
         self._publish_worker.succeeded.connect(self._on_publish_done)

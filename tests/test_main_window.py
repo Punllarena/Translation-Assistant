@@ -1194,3 +1194,37 @@ class TestCardListImagesWiring:
         win._db.add_document_image(doc_id, 0, False, "images/pic.png", b"fake-bytes")
         win.open_document(doc_id)
         assert len(win._card_view._image_widgets) == 1
+
+
+class TestPublishWpConfirmCopy:
+    def test_confirm_dialog_warns_when_already_published(self, win, monkeypatch):
+        win.load_content(_sep_file("Hello\n", "Bonjour\n"))
+        win._db.set_document_wp_status(win._doc_id, "publish", "https://ex.com/c1/", None, 1)
+        win._settings.wp_endpoint_url = "https://example.com"
+        win._settings.wp_api_key = "key123"
+        doc = win._db.get_document(win._doc_id)
+        win._db.set_series_wp_meta(
+            doc["series_title"], series_slug="s", series_title_short="S",
+        )
+
+        captured = {}
+
+        from PySide6.QtWidgets import QDialog as _RealQDialog
+
+        class _FakeDialog(_RealQDialog):
+            def exec(self): return 0  # Cancel — stop before any network/worker activity
+
+        def _fake_label_capture(text, *a, **k):
+            captured.setdefault("labels", []).append(text)
+            from PySide6.QtWidgets import QLabel
+            return QLabel(text)
+
+        monkeypatch.setattr(
+            "translation_assistant.ui.main_widget.QDialog", _FakeDialog,
+        )
+        monkeypatch.setattr(
+            "translation_assistant.ui.main_widget.QLabel", _fake_label_capture,
+        )
+        win._on_publish_wp()
+
+        assert any("overwrite" in t.lower() for t in captured["labels"])
