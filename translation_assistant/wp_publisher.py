@@ -190,6 +190,7 @@ def build_payload(
     attribution: bool = True,
     images: list[dict] | None = None,
     cover: dict | None = None,
+    previous_chapter_index: int | None = None,
 ) -> dict:
     if not series_meta.get("series_slug"):
         raise ValueError("series_slug is required — set it in Series Manager")
@@ -225,6 +226,8 @@ def build_payload(
         payload["unlock_chapter_index"] = unlock_chapter_index
     if scheduled_date is not None:
         payload["publish_date"] = scheduled_date
+    if previous_chapter_index is not None and previous_chapter_index != doc_meta["series_order"]:
+        payload["previous_chapter_index"] = previous_chapter_index
     return payload
 
 

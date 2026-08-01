@@ -201,6 +201,30 @@ def test_build_payload_omits_password_fields_when_none():
     assert "unlock_chapter_index" not in payload
 
 
+def test_build_payload_includes_previous_chapter_index_when_differs():
+    doc_meta, series_meta, lines = _sample_meta()
+    doc_meta["series_order"] = 3
+    payload = build_payload(
+        doc_meta, series_meta, lines, api_key="key123", previous_chapter_index=2,
+    )
+    assert payload["previous_chapter_index"] == 2
+
+
+def test_build_payload_omits_previous_chapter_index_when_same():
+    doc_meta, series_meta, lines = _sample_meta()
+    doc_meta["series_order"] = 1
+    payload = build_payload(
+        doc_meta, series_meta, lines, api_key="key123", previous_chapter_index=1,
+    )
+    assert "previous_chapter_index" not in payload
+
+
+def test_build_payload_omits_previous_chapter_index_when_none():
+    doc_meta, series_meta, lines = _sample_meta()
+    payload = build_payload(doc_meta, series_meta, lines, api_key="key123")
+    assert "previous_chapter_index" not in payload
+
+
 # ---------------------------------------------------------------------------
 # resolve_wp_password_enabled — series override vs. global fallback
 # ---------------------------------------------------------------------------
