@@ -158,6 +158,7 @@ class TranslationAssistantWidget(QWidget):
         self._last_pw: str | None = None
         self._last_unlock_idx: int | None = None
         self._last_scheduled_date: str | None = None
+        self._last_wp_chapter_index: int | None = None
         self._wp_post_url: str | None = None
 
         self._build_actions()

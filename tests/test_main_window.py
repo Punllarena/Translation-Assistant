@@ -1229,6 +1229,123 @@ class TestPublishWpConfirmCopy:
 
         assert any("overwrite" in t.lower() for t in captured["labels"])
 
+    def test_accept_path_forwards_cached_chapter_index(self, win, monkeypatch):
+        """End-to-end: cached wp_chapter_index flows into build_payload, and
+        _last_wp_chapter_index is updated to the new series_order once the
+        confirm dialog is accepted."""
+        win.load_content(_sep_file("Hello\n", "Bonjour\n"))
+        win._db.set_document_wp_status(win._doc_id, "publish", "https://ex.com/c1/", None, 1)
+        win._db.set_series_orders([(win._doc_id, 3)])
+        win._settings.wp_endpoint_url = "https://example.com"
+        win._settings.wp_api_key = "key123"
+        doc = win._db.get_document(win._doc_id)
+        win._db.set_series_wp_meta(
+            doc["series_title"], series_slug="s", series_title_short="S",
+        )
+
+        from PySide6.QtWidgets import QDialog as _RealQDialog
+
+        class _FakeDialog(_RealQDialog):
+            def exec(self):
+                return 1  # Accept
+
+        monkeypatch.setattr(
+            "translation_assistant.ui.main_widget.QDialog", _FakeDialog,
+        )
+
+        # Stub the QThread-based workers so no real network/threading occurs.
+        class _FakeThread:
+            def __init__(self, *a, **k):
+                pass
+
+            def start(self):
+                pass
+
+            def quit(self):
+                pass
+
+            def wait(self, *a, **k):
+                pass
+
+            def connect(self, *a, **k):
+                pass
+
+            @property
+            def succeeded(self):
+                return self
+
+            @property
+            def error(self):
+                return self
+
+        monkeypatch.setattr(
+            "translation_assistant.ui.main_widget._StatusCheckWorker", _FakeThread,
+        )
+        monkeypatch.setattr(
+            "translation_assistant.ui.main_widget._PublishWorker", _FakeThread,
+        )
+
+        captured = {}
+        import translation_assistant.wp_publisher as wp_publisher
+        _real_build_payload = wp_publisher.build_payload
+
+        def _spy_build_payload(*args, **kwargs):
+            captured["kwargs"] = kwargs
+            return _real_build_payload(*args, **kwargs)
+
+        monkeypatch.setattr(wp_publisher, "build_payload", _spy_build_payload)
+
+        win._on_publish_wp()
+
+        assert captured["kwargs"]["previous_chapter_index"] == 1
+        assert win._last_wp_chapter_index == 3
+
+    def test_status_ok_preserves_cached_chapter_index(self, win, monkeypatch):
+        """_on_status_ok's async status refresh must not clobber the cached
+        wp_chapter_index with None."""
+        win.load_content(_sep_file("Hello\n", "Bonjour\n"))
+        win._db.set_document_wp_status(win._doc_id, "publish", "https://ex.com/c1/", None, 1)
+        win._settings.wp_endpoint_url = "https://example.com"
+        win._settings.wp_api_key = "key123"
+        doc = win._db.get_document(win._doc_id)
+        win._db.set_series_wp_meta(
+            doc["series_title"], series_slug="s", series_title_short="S",
+        )
+
+        from PySide6.QtWidgets import QDialog as _RealQDialog
+
+        class _FakeDialog(_RealQDialog):
+            def exec(self):
+                return 0  # Cancel — we only care about the async status callback
+
+        monkeypatch.setattr(
+            "translation_assistant.ui.main_widget.QDialog", _FakeDialog,
+        )
+
+        captured_worker = {}
+        from translation_assistant.ui.main_widget import _StatusCheckWorker as _RealStatusWorker
+
+        class _CapturingStatusWorker(_RealStatusWorker):
+            def __init__(self, *a, **k):
+                super().__init__(*a, **k)
+                captured_worker["worker"] = self
+
+            def start(self):
+                pass  # don't actually run the thread
+
+        monkeypatch.setattr(
+            "translation_assistant.ui.main_widget._StatusCheckWorker", _CapturingStatusWorker,
+        )
+
+        win._on_publish_wp()
+
+        worker = captured_worker["worker"]
+        # Simulate the async status callback firing with a fresh result.
+        worker.succeeded.emit({"status": "future", "post_url": "https://ex.com/c1/", "date": "2026-01-01T00:00:00Z"})
+
+        info = win._db.get_document_wp_status(win._doc_id)
+        assert info["wp_chapter_index"] == 1
+
 
 class TestOnPublishDone:
     def _prep(self, win):
