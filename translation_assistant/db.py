@@ -158,9 +158,10 @@ class Database:
         # Idempotent column migrations for WP publish status on documents
         wp_doc_existing = {r[1] for r in self._conn.execute("PRAGMA table_info(documents)").fetchall()}
         for col, defn in [
-            ("wp_status",   "TEXT DEFAULT NULL"),
-            ("wp_post_url", "TEXT DEFAULT NULL"),
-            ("wp_date",     "TEXT DEFAULT NULL"),
+            ("wp_status",       "TEXT DEFAULT NULL"),
+            ("wp_post_url",     "TEXT DEFAULT NULL"),
+            ("wp_date",         "TEXT DEFAULT NULL"),
+            ("wp_chapter_index", "INTEGER DEFAULT NULL"),
         ]:
             if col not in wp_doc_existing:
                 self._conn.execute(f"ALTER TABLE documents ADD COLUMN {col} {defn}")
@@ -525,20 +526,30 @@ class Database:
         return dict(row)
 
     def set_document_wp_status(
-        self, doc_id: int, status: str, post_url: str | None, date: str | None = None
+        self,
+        doc_id: int,
+        status: str,
+        post_url: str | None,
+        date: str | None = None,
+        chapter_index: int | None = None,
     ) -> None:
         self._conn.execute(
-            "UPDATE documents SET wp_status = ?, wp_post_url = ?, wp_date = ? WHERE id = ?",
-            (status, post_url, date, doc_id),
+            "UPDATE documents SET wp_status = ?, wp_post_url = ?, wp_date = ?, "
+            "wp_chapter_index = ? WHERE id = ?",
+            (status, post_url, date, chapter_index, doc_id),
         )
         self._conn.commit()
 
     def get_document_wp_status(self, doc_id: int) -> dict:
         row = self._conn.execute(
-            "SELECT wp_status, wp_post_url, wp_date FROM documents WHERE id = ?", (doc_id,)
+            "SELECT wp_status, wp_post_url, wp_date, wp_chapter_index FROM documents WHERE id = ?",
+            (doc_id,),
         ).fetchone()
         if row is None:
-            return {"wp_status": None, "wp_post_url": None, "wp_date": None}
+            return {
+                "wp_status": None, "wp_post_url": None, "wp_date": None,
+                "wp_chapter_index": None,
+            }
         return dict(row)
 
     def get_wp_status_by_series_position(
