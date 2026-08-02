@@ -345,6 +345,53 @@ def test_get_document_images_scoped_to_document(db):
     assert len(db.get_document_images(doc1)) == 1
     assert db.get_document_images(doc1)[0]["src_path"] == "a.png"
 
+def test_image_exclude_export_defaults_to_zero(db):
+    doc_id = db.create_document("doc")
+    db.add_document_image(doc_id, 0, False, "images/pic.png", b"fakebytes")
+    images = db.get_document_images(doc_id)
+    assert images[0]["exclude_export"] == 0
+
+
+def test_set_image_exclude_export_round_trips(db):
+    doc_id = db.create_document("doc")
+    img_id = db.add_document_image(doc_id, 0, False, "images/pic.png", b"fakebytes")
+    db.set_image_exclude_export(img_id, True)
+    assert db.get_document_images(doc_id)[0]["exclude_export"] == 1
+    db.set_image_exclude_export(img_id, False)
+    assert db.get_document_images(doc_id)[0]["exclude_export"] == 0
+
+
+def test_set_image_exclude_export_scoped_to_one_image(db):
+    doc_id = db.create_document("doc")
+    a = db.add_document_image(doc_id, 0, False, "a.png", b"a")
+    db.add_document_image(doc_id, 1, False, "b.png", b"b")
+    db.set_image_exclude_export(a, True)
+    images = db.get_document_images(doc_id)
+    assert images[0]["exclude_export"] == 1
+    assert images[1]["exclude_export"] == 0
+
+
+def test_exclude_export_column_added_to_preexisting_table(db):
+    """The migration must add the column to a document_images table that
+    predates it, leaving existing rows exporting (0)."""
+    db._conn.execute("DROP TABLE document_images")
+    db._conn.execute(
+        "CREATE TABLE document_images ("
+        " id INTEGER PRIMARY KEY,"
+        " document_id INTEGER NOT NULL,"
+        " anchor_position INTEGER NOT NULL DEFAULT 0,"
+        " is_cover INTEGER NOT NULL DEFAULT 0,"
+        " src_path TEXT NOT NULL,"
+        " data BLOB NOT NULL)"
+    )
+    db._conn.execute(
+        "INSERT INTO document_images (document_id, anchor_position, is_cover, src_path, data)"
+        " VALUES (1, 0, 0, 'old.png', X'00')"
+    )
+    db._conn.commit()
+    db._apply_schema()
+    assert db.get_document_images(1)[0]["exclude_export"] == 0
+
 def test_volume_has_cover_false_initially(db):
     db.create_document("Ch 1", series_title="S", volume_title="V1")
     assert db.volume_has_cover("S", "V1") is False

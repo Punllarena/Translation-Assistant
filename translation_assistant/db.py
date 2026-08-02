@@ -73,7 +73,8 @@ CREATE TABLE IF NOT EXISTS document_images (
     anchor_position INTEGER NOT NULL DEFAULT 0,
     is_cover        INTEGER NOT NULL DEFAULT 0,
     src_path        TEXT    NOT NULL,
-    data            BLOB    NOT NULL
+    data            BLOB    NOT NULL,
+    exclude_export  INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_document_images_doc ON document_images(document_id, anchor_position);
@@ -172,6 +173,16 @@ class Database:
         if "translated_at" not in lines_existing:
             self._conn.execute(
                 "ALTER TABLE lines ADD COLUMN translated_at TEXT DEFAULT NULL"
+            )
+        self._conn.commit()
+
+        # Idempotent column migration for document_images
+        di_existing = {
+            r[1] for r in self._conn.execute("PRAGMA table_info(document_images)").fetchall()
+        }
+        if "exclude_export" not in di_existing:
+            self._conn.execute(
+                "ALTER TABLE document_images ADD COLUMN exclude_export INTEGER NOT NULL DEFAULT 0"
             )
         self._conn.commit()
 
@@ -464,11 +475,19 @@ class Database:
 
     def get_document_images(self, document_id: int) -> list[dict]:
         rows = self._conn.execute(
-            "SELECT id, anchor_position, is_cover, src_path, data FROM document_images "
+            "SELECT id, anchor_position, is_cover, src_path, data, exclude_export "
+            "FROM document_images "
             "WHERE document_id = ? ORDER BY anchor_position, id",
             (document_id,),
         ).fetchall()
         return [dict(r) for r in rows]
+
+    def set_image_exclude_export(self, image_id: int, exclude: bool) -> None:
+        self._conn.execute(
+            "UPDATE document_images SET exclude_export = ? WHERE id = ?",
+            (1 if exclude else 0, image_id),
+        )
+        self._conn.commit()
 
     def volume_has_cover(self, series_title: str, volume_title: str) -> bool:
         row = self._conn.execute(
