@@ -393,6 +393,61 @@ class TestCardListViewImages:
         view.load(["%A", "%B"], ["", ""], [], images)
         assert view.card_count() == 2  # only the two text lines, image is not a card
 
+    def test_builds_image_cards_not_plain_labels(self, view):
+        from translation_assistant.ui.card_list import ImageCard
+        images = [{"id": 7, "anchor_position": 0, "data": _TINY_PNG}]
+        view.load(["%A"], [""], [], images)
+        img_widget = view._image_widgets[0]
+        assert isinstance(img_widget, ImageCard)
+
+    def test_image_card_stores_image_id(self, view):
+        from translation_assistant.ui.card_list import ImageCard
+        images = [{"id": 42, "anchor_position": 0, "data": _TINY_PNG}]
+        view.load(["%A"], [""], [], images)
+        img_card = view._image_widgets[0]
+        assert isinstance(img_card, ImageCard)
+        assert img_card._image_id == 42
+
+    def test_image_export_toggled_signal_relayed(self, view):
+        images = [{"id": 7, "anchor_position": 0, "data": _TINY_PNG, "exclude_export": 0}]
+        view.load(["%A"], [""], [], images)
+        seen = []
+        view.image_export_toggled.connect(lambda img_id, exc: seen.append((img_id, exc)))
+        view._image_widgets[0].export_box.setChecked(False)
+        assert seen == [(7, True)]
+
+    def test_set_images_collapsed_true(self, view):
+        images = [{"id": 1, "anchor_position": 0, "data": _TINY_PNG},
+                  {"id": 2, "anchor_position": 1, "data": _TINY_PNG}]
+        view.load(["%A", "%B"], ["", ""], [], images)
+        view.set_images_collapsed(True)
+        assert all(card.chevron.isChecked() for card in view._image_widgets)
+        assert not view._image_widgets[0].image_label.isVisibleTo(view._image_widgets[0])
+        assert not view._image_widgets[1].image_label.isVisibleTo(view._image_widgets[1])
+
+    def test_set_images_collapsed_false(self, view):
+        images = [{"id": 1, "anchor_position": 0, "data": _TINY_PNG}]
+        view.load(["%A"], [""], [], images)
+        view.set_images_collapsed(True)
+        view.set_images_collapsed(False)
+        assert not view._image_widgets[0].chevron.isChecked()
+        assert view._image_widgets[0].image_label.isVisibleTo(view._image_widgets[0])
+
+    def test_set_images_collapsed_updates_state(self, view):
+        images = [{"id": 1, "anchor_position": 0, "data": _TINY_PNG}]
+        view.load(["%A"], [""], [], images)
+        assert view._images_collapsed == False
+        view.set_images_collapsed(True)
+        assert view._images_collapsed == True
+        view.set_images_collapsed(False)
+        assert view._images_collapsed == False
+
+    def test_set_images_collapsed_empty_list(self, view):
+        view.load(["%A"], [""], [], [])
+        view.set_images_collapsed(True)
+        assert view._images_collapsed == True
+        assert view._image_widgets == []
+
 
 @pytest.fixture
 def app_qss(qapp):

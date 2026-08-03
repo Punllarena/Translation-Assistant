@@ -340,6 +340,7 @@ class CardListView(QScrollArea):
     """Scrollable list of LineCards; hosts the shared editor pair."""
 
     card_clicked = Signal(int)
+    image_export_toggled = Signal(int, bool)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -361,7 +362,8 @@ class CardListView(QScrollArea):
 
         self._cards: dict[int, LineCard] = {}
         self._ordered: list[LineCard] = []   # visual (y-ascending) order
-        self._image_widgets: list[QLabel] = []
+        self._image_widgets: list["ImageCard"] = []
+        self._images_collapsed = False
         self._pending: list[tuple[int, str]] = []
         self._built_count = 0
         self._load_translations: list[str] = []
@@ -455,10 +457,13 @@ class CardListView(QScrollArea):
                 self._ordered.append(card)
             else:
                 _, image = entry
-                widget = self._make_image_widget(image)
-                self._vbox.insertWidget(insert_at, widget)
+                self._built_count += 1
+                card = ImageCard(image, self._built_count)
+                card.export_toggled.connect(self.image_export_toggled)
+                card.set_collapsed(self._images_collapsed)
+                self._vbox.insertWidget(insert_at, card)
                 insert_at += 1
-                self._image_widgets.append(widget)
+                self._image_widgets.append(card)
         if self._pending:
             QTimer.singleShot(0, self._build_batch)
         elif self.active_index is not None:
@@ -469,19 +474,6 @@ class CardListView(QScrollArea):
                 self._scroll_to(card)
         # Wheel fade needs settled geometry — apply after the layout pass.
         QTimer.singleShot(0, self._apply_wheel)
-
-    def _make_image_widget(self, image: dict) -> QLabel:
-        """Plain, non-editable illustration widget — not a LineCard, no index,
-        not part of navigation/spellcheck/progress."""
-        label = QLabel()
-        label.setObjectName("CardImage")
-        pixmap = QPixmap()
-        pixmap.loadFromData(image["data"])
-        if not pixmap.isNull():
-            pixmap = pixmap.scaledToWidth(400, Qt.TransformationMode.SmoothTransformation)
-        label.setPixmap(pixmap)
-        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        return label
 
     def _ensure_built(self, index: int) -> None:
         while self._pending and index not in self._cards:
@@ -682,3 +674,9 @@ class CardListView(QScrollArea):
             self._trans_edit.setFont(font)
         for card in self._cards.values():
             card.set_font_size(pt)
+
+    def set_images_collapsed(self, collapsed: bool) -> None:
+        """Apply collapse state to all ImageCards and update internal state."""
+        self._images_collapsed = collapsed
+        for card in self._image_widgets:
+            card.set_collapsed(collapsed)
