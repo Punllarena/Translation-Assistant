@@ -1265,7 +1265,7 @@ class TranslationAssistantWidget(QWidget):
                 # after the guard, a cover attached to such a chapter would
                 # be silently dropped from the exported EPUB.
                 all_images = self._db.get_document_images(doc_id)
-                inline_images = [im for im in all_images if not im["is_cover"]]
+                inline_images = [im for im in all_images if not im["is_cover"] and not im["exclude_export"]]
                 if cover is None:
                     cover_row = next((im for im in all_images if im["is_cover"]), None)
                     if cover_row is not None:
@@ -1456,7 +1456,7 @@ class TranslationAssistantWidget(QWidget):
 
         lines = self._db.get_lines(self._doc_id)
         doc_images = self._db.get_document_images(self._doc_id)
-        inline_images = [im for im in doc_images if not im["is_cover"]]
+        inline_images = [im for im in doc_images if not im["is_cover"] and not im["exclude_export"]]
         cover_image = next((im for im in doc_images if im["is_cover"]), None)
         if not any(ln["translated_text"].strip() for ln in lines):
             QMessageBox.warning(self, "Nothing to Publish", "No translated lines to publish.")

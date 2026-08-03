@@ -1418,3 +1418,112 @@ class TestImageCollapseAndExport:
         assert win._db.get_document_images(doc_id)[0]["exclude_export"] == 1
         win._card_view.image_export_toggled.emit(img_id, False)
         assert win._db.get_document_images(doc_id)[0]["exclude_export"] == 0
+
+    def test_excluded_inline_image_is_not_exported(self, win, tmp_path, monkeypatch):
+        """When an inline image has exclude_export=1, it should not appear in the EPUB."""
+        db = win._db
+        doc_id = db.create_document(
+            "Ch 1", series_title="S", series_order=1, chapter_title="Ch 1", volume_title="Vol 1"
+        )
+        db.save_lines(doc_id, [
+            {"line_number": 0, "prefix": "%", "raw_text": "A", "translated_text": "Alpha"},
+        ])
+        img_id = db.add_document_image(doc_id, 1, False, "images/pic.png", b"fake-bytes")
+        db.set_image_exclude_export(img_id, 1)
+        win._doc_id = doc_id
+        monkeypatch.setattr(
+            "translation_assistant.ui.main_widget.QFileDialog.getExistingDirectory",
+            lambda *a, **kw: str(tmp_path),
+        )
+        with patch("translation_assistant.ui.main_widget.QMessageBox.information"):
+            win._on_export_epub_series()
+        import zipfile
+        out = tmp_path / "S" / "Vol 1.epub"
+        with zipfile.ZipFile(out) as zf:
+            names = zf.namelist()
+        assert not any(n.endswith("pic.png") for n in names)
+
+    def test_cover_still_exported_when_inline_image_excluded(self, win, tmp_path, monkeypatch):
+        """Cover images should always be exported, even if an inline image is excluded."""
+        db = win._db
+        doc_id = db.create_document(
+            "Ch 1", series_title="S", series_order=1, chapter_title="Ch 1", volume_title="Vol 1"
+        )
+        db.save_lines(doc_id, [
+            {"line_number": 0, "prefix": "%", "raw_text": "A", "translated_text": "Alpha"},
+        ])
+        # Add cover
+        db.add_document_image(doc_id, 0, True, "images/cover.jpg", b"fake-cover-bytes")
+        # Add excluded inline image
+        img_id = db.add_document_image(doc_id, 1, False, "images/pic.png", b"fake-bytes")
+        db.set_image_exclude_export(img_id, 1)
+        win._doc_id = doc_id
+        monkeypatch.setattr(
+            "translation_assistant.ui.main_widget.QFileDialog.getExistingDirectory",
+            lambda *a, **kw: str(tmp_path),
+        )
+        with patch("translation_assistant.ui.main_widget.QMessageBox.information"):
+            win._on_export_epub_series()
+        import zipfile
+        out = tmp_path / "S" / "Vol 1.epub"
+        with zipfile.ZipFile(out) as zf:
+            opf = zf.read("OEBPS/content.opf").decode("utf-8")
+        assert "cover-image" in opf
+        # Excluded inline image should not be in the archive
+        with zipfile.ZipFile(out) as zf:
+            names = zf.namelist()
+        assert not any(n.endswith("pic.png") for n in names)
+
+    def test_excluded_image_not_in_wp_payload(self, win, monkeypatch):
+        """When an inline image has exclude_export=1, it should not be in the WordPress payload."""
+        win.load_content(_sep_file("Hello\n", "Bonjour\n"))
+        win._settings.wp_endpoint_url = "https://example.com"
+        win._settings.wp_api_key = "key123"
+        doc = win._db.get_document(win._doc_id)
+        win._db.set_series_wp_meta(
+            doc["series_title"], series_slug="s", series_title_short="S",
+        )
+        # Add excluded inline image
+        img_id = win._db.add_document_image(win._doc_id, 1, False, "images/pic.png", b"fake-bytes")
+        win._db.set_image_exclude_export(img_id, 1)
+
+        class _FakeThread:
+            def __init__(self, *a, **k):
+                pass
+            def start(self):
+                pass
+            def quit(self):
+                pass
+            def wait(self, *a, **k):
+                pass
+            def connect(self, *a, **k):
+                pass
+            @property
+            def succeeded(self):
+                return self
+            @property
+            def error(self):
+                return self
+
+        monkeypatch.setattr(
+            "translation_assistant.ui.main_widget._StatusCheckWorker", _FakeThread,
+        )
+        monkeypatch.setattr(
+            "translation_assistant.ui.main_widget._PublishWorker", _FakeThread,
+        )
+
+        captured = {}
+        import translation_assistant.wp_publisher as wp_publisher
+        _real_build_payload = wp_publisher.build_payload
+
+        def _spy_build_payload(*args, **kwargs):
+            captured["kwargs"] = kwargs
+            return _real_build_payload(*args, **kwargs)
+
+        monkeypatch.setattr(wp_publisher, "build_payload", _spy_build_payload)
+
+        win._on_publish_wp()
+
+        # Verify the payload's images list does not contain the excluded image
+        assert "images" in captured["kwargs"]
+        assert len(captured["kwargs"]["images"]) == 0
