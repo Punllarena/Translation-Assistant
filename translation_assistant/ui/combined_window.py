@@ -161,6 +161,7 @@ class CombinedMainWindow(QMainWindow):
         view_menu.addSeparator()
         view_menu.addAction(ta.action_progress)   # #4: moved from Settings
         view_menu.addAction(ta.action_tm)          # #4: moved from Settings
+        view_menu.addAction(ta.action_collapse_images)
         view_menu.addSeparator()
         font_menu = QMenu("Font Size", self)
         font_menu.addAction(ta.action_font_larger)

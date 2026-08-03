@@ -233,6 +233,11 @@ class TranslationAssistantWidget(QWidget):
         self.action_tm.setChecked(self._settings.tm_visible)
         self.action_tm.triggered.connect(self._on_toggle_tm)
 
+        self.action_collapse_images = QAction("Collapse Images", self)
+        self.action_collapse_images.setCheckable(True)
+        self.action_collapse_images.setChecked(self._settings.images_collapsed)
+        self.action_collapse_images.triggered.connect(self._on_toggle_collapse_images)
+
         self.action_go_to_line = QAction("Go to Line…", self)
         self.action_go_to_line.setShortcut("Ctrl+G")
         self.action_go_to_line.triggered.connect(self._on_go_to_line)
@@ -386,6 +391,8 @@ class TranslationAssistantWidget(QWidget):
         self._card_view.set_editors(self._raw_line, self._translated_line)
         self._card_view.set_font_size(self._settings.font_size)
         self._card_view.card_clicked.connect(self._on_card_clicked)
+        self._card_view.image_export_toggled.connect(self._on_image_export_toggled)
+        self._card_view.set_images_collapsed(self._settings.images_collapsed)
 
         self._tm_panel = QWidget()
         self._tm_panel.setMinimumHeight(0)
@@ -1727,6 +1734,14 @@ class TranslationAssistantWidget(QWidget):
     def _toggle_tm_panel(self) -> None:
         self.action_tm.setChecked(not self.action_tm.isChecked())
         self._on_toggle_tm()
+
+    def _on_toggle_collapse_images(self) -> None:
+        collapsed = self.action_collapse_images.isChecked()
+        self._settings.images_collapsed = collapsed
+        self._card_view.set_images_collapsed(collapsed)
+
+    def _on_image_export_toggled(self, image_id: int, exclude: bool) -> None:
+        self._db.set_image_exclude_export(image_id, exclude)
 
     def _on_go_to_line(self) -> None:
         if not self._raw_lines:

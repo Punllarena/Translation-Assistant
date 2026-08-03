@@ -146,6 +146,18 @@ class TestPublishWPAction:
         action_texts = [a.text() for a in file_menu.actions()]
         assert "Publish to WordPress…" in action_texts
 
+    def test_collapse_images_in_view_menu(self, win):
+        mb = win.menuBar()
+        for action in mb.actions():
+            if action.text() == "View":
+                view_menu = action.menu()
+                break
+        else:
+            view_menu = None
+        assert view_menu is not None
+        action_texts = [a.text() for a in view_menu.actions()]
+        assert "Collapse Images" in action_texts
+
     def test_settings_menu_has_wp_settings_action(self, win):
         mb = win.menuBar()
         for action in mb.actions():

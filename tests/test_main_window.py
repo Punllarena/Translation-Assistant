@@ -1389,3 +1389,32 @@ class TestOnPublishDone:
         win._on_publish_done({"created": False, "page_url": "https://ex.com/c1/", "post_url": ""})
         info = win._db.get_document_wp_status(doc_id)
         assert info["wp_status"] == "future"  # untouched
+
+
+class TestImageCollapseAndExport:
+    def test_action_collapse_images_exists_and_is_checkable(self, win):
+        assert win.action_collapse_images.isCheckable()
+        assert win.action_collapse_images.text() == "Collapse Images"
+
+    def test_action_initialised_from_settings(self, qapp, tmp_path):
+        from translation_assistant.ui.main_widget import TranslationAssistantWidget
+        settings = _make_settings(tmp_path)
+        settings.images_collapsed = True
+        w = TranslationAssistantWidget(_settings=settings, _db=_make_db())
+        assert w.action_collapse_images.isChecked()
+        assert w._card_view._images_collapsed is True
+        w.destroy()
+
+    def test_toggling_action_persists_and_applies(self, win):
+        win.action_collapse_images.setChecked(True)
+        win._on_toggle_collapse_images()
+        assert win._settings.images_collapsed is True
+        assert win._card_view._images_collapsed is True
+
+    def test_export_toggle_writes_to_db(self, win):
+        doc_id = win._db.create_document("doc")
+        img_id = win._db.add_document_image(doc_id, 0, False, "pic.png", b"x")
+        win._card_view.image_export_toggled.emit(img_id, True)
+        assert win._db.get_document_images(doc_id)[0]["exclude_export"] == 1
+        win._card_view.image_export_toggled.emit(img_id, False)
+        assert win._db.get_document_images(doc_id)[0]["exclude_export"] == 0
