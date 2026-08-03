@@ -454,7 +454,8 @@ def test_update_volume_metadata_writes_all_docs_in_bucket(db):
     d1 = db.create_document("Ch 1", series_title="S", volume_title="")
     d2 = db.create_document("Ch 2", series_title="S", volume_title="")
     affected = db.update_volume_metadata(
-        "S", "", author="A", illustrator="I", publisher="P", identifier="urn:x",
+        "S", "", new_volume_title="", volume_author="A", volume_illustrator="I",
+        volume_publisher="P", volume_identifier="urn:x",
     )
     assert affected == 2
     for doc_id in (d1, d2):
@@ -468,7 +469,8 @@ def test_update_volume_metadata_writes_all_docs_in_bucket(db):
 def test_update_volume_metadata_does_not_touch_other_series(db):
     other = db.create_document("Ch 1", series_title="Other", volume_title="")
     db.create_document("Ch 1", series_title="S", volume_title="")
-    db.update_volume_metadata("S", "", author="A")
+    db.update_volume_metadata("S", "", new_volume_title="", volume_author="A",
+                              volume_illustrator="", volume_publisher="", volume_identifier="")
     assert db.get_document(other)["volume_author"] == ""
 
 
@@ -1428,3 +1430,61 @@ def test_set_series_orders_bulk_update(db):
     assert db.get_document(a)["series_order"] == 3
     assert db.get_document(b)["series_order"] == 1
     assert db.get_document(c)["series_order"] == 2
+
+
+def test_update_volume_metadata_updates_all_matching_documents(db):
+    doc1 = db.create_document("Ch 1", series_title="S", volume_title="V1", chapter_title="Ch 1")
+    doc2 = db.create_document("Ch 2", series_title="S", volume_title="V1", chapter_title="Ch 2")
+    count = db.update_volume_metadata(
+        "S", "V1",
+        new_volume_title="V1",
+        volume_author="New Author",
+        volume_illustrator="New Illustrator",
+        volume_publisher="New Publisher",
+        volume_identifier="urn:isbn:1111111111111",
+    )
+    assert count == 2
+    for doc_id in (doc1, doc2):
+        meta = db.get_document(doc_id)
+        assert meta["volume_author"] == "New Author"
+        assert meta["volume_illustrator"] == "New Illustrator"
+        assert meta["volume_publisher"] == "New Publisher"
+        assert meta["volume_identifier"] == "urn:isbn:1111111111111"
+
+
+def test_update_volume_metadata_renames_volume_title_across_group(db):
+    doc1 = db.create_document("Ch 1", series_title="S", volume_title="Old Name", chapter_title="Ch 1")
+    doc2 = db.create_document("Ch 2", series_title="S", volume_title="Old Name", chapter_title="Ch 2")
+    db.update_volume_metadata(
+        "S", "Old Name",
+        new_volume_title="New Name",
+        volume_author="", volume_illustrator="", volume_publisher="", volume_identifier="",
+    )
+    assert db.get_document(doc1)["volume_title"] == "New Name"
+    assert db.get_document(doc2)["volume_title"] == "New Name"
+
+
+def test_update_volume_metadata_scoped_to_series(db):
+    # Two series happen to share the volume_title string "V1" -- only the
+    # matching series's documents may be touched.
+    doc_s = db.create_document("Ch 1", series_title="S", volume_title="V1", chapter_title="Ch 1")
+    doc_t = db.create_document("Ch 1", series_title="T", volume_title="V1", chapter_title="Ch 1")
+    db.update_volume_metadata(
+        "S", "V1",
+        new_volume_title="V1", volume_author="Author S",
+        volume_illustrator="", volume_publisher="", volume_identifier="",
+    )
+    assert db.get_document(doc_s)["volume_author"] == "Author S"
+    assert db.get_document(doc_t)["volume_author"] == ""
+
+
+def test_update_volume_metadata_does_not_touch_other_volumes(db):
+    doc_v1 = db.create_document("Ch 1", series_title="S", volume_title="V1", chapter_title="Ch 1")
+    doc_v2 = db.create_document("Ch 1", series_title="S", volume_title="V2", chapter_title="Ch 1")
+    db.update_volume_metadata(
+        "S", "V1",
+        new_volume_title="V1", volume_author="Author V1",
+        volume_illustrator="", volume_publisher="", volume_identifier="",
+    )
+    assert db.get_document(doc_v1)["volume_author"] == "Author V1"
+    assert db.get_document(doc_v2)["volume_author"] == ""

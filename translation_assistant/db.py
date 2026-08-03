@@ -523,13 +523,26 @@ class Database:
         return meta
 
     def update_volume_metadata(self, series_title: str, volume_title: str, *,
-                               author: str = "", illustrator: str = "",
-                               publisher: str = "", identifier: str = "") -> int:
+                               new_volume_title: str,
+                               volume_author: str,
+                               volume_illustrator: str,
+                               volume_publisher: str,
+                               volume_identifier: str) -> int:
+        """
+        Bulk-updates the five denormalized volume-metadata columns across
+        every document row sharing (series_title, volume_title) -- these
+        columns are duplicated onto every chapter row (same pattern as
+        volume_title itself), so a rename or metadata edit must propagate to
+        every row in the group. Otherwise export's "read the first row"
+        convention (main_widget.py's _on_export_epub_series) would read
+        stale/mismatched values from whichever row happens to sort first.
+        Returns the number of rows updated.
+        """
         cur = self._conn.execute(
-            "UPDATE documents SET volume_author = ?, volume_illustrator = ?, "
-            "volume_publisher = ?, volume_identifier = ? "
-            "WHERE series_title = ? AND volume_title = ?",
-            (author, illustrator, publisher, identifier, series_title, volume_title),
+            "UPDATE documents SET volume_title=?, volume_author=?, volume_illustrator=?, "
+            "volume_publisher=?, volume_identifier=? WHERE series_title=? AND volume_title=?",
+            (new_volume_title, volume_author, volume_illustrator, volume_publisher,
+             volume_identifier, series_title, volume_title),
         )
         self._conn.commit()
         return cur.rowcount
