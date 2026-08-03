@@ -55,6 +55,7 @@ class OpenDocumentDialog(QDialog):
         self._selected_doc_id: int | None = None
         self._doc_ids: dict[int, int] = {}  # id(QTreeWidgetItem) → doc_id
         self._source_urls: dict[int, str] = {}
+        self._volume_titles: dict[int, str] = {}
         self._refetch_worker = None
         self._setup_ui()
         self._load_series()
@@ -126,6 +127,9 @@ class OpenDocumentDialog(QDialog):
         self._edit_btn = QPushButton("Edit…")
         self._edit_btn.setEnabled(False)
         self._edit_btn.clicked.connect(self._on_edit)
+        self._edit_volume_btn = QPushButton("Edit Volume…")
+        self._edit_volume_btn.setEnabled(False)
+        self._edit_volume_btn.clicked.connect(self._on_edit_volume)
         self._edit_source_btn = QPushButton("Edit Source…")
         self._edit_source_btn.setEnabled(False)
         self._edit_source_btn.clicked.connect(self._on_edit_source)
@@ -139,7 +143,7 @@ class OpenDocumentDialog(QDialog):
         cancel_btn = QPushButton("Cancel")
         cancel_btn.clicked.connect(self.reject)
         btn_row.addStretch()
-        for btn in (self._open_btn, self._edit_btn, self._edit_source_btn,
+        for btn in (self._open_btn, self._edit_btn, self._edit_volume_btn, self._edit_source_btn,
                     self._delete_btn, self._refetch_btn, cancel_btn):
             btn_row.addWidget(btn)
         outer.addLayout(btn_row)
@@ -169,6 +173,7 @@ class OpenDocumentDialog(QDialog):
         self._tree.clear()
         self._doc_ids.clear()
         self._source_urls.clear()
+        self._volume_titles.clear()
 
         docs = self._db.list_documents()
         docs = [d for d in docs if (d["series_title"] or "") == series_raw]
@@ -206,6 +211,7 @@ class OpenDocumentDialog(QDialog):
 
             self._doc_ids[id(item)] = doc["id"]
             self._source_urls[id(item)] = doc.get("source_url", "")
+            self._volume_titles[id(item)] = doc.get("volume_title", "")
             self._tree.addTopLevelItem(item)
 
         self._apply_filter(self._filter_edit.text())
@@ -226,6 +232,7 @@ class OpenDocumentDialog(QDialog):
             self._tree.clear()
             self._doc_ids.clear()
             self._source_urls.clear()
+            self._volume_titles.clear()
             return
         series_raw = current.data(Qt.ItemDataRole.UserRole)
         self._filter_edit.setText("")  # spec: filter clears on series switch
@@ -376,6 +383,8 @@ class OpenDocumentDialog(QDialog):
         self._delete_btn.setEnabled(is_leaf)
         has_url = is_leaf and bool(self._source_urls.get(id(leaf), ""))
         self._refetch_btn.setEnabled(has_url)
+        has_volume = is_leaf and bool(self._volume_titles.get(id(leaf), ""))
+        self._edit_volume_btn.setEnabled(has_volume)
 
     # ------------------------------------------------------------------
     # Button handlers
@@ -423,6 +432,30 @@ class OpenDocumentDialog(QDialog):
         )
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self._do_edit(doc_id, dlg.series_title, dlg.series_order, dlg.chapter_title)
+
+    def _on_edit_volume(self) -> None:
+        leaf = self._current_leaf()
+        if leaf is None:
+            return
+        doc_id = self._doc_ids[id(leaf)]
+        doc = self._db.get_document(doc_id)
+        dlg = _EditVolumeMetadataDialog(
+            volume_title=doc["volume_title"],
+            volume_author=doc["volume_author"],
+            volume_illustrator=doc["volume_illustrator"],
+            volume_publisher=doc["volume_publisher"],
+            volume_identifier=doc["volume_identifier"],
+            parent=self,
+        )
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self._do_edit_volume(
+                doc_id, doc["series_title"], doc["volume_title"],
+                new_volume_title=dlg.volume_title,
+                volume_author=dlg.volume_author,
+                volume_illustrator=dlg.volume_illustrator,
+                volume_publisher=dlg.volume_publisher,
+                volume_identifier=dlg.volume_identifier,
+            )
 
     def _on_edit_source(self) -> None:
         leaf = self._current_leaf()
@@ -508,6 +541,22 @@ class OpenDocumentDialog(QDialog):
         self._restore_series(series_raw)
         self._select_doc(doc_id)
 
+    def _do_edit_volume(self, doc_id: int, series_title: str, old_volume_title: str, *,
+                        new_volume_title: str, volume_author: str, volume_illustrator: str,
+                        volume_publisher: str, volume_identifier: str) -> None:
+        self._db.update_volume_metadata(
+            series_title, old_volume_title,
+            new_volume_title=new_volume_title,
+            volume_author=volume_author,
+            volume_illustrator=volume_illustrator,
+            volume_publisher=volume_publisher,
+            volume_identifier=volume_identifier,
+        )
+        series_raw = self._current_series_raw()
+        self._load_series()
+        self._restore_series(series_raw)
+        self._select_doc(doc_id)
+
     def _on_item_activated(self, item: QTreeWidgetItem, _col: int) -> None:
         self._selected_doc_id = self._doc_ids[id(item)]
         self.accept()
@@ -583,6 +632,70 @@ class _EditMetadataDialog(QDialog):
     @property
     def chapter_title(self) -> str:
         return self._chapter_edit.text().strip()
+
+
+class _EditVolumeMetadataDialog(QDialog):
+    def __init__(self, *, volume_title: str, volume_author: str, volume_illustrator: str,
+                 volume_publisher: str, volume_identifier: str, parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Edit Volume Metadata")
+        self.setMinimumWidth(380)
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(6)
+
+        form = QFormLayout()
+        form.setSpacing(4)
+
+        self._volume_edit = QLineEdit(volume_title)
+        form.addRow("Volume Title:", self._volume_edit)
+
+        self._author_edit = QLineEdit(volume_author)
+        form.addRow("Author:", self._author_edit)
+
+        self._illustrator_edit = QLineEdit(volume_illustrator)
+        form.addRow("Illustrator:", self._illustrator_edit)
+
+        self._publisher_edit = QLineEdit(volume_publisher)
+        form.addRow("Publisher:", self._publisher_edit)
+
+        self._identifier_edit = QLineEdit(volume_identifier)
+        form.addRow("ISBN:", self._identifier_edit)
+
+        layout.addLayout(form)
+
+        btn_row = QHBoxLayout()
+        ok_btn = QPushButton("Save")
+        ok_btn.setDefault(True)
+        ok_btn.clicked.connect(self.accept)
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+        btn_row.addStretch()
+        btn_row.addWidget(ok_btn)
+        btn_row.addWidget(cancel_btn)
+        layout.addLayout(btn_row)
+
+    @property
+    def volume_title(self) -> str:
+        return self._volume_edit.text().strip()
+
+    @property
+    def volume_author(self) -> str:
+        return self._author_edit.text().strip()
+
+    @property
+    def volume_illustrator(self) -> str:
+        return self._illustrator_edit.text().strip()
+
+    @property
+    def volume_publisher(self) -> str:
+        return self._publisher_edit.text().strip()
+
+    @property
+    def volume_identifier(self) -> str:
+        return self._identifier_edit.text().strip()
 
 
 class _EditSourceDialog(QDialog):

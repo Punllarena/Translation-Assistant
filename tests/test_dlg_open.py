@@ -524,6 +524,56 @@ class TestOpenDocumentDialog:
         assert "▲" not in dlg._tree.headerItem().text(3)  # Last Edited has no arrow
 
 
+class TestEditVolumeMetadata:
+    def test_edit_volume_btn_disabled_for_non_volume_document(self, qapp, mem_db):
+        mem_db.create_document("Doc")  # no volume_title -- plain/legacy document
+        dlg = OpenDocumentDialog(mem_db)
+        dlg._tree.setCurrentItem(_first_leaf(dlg))
+        assert not dlg._edit_volume_btn.isEnabled()
+
+    def test_edit_volume_btn_enabled_for_volume_document(self, qapp, mem_db):
+        mem_db.create_document("Doc", volume_title="Vol 1")
+        dlg = OpenDocumentDialog(mem_db)
+        dlg._tree.setCurrentItem(_first_leaf(dlg))
+        assert dlg._edit_volume_btn.isEnabled()
+
+    def test_do_edit_volume_updates_all_chapters_in_group(self, qapp, mem_db):
+        doc1 = mem_db.create_document(
+            "Ch 1", series_title="S", volume_title="Vol 1", chapter_title="Ch 1"
+        )
+        doc2 = mem_db.create_document(
+            "Ch 2", series_title="S", volume_title="Vol 1", chapter_title="Ch 2"
+        )
+        dlg = OpenDocumentDialog(mem_db)
+        dlg._do_edit_volume(
+            doc1, "S", "Vol 1",
+            new_volume_title="Vol 1 Renamed",
+            volume_author="Author Name",
+            volume_illustrator="Illustrator Name",
+            volume_publisher="Publisher Name",
+            volume_identifier="urn:isbn:1234567890123",
+        )
+        for doc_id in (doc1, doc2):
+            meta = mem_db.get_document(doc_id)
+            assert meta["volume_title"] == "Vol 1 Renamed"
+            assert meta["volume_author"] == "Author Name"
+            assert meta["volume_illustrator"] == "Illustrator Name"
+            assert meta["volume_publisher"] == "Publisher Name"
+            assert meta["volume_identifier"] == "urn:isbn:1234567890123"
+
+    def test_do_edit_volume_refreshes_tree_selection(self, qapp, mem_db):
+        doc_id = mem_db.create_document(
+            "Ch 1", series_title="S", volume_title="Vol 1", chapter_title="Ch 1"
+        )
+        dlg = OpenDocumentDialog(mem_db)
+        dlg._do_edit_volume(
+            doc_id, "S", "Vol 1",
+            new_volume_title="Vol 1",
+            volume_author="Author Name", volume_illustrator="", volume_publisher="", volume_identifier="",
+        )
+        assert dlg._doc_ids[id(dlg._tree.currentItem())] == doc_id
+
+
 def test_open_dialog_has_five_columns(qapp, mem_db):
     dlg = OpenDocumentDialog(mem_db)
     assert dlg._tree.columnCount() == 5
