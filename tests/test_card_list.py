@@ -120,6 +120,7 @@ class TestLineCard:
 
 
 from translation_assistant.ui.card_list import CardListView  # noqa: E402
+from PySide6.QtWidgets import QLabel  # noqa: E402
 
 
 @pytest.fixture
@@ -136,6 +137,91 @@ def editors(qapp):
     yield src, tr
     src.deleteLater()
     tr.deleteLater()
+
+
+class TestImageCard:
+    def _card(self, image=None, number=1):
+        from translation_assistant.ui.card_list import ImageCard
+        image = image or {"id": 7, "anchor_position": 0, "data": _TINY_PNG,
+                          "exclude_export": 0}
+        return ImageCard(image, number)
+
+    def test_shows_image_number(self, qapp):
+        card = self._card(number=3)
+        labels = [w.text() for w in card.findChildren(QLabel) if w.text()]
+        assert "Image 3" in labels
+        card.deleteLater()
+
+    def test_pixmap_loaded(self, qapp):
+        card = self._card()
+        assert not card.image_label.pixmap().isNull()
+        card.deleteLater()
+
+    def test_starts_expanded(self, qapp):
+        card = self._card()
+        assert card.image_label.isVisibleTo(card)
+        assert not card.chevron.isChecked()
+        card.deleteLater()
+
+    def test_chevron_collapses_image_but_keeps_header(self, qapp):
+        card = self._card()
+        card.chevron.setChecked(True)
+        assert not card.image_label.isVisibleTo(card)
+        assert card.export_box.isVisibleTo(card)
+        card.deleteLater()
+
+    def test_chevron_expands_again(self, qapp):
+        card = self._card()
+        card.chevron.setChecked(True)
+        card.chevron.setChecked(False)
+        assert card.image_label.isVisibleTo(card)
+        card.deleteLater()
+
+    def test_set_collapsed_matches_chevron(self, qapp):
+        card = self._card()
+        card.set_collapsed(True)
+        assert card.chevron.isChecked()
+        assert not card.image_label.isVisibleTo(card)
+        card.set_collapsed(False)
+        assert not card.chevron.isChecked()
+        assert card.image_label.isVisibleTo(card)
+        card.deleteLater()
+
+    def test_export_checked_by_default(self, qapp):
+        card = self._card()
+        assert card.export_box.isChecked()
+        card.deleteLater()
+
+    def test_export_unchecked_when_excluded(self, qapp):
+        card = self._card({"id": 7, "anchor_position": 0, "data": _TINY_PNG,
+                           "exclude_export": 1})
+        assert not card.export_box.isChecked()
+        card.deleteLater()
+
+    def test_unchecking_emits_exclude_true(self, qapp):
+        card = self._card()
+        seen = []
+        card.export_toggled.connect(lambda img_id, exc: seen.append((img_id, exc)))
+        card.export_box.setChecked(False)
+        assert seen == [(7, True)]
+        card.deleteLater()
+
+    def test_rechecking_emits_exclude_false(self, qapp):
+        card = self._card({"id": 9, "anchor_position": 0, "data": _TINY_PNG,
+                           "exclude_export": 1})
+        seen = []
+        card.export_toggled.connect(lambda img_id, exc: seen.append((img_id, exc)))
+        card.export_box.setChecked(True)
+        assert seen == [(9, False)]
+        card.deleteLater()
+
+    def test_image_without_id_does_not_emit(self, qapp):
+        card = self._card({"anchor_position": 0, "data": _TINY_PNG})
+        seen = []
+        card.export_toggled.connect(lambda img_id, exc: seen.append((img_id, exc)))
+        card.export_box.setChecked(False)
+        assert seen == []
+        card.deleteLater()
 
 
 class TestCardListView:
@@ -267,11 +353,7 @@ class TestCardListView:
 
 
 # A valid 1x1 red-pixel PNG, used wherever tests need real image bytes.
-_TINY_PNG = (
-    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
-    b"\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\xcf\xc0"
-    b"\x00\x00\x00\x03\x00\x01\x18\xdd\x8d\xb0\x00\x00\x00\x00IEND\xaeB`\x82"
-)
+_TINY_PNG = b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\xcf\xc0\x00\x00\x03\x01\x01\x00\xc9\xfe\x92\xef\x00\x00\x00\x00IEND\xaeB`\x82'
 
 
 class TestCardListViewImages:

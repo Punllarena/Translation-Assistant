@@ -10,8 +10,8 @@ from PySide6.QtCore import (
 )
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
-    QFrame, QGraphicsOpacityEffect, QHBoxLayout, QLabel, QScrollArea,
-    QVBoxLayout, QWidget,
+    QCheckBox, QFrame, QGraphicsOpacityEffect, QHBoxLayout, QLabel, QScrollArea,
+    QToolButton, QVBoxLayout, QWidget,
 )
 
 SERIF_FAMILIES = [
@@ -277,6 +277,63 @@ class LineCard(QFrame):
     def mousePressEvent(self, event) -> None:
         self.clicked.emit(self.index)
         super().mousePressEvent(event)
+
+
+class ImageCard(QWidget):
+    """Illustration row — chevron collapse, "Image N" label, export checkbox.
+
+    Deliberately not a LineCard: no line index, and no participation in
+    navigation, spellcheck or progress counting.
+    """
+
+    export_toggled = Signal(int, bool)   # (image_id, exclude)
+
+    def __init__(self, image: dict, number: int, parent=None) -> None:
+        super().__init__(parent)
+        self.setObjectName("CardImage")
+        # Older callers (and existing tests) pass image dicts without an id.
+        self._image_id = image.get("id")
+
+        vbox = QVBoxLayout(self)
+        vbox.setContentsMargins(0, 0, 0, 0)
+        vbox.setSpacing(6)
+
+        header = QHBoxLayout()
+        header.setContentsMargins(0, 0, 0, 0)
+        self.chevron = QToolButton()
+        self.chevron.setObjectName("CardImageChevron")
+        self.chevron.setAutoRaise(True)
+        self.chevron.setCheckable(True)
+        self.chevron.setText("▾")
+        self.chevron.toggled.connect(self._on_chevron)
+        header.addWidget(self.chevron)
+        header.addWidget(QLabel(f"Image {number}"))
+        header.addStretch(1)
+        self.export_box = QCheckBox("Export")
+        self.export_box.setChecked(not image.get("exclude_export", 0))
+        self.export_box.toggled.connect(self._on_export)
+        header.addWidget(self.export_box)
+        vbox.addLayout(header)
+
+        self.image_label = QLabel()
+        pixmap = QPixmap()
+        pixmap.loadFromData(image["data"])
+        if not pixmap.isNull():
+            pixmap = pixmap.scaledToWidth(400, Qt.TransformationMode.SmoothTransformation)
+        self.image_label.setPixmap(pixmap)
+        self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        vbox.addWidget(self.image_label)
+
+    def _on_chevron(self, collapsed: bool) -> None:
+        self.chevron.setText("▸" if collapsed else "▾")
+        self.image_label.setVisible(not collapsed)
+
+    def _on_export(self, checked: bool) -> None:
+        if self._image_id is not None:
+            self.export_toggled.emit(self._image_id, not checked)
+
+    def set_collapsed(self, collapsed: bool) -> None:
+        self.chevron.setChecked(collapsed)
 
 
 class CardListView(QScrollArea):
