@@ -299,6 +299,7 @@ class Database:
             """
             SELECT d.id, d.title, d.series_title, d.series_order, d.chapter_title,
                    d.updated_at, d.last_position, d.source_url, d.wp_status, d.wp_date,
+                   d.volume_title,
                    CAST(COALESCE(
                        SUM(CASE WHEN TRIM(l.raw_text) != '' AND l.translated_text != '' THEN 1 ELSE 0 END) * 100
                        / NULLIF(SUM(CASE WHEN TRIM(l.raw_text) != '' THEN 1 ELSE 0 END), 0), 0

@@ -1422,6 +1422,12 @@ def test_list_documents_includes_wp_status(db):
     assert doc["wp_status"] == "publish"
 
 
+def test_list_documents_includes_volume_title(db):
+    db.create_document("Ch 1", volume_title="Vol 1")
+    docs = db.list_documents()
+    assert docs[0]["volume_title"] == "Vol 1"
+
+
 def test_set_series_orders_bulk_update(db):
     a = db.create_document("A", series_title="S", series_order=1)
     b = db.create_document("B", series_title="S", series_order=2)
