@@ -228,6 +228,8 @@ def build_payload(
         payload["publish_date"] = scheduled_date
     if previous_chapter_index is not None and previous_chapter_index != doc_meta["series_order"]:
         payload["previous_chapter_index"] = previous_chapter_index
+    if doc_meta.get("volume_title"):
+        payload["volume_title"] = doc_meta["volume_title"]
     return payload
 
 
