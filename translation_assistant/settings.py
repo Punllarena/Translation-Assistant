@@ -123,6 +123,16 @@ class AppSettings:
     def tm_visible(self, value: bool) -> None:
         self._qs.setValue("TMVisible", value)
 
+    # --- images collapsed ---
+
+    @property
+    def images_collapsed(self) -> bool:
+        return self._qs.value("ImagesCollapsed", False, type=bool)
+
+    @images_collapsed.setter
+    def images_collapsed(self, value: bool) -> None:
+        self._qs.setValue("ImagesCollapsed", value)
+
     # --- editor font size ---
 
     @property

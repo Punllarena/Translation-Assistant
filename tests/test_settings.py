@@ -288,6 +288,23 @@ def test_default_stats_metric(tmp_settings):
     assert tmp_settings.stats_metric == "paragraphs"
 
 
+# ---------------------------------------------------------------------------
+# images_collapsed
+# ---------------------------------------------------------------------------
+
+def test_default_images_collapsed(tmp_settings):
+    assert tmp_settings.images_collapsed is False
+
+
+def test_images_collapsed_roundtrip(qapp, tmp_path):
+    ini = str(tmp_path / "settings.ini")
+    s1 = AppSettings(_qs=QSettings(ini, QSettings.Format.IniFormat))
+    s1.images_collapsed = True
+    s1.save()
+    s2 = AppSettings(_qs=QSettings(ini, QSettings.Format.IniFormat))
+    assert s2.images_collapsed is True
+
+
 def test_stats_metric_roundtrip(tmp_settings):
     tmp_settings.stats_metric = "chars"
     assert tmp_settings.stats_metric == "chars"
