@@ -232,10 +232,10 @@ class TestOpenDocumentDialog:
     def test_last_edited_column_exists(self, qapp, mem_db):
         mem_db.create_document("Doc")
         dlg = OpenDocumentDialog(mem_db)
-        assert dlg._tree.columnCount() == 5
+        assert dlg._tree.columnCount() == 8
         leaf = _first_chapter(dlg)
         assert leaf is not None
-        assert leaf.text(3) != ""
+        assert leaf.text(5) != ""
 
     def test_edit_btn_disabled_initially(self, qapp, mem_db):
         mem_db.create_document("Doc")
@@ -440,7 +440,7 @@ class TestOpenDocumentDialog:
 
     def test_chapter_tree_has_five_columns(self, qapp, mem_db):
         dlg = OpenDocumentDialog(mem_db)
-        assert dlg._tree.columnCount() == 5
+        assert dlg._tree.columnCount() == 8
         assert dlg._tree.headerItem().text(0) == "#"
         assert dlg._tree.headerItem().text(1) == "Title"
 
@@ -515,13 +515,13 @@ class TestOpenDocumentDialog:
         mem_db.create_document("C2", series_title="B", series_order=1, chapter_title="C2")
         dlg = OpenDocumentDialog(mem_db)
         _select_series(dlg, "A")
-        dlg._sort_chapters(3)  # sort by Last Edited
-        assert dlg._sort_col == 3
+        dlg._sort_chapters(5)  # sort by Last Edited
+        assert dlg._sort_col == 5
         _select_series(dlg, "B")
         assert dlg._sort_col == 0  # reset to default
         assert dlg._sort_asc is True
         assert "▲" in dlg._tree.headerItem().text(0)  # column 0 has arrow
-        assert "▲" not in dlg._tree.headerItem().text(3)  # Last Edited has no arrow
+        assert "▲" not in dlg._tree.headerItem().text(5)  # Last Edited has no arrow
 
 
 class TestEditVolumeMetadata:
@@ -661,7 +661,7 @@ class TestEditVolumeMetadata:
 
 def test_open_dialog_has_five_columns(qapp, mem_db):
     dlg = OpenDocumentDialog(mem_db)
-    assert dlg._tree.columnCount() == 5
+    assert dlg._tree.columnCount() == 8
     dlg.reject()
 
 
@@ -675,7 +675,7 @@ def test_open_dialog_wp_column_shows_pub_badge(qapp, mem_db):
             dlg._series_list.setCurrentRow(i)
             break
     assert dlg._tree.topLevelItemCount() == 1
-    assert dlg._tree.topLevelItem(0).text(4) == "pub"
+    assert dlg._tree.topLevelItem(0).text(6) == "pub"
     dlg.reject()
 
 
@@ -687,7 +687,7 @@ def test_open_dialog_wp_column_shows_sched_badge(qapp, mem_db):
         if dlg._series_list.item(i).data(Qt.ItemDataRole.UserRole) == "S":
             dlg._series_list.setCurrentRow(i)
             break
-    assert dlg._tree.topLevelItem(0).text(4) == "sched"
+    assert dlg._tree.topLevelItem(0).text(6) == "sched"
     dlg.reject()
 
 
@@ -698,7 +698,7 @@ def test_open_dialog_wp_column_blank_when_null(qapp, mem_db):
         if dlg._series_list.item(i).data(Qt.ItemDataRole.UserRole) == "S":
             dlg._series_list.setCurrentRow(i)
             break
-    assert dlg._tree.topLevelItem(0).text(4) == ""
+    assert dlg._tree.topLevelItem(0).text(6) == ""
     dlg.reject()
 
 
@@ -785,3 +785,28 @@ class TestReorder:
         assert dlg._tree.dragDropMode() == QTreeWidget.DragDropMode.InternalMove
         item = dlg._tree.topLevelItem(0)
         assert not (item.flags() & Qt.ItemFlag.ItemIsDropEnabled)
+
+
+class TestVolumeColumn:
+    def test_tree_shows_volume_title_column(self, qapp, mem_db):
+        mem_db.create_document("Ch 1", series_title="S", series_order=1,
+                               volume_title="Vol 1", chapter_title="Ch 1")
+        mem_db.create_document("Ch 2", series_title="S", series_order=2,
+                               chapter_title="Ch 2")  # no volume
+        dlg = OpenDocumentDialog(mem_db)
+        assert dlg._tree.headerItem().text(7).startswith("Volume")
+        assert dlg._tree.topLevelItem(0).text(7) == "Vol 1"
+        assert dlg._tree.topLevelItem(1).text(7) == ""
+
+    def test_volume_column_shown_after_order_column(self, qapp, mem_db):
+        dlg = OpenDocumentDialog(mem_db)
+        assert dlg._tree.header().visualIndex(7) == 1
+
+    def test_volume_column_sorts_as_text(self, qapp, mem_db):
+        mem_db.create_document("Ch 1", series_title="S", series_order=1,
+                               volume_title="Vol 2", chapter_title="Ch 1")
+        mem_db.create_document("Ch 2", series_title="S", series_order=2,
+                               volume_title="Vol 1", chapter_title="Ch 2")
+        dlg = OpenDocumentDialog(mem_db)
+        dlg._sort_chapters(7)
+        assert [dlg._tree.topLevelItem(i).text(7) for i in range(2)] == ["Vol 1", "Vol 2"]

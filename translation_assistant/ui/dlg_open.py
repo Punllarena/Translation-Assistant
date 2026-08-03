@@ -15,7 +15,7 @@ from translation_assistant.core import natural_key
 from translation_assistant.db import Database
 
 _NO_SERIES = "(No Series)"
-_CHAPTER_HEADERS = ["#", "Title", "Progress", "Last Edited", "WP"]
+_CHAPTER_HEADERS = ["#", "Title", "Progress", "Lines", "Images", "Last Edited", "WP", "Volume"]
 
 
 class _ChapterTree(QTreeWidget):
@@ -42,8 +42,11 @@ class OpenDocumentDialog(QDialog):
         0: lambda item: item.data(0, Qt.ItemDataRole.UserRole) or 0,
         1: lambda item: item.text(1).lower(),
         2: lambda item: item.data(2, Qt.ItemDataRole.UserRole) or 0,
-        3: lambda item: item.text(3),
-        4: lambda item: item.text(4),
+        3: lambda item: item.data(3, Qt.ItemDataRole.UserRole) or 0,
+        4: lambda item: item.data(4, Qt.ItemDataRole.UserRole) or 0,
+        5: lambda item: item.text(5),
+        6: lambda item: item.text(6),
+        7: lambda item: item.text(7).lower(),
     }
 
     def __init__(self, db: Database, parent=None, *,
@@ -93,7 +96,7 @@ class OpenDocumentDialog(QDialog):
         right_layout.setSpacing(0)
 
         self._tree = _ChapterTree(self._persist_tree_order)
-        self._tree.setColumnCount(5)
+        self._tree.setColumnCount(8)
         self._tree.setDragDropMode(QTreeWidget.DragDropMode.InternalMove)
         self._tree.setHeaderLabels(_CHAPTER_HEADERS)
         self._tree.header().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
@@ -101,8 +104,14 @@ class OpenDocumentDialog(QDialog):
         self._tree.header().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         self._tree.header().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         self._tree.header().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        self._tree.header().setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+        self._tree.header().setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)
+        self._tree.header().setSectionResizeMode(7, QHeaderView.ResizeMode.ResizeToContents)
         self._tree.header().setSectionsClickable(True)
         self._tree.header().sectionClicked.connect(self._sort_chapters)
+        # Volume is logical col 7 but displays right after "#"; a visual move keeps
+        # every other column's logical index (and all the index-keyed code) unchanged.
+        self._tree.header().moveSection(7, 1)
         self._tree.setSelectionBehavior(QTreeWidget.SelectionBehavior.SelectRows)
         self._tree.setEditTriggers(QTreeWidget.EditTrigger.NoEditTriggers)
         self._tree.currentItemChanged.connect(self._on_chapter_selection_changed)
@@ -189,18 +198,27 @@ class OpenDocumentDialog(QDialog):
                 _wp_cell = f"{_wp_badge} {_fmt_wp_date(_wp_date)}"
             else:
                 _wp_cell = _wp_badge
+            line_count = doc.get("line_count") or 0
+            image_count = doc.get("image_count") or 0
             item = QTreeWidgetItem([
                 str(doc["series_order"]),
                 display,
                 f"{progress_pct}%",
+                str(line_count),
+                str(image_count),
                 _fmt_date(doc.get("updated_at", "")),
                 _wp_cell,
+                doc.get("volume_title", "") or "",
             ])
             item.setData(0, Qt.ItemDataRole.UserRole, doc["series_order"])
             item.setData(2, Qt.ItemDataRole.UserRole, progress_pct)
+            item.setData(3, Qt.ItemDataRole.UserRole, line_count)
+            item.setData(4, Qt.ItemDataRole.UserRole, image_count)
             # drops land between rows, never nest under an item
             item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsDropEnabled)
             item.setTextAlignment(2, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            item.setTextAlignment(3, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            item.setTextAlignment(4, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
             if progress_pct == 0:
                 item.setForeground(2, QColor("#888888"))
