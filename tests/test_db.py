@@ -1484,6 +1484,36 @@ def test_update_volume_metadata_scoped_to_series(db):
     assert db.get_document(doc_t)["volume_author"] == ""
 
 
+def test_update_volume_metadata_merge_combines_both_buckets(db):
+    a1 = db.create_document("Ch 1", series_title="S", volume_title="A", chapter_title="Ch 1")
+    a2 = db.create_document("Ch 2", series_title="S", volume_title="A", chapter_title="Ch 2")
+    b1 = db.create_document("Ch 3", series_title="S", volume_title="B", chapter_title="Ch 3")
+    count = db.update_volume_metadata(
+        "S", "A",
+        new_volume_title="B", volume_author="Merged Author",
+        volume_illustrator="", volume_publisher="", volume_identifier="",
+        merge=True,
+    )
+    assert count == 3
+    for doc_id in (a1, a2, b1):
+        meta = db.get_document(doc_id)
+        assert meta["volume_title"] == "B"
+        assert meta["volume_author"] == "Merged Author"
+
+
+def test_update_volume_metadata_default_merge_false_unchanged(db):
+    a1 = db.create_document("Ch 1", series_title="S", volume_title="A", chapter_title="Ch 1")
+    b1 = db.create_document("Ch 2", series_title="S", volume_title="B", chapter_title="Ch 2")
+    db.update_volume_metadata(
+        "S", "A",
+        new_volume_title="B", volume_author="From A",
+        volume_illustrator="", volume_publisher="", volume_identifier="",
+    )
+    assert db.get_document(a1)["volume_author"] == "From A"
+    # B's pre-existing row is dragged into no rename -- it keeps its own metadata
+    assert db.get_document(b1)["volume_author"] == ""
+
+
 def test_update_volume_metadata_does_not_touch_other_volumes(db):
     doc_v1 = db.create_document("Ch 1", series_title="S", volume_title="V1", chapter_title="Ch 1")
     doc_v2 = db.create_document("Ch 1", series_title="S", volume_title="V2", chapter_title="Ch 1")

@@ -528,7 +528,8 @@ class Database:
                                volume_author: str,
                                volume_illustrator: str,
                                volume_publisher: str,
-                               volume_identifier: str) -> int:
+                               volume_identifier: str,
+                               merge: bool = False) -> int:
         """
         Bulk-updates the five denormalized volume-metadata columns across
         every document row sharing (series_title, volume_title) -- these
@@ -537,13 +538,25 @@ class Database:
         every row in the group. Otherwise export's "read the first row"
         convention (main_widget.py's _on_export_epub_series) would read
         stale/mismatched values from whichever row happens to sort first.
+
+        With merge=True the WHERE clause also matches new_volume_title, so an
+        existing volume of that name is absorbed into the group and gets the
+        passed-in metadata too -- one statement, so there is no window where
+        the merged group is half-updated. Callers must confirm with the user
+        first; this is not reversible.
+
         Returns the number of rows updated.
         """
+        params = [new_volume_title, volume_author, volume_illustrator, volume_publisher,
+                  volume_identifier, series_title, volume_title]
+        where = "series_title=? AND volume_title=?"
+        if merge:
+            where = "series_title=? AND volume_title IN (?, ?)"
+            params.append(new_volume_title)
         cur = self._conn.execute(
             "UPDATE documents SET volume_title=?, volume_author=?, volume_illustrator=?, "
-            "volume_publisher=?, volume_identifier=? WHERE series_title=? AND volume_title=?",
-            (new_volume_title, volume_author, volume_illustrator, volume_publisher,
-             volume_identifier, series_title, volume_title),
+            f"volume_publisher=?, volume_identifier=? WHERE {where}",
+            tuple(params),
         )
         self._conn.commit()
         return cur.rowcount

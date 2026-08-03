@@ -573,6 +573,74 @@ class TestEditVolumeMetadata:
         )
         assert dlg._doc_ids[id(dlg._tree.currentItem())] == doc_id
 
+    def test_do_edit_volume_detects_collision_and_prompts(self, qapp, mem_db):
+        from unittest.mock import patch
+        from PySide6.QtWidgets import QMessageBox
+
+        doc_a = mem_db.create_document("Ch 1", series_title="S", volume_title="A", chapter_title="Ch 1")
+        mem_db.create_document("Ch 2", series_title="S", volume_title="B", chapter_title="Ch 2")
+        mem_db.create_document("Ch 3", series_title="S", volume_title="B", chapter_title="Ch 3")
+        dlg = OpenDocumentDialog(mem_db)
+        with patch.object(QMessageBox, "question",
+                          return_value=QMessageBox.StandardButton.No) as mock_q:
+            dlg._do_edit_volume(
+                doc_a, "S", "A",
+                new_volume_title="B", volume_author="", volume_illustrator="",
+                volume_publisher="", volume_identifier="",
+            )
+        mock_q.assert_called_once()
+        assert "2 chapter(s)" in mock_q.call_args.args[2]
+
+    def test_do_edit_volume_merge_confirmed_calls_merge_true(self, qapp, mem_db):
+        from unittest.mock import patch
+        from PySide6.QtWidgets import QMessageBox
+
+        doc_a = mem_db.create_document("Ch 1", series_title="S", volume_title="A", chapter_title="Ch 1")
+        doc_b = mem_db.create_document("Ch 2", series_title="S", volume_title="B", chapter_title="Ch 2")
+        dlg = OpenDocumentDialog(mem_db)
+        with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Yes):
+            dlg._do_edit_volume(
+                doc_a, "S", "A",
+                new_volume_title="B", volume_author="Merged", volume_illustrator="",
+                volume_publisher="", volume_identifier="",
+            )
+        for doc_id in (doc_a, doc_b):
+            meta = mem_db.get_document(doc_id)
+            assert meta["volume_title"] == "B"
+            assert meta["volume_author"] == "Merged"
+
+    def test_do_edit_volume_merge_cancelled_aborts(self, qapp, mem_db):
+        from unittest.mock import patch
+        from PySide6.QtWidgets import QMessageBox
+
+        doc_a = mem_db.create_document("Ch 1", series_title="S", volume_title="A", chapter_title="Ch 1")
+        doc_b = mem_db.create_document("Ch 2", series_title="S", volume_title="B", chapter_title="Ch 2")
+        dlg = OpenDocumentDialog(mem_db)
+        with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.No):
+            dlg._do_edit_volume(
+                doc_a, "S", "A",
+                new_volume_title="B", volume_author="Merged", volume_illustrator="",
+                volume_publisher="", volume_identifier="",
+            )
+        assert mem_db.get_document(doc_a)["volume_title"] == "A"
+        assert mem_db.get_document(doc_a)["volume_author"] == ""
+        assert mem_db.get_document(doc_b)["volume_title"] == "B"
+
+    def test_do_edit_volume_no_collision_skips_prompt(self, qapp, mem_db):
+        from unittest.mock import patch
+        from PySide6.QtWidgets import QMessageBox
+
+        doc_a = mem_db.create_document("Ch 1", series_title="S", volume_title="A", chapter_title="Ch 1")
+        dlg = OpenDocumentDialog(mem_db)
+        with patch.object(QMessageBox, "question") as mock_q:
+            dlg._do_edit_volume(
+                doc_a, "S", "A",
+                new_volume_title="C", volume_author="", volume_illustrator="",
+                volume_publisher="", volume_identifier="",
+            )
+        mock_q.assert_not_called()
+        assert mem_db.get_document(doc_a)["volume_title"] == "C"
+
     def test_blank_volume_title_rejected_on_accept(self, qapp):
         from unittest.mock import patch
         from PySide6.QtWidgets import QMessageBox

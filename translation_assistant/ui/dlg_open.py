@@ -544,6 +544,23 @@ class OpenDocumentDialog(QDialog):
     def _do_edit_volume(self, doc_id: int, series_title: str, old_volume_title: str, *,
                         new_volume_title: str, volume_author: str, volume_illustrator: str,
                         volume_publisher: str, volume_identifier: str) -> None:
+        merge = False
+        if new_volume_title != old_volume_title:
+            existing = self._db.get_document_ids_by_volume(series_title, new_volume_title)
+            if existing:
+                from PySide6.QtWidgets import QMessageBox
+                answer = QMessageBox.question(
+                    self, "Merge Volumes",
+                    f"'{new_volume_title}' already exists in this series with "
+                    f"{len(existing)} chapter(s). Renaming will merge both volumes "
+                    "together and apply this dialog's author/illustrator/publisher/ISBN "
+                    "to all chapters in the merged volume. This cannot be undone. Continue?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No,
+                )
+                if answer != QMessageBox.StandardButton.Yes:
+                    return
+                merge = True
         self._db.update_volume_metadata(
             series_title, old_volume_title,
             new_volume_title=new_volume_title,
@@ -551,6 +568,7 @@ class OpenDocumentDialog(QDialog):
             volume_illustrator=volume_illustrator,
             volume_publisher=volume_publisher,
             volume_identifier=volume_identifier,
+            merge=merge,
         )
         series_raw = self._current_series_raw()
         self._load_series()
