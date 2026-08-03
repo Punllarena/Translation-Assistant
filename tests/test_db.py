@@ -408,6 +408,121 @@ def test_volume_has_cover_isolated_by_volume(db):
     assert db.volume_has_cover("S", "V2") is False
 
 
+def test_get_document_ids_by_volume_filters_by_series_and_volume(db):
+    d1 = db.create_document("Ch 1", series_title="S", volume_title="V1")
+    db.create_document("Ch 1", series_title="S", volume_title="V2")
+    db.create_document("Ch 1", series_title="Other", volume_title="V1")
+    assert db.get_document_ids_by_volume("S", "V1") == [d1]
+
+
+def test_get_document_ids_by_volume_orders_by_series_order(db):
+    db.create_document("Ch 2", series_title="S", volume_title="V1", series_order=2)
+    d1 = db.create_document("Ch 1", series_title="S", volume_title="V1", series_order=1)
+    ids = db.get_document_ids_by_volume("S", "V1")
+    assert ids[0] == d1
+
+
+def test_get_volume_metadata_defaults_when_no_docs(db):
+    meta = db.get_volume_metadata("Nope", "")
+    assert meta == {
+        "volume_title": "", "volume_author": "", "volume_illustrator": "",
+        "volume_publisher": "", "volume_identifier": "", "has_cover": False,
+    }
+
+
+def test_get_volume_metadata_reads_existing_values(db):
+    db.create_document(
+        "Ch 1", series_title="S", volume_title="",
+        volume_author="A", volume_illustrator="I",
+        volume_publisher="P", volume_identifier="urn:x",
+    )
+    meta = db.get_volume_metadata("S", "")
+    assert meta["volume_author"] == "A"
+    assert meta["volume_illustrator"] == "I"
+    assert meta["volume_publisher"] == "P"
+    assert meta["volume_identifier"] == "urn:x"
+    assert meta["has_cover"] is False
+
+
+def test_get_volume_metadata_has_cover_true_after_cover_added(db):
+    doc_id = db.create_document("Ch 1", series_title="S", volume_title="")
+    db.add_document_image(doc_id, 0, True, "cover.jpg", b"data")
+    assert db.get_volume_metadata("S", "")["has_cover"] is True
+
+
+def test_update_volume_metadata_writes_all_docs_in_bucket(db):
+    d1 = db.create_document("Ch 1", series_title="S", volume_title="")
+    d2 = db.create_document("Ch 2", series_title="S", volume_title="")
+    affected = db.update_volume_metadata(
+        "S", "", author="A", illustrator="I", publisher="P", identifier="urn:x",
+    )
+    assert affected == 2
+    for doc_id in (d1, d2):
+        meta = db.get_document(doc_id)
+        assert meta["volume_author"] == "A"
+        assert meta["volume_illustrator"] == "I"
+        assert meta["volume_publisher"] == "P"
+        assert meta["volume_identifier"] == "urn:x"
+
+
+def test_update_volume_metadata_does_not_touch_other_series(db):
+    other = db.create_document("Ch 1", series_title="Other", volume_title="")
+    db.create_document("Ch 1", series_title="S", volume_title="")
+    db.update_volume_metadata("S", "", author="A")
+    assert db.get_document(other)["volume_author"] == ""
+
+
+def test_set_volume_title_moves_docs_to_new_bucket(db):
+    d1 = db.create_document("Ch 1", series_title="S", volume_title="")
+    db.set_volume_title("S", "", "My Volume")
+    assert db.get_document(d1)["volume_title"] == "My Volume"
+
+
+def test_set_volume_title_scoped_to_series(db):
+    other = db.create_document("Ch 1", series_title="Other", volume_title="")
+    db.create_document("Ch 1", series_title="S", volume_title="")
+    db.set_volume_title("S", "", "My Volume")
+    assert db.get_document(other)["volume_title"] == ""
+
+
+def test_replace_document_cover_inserts_when_none_exists(db):
+    doc_id = db.create_document("Ch 1")
+    db.replace_document_cover(doc_id, "cover.jpg", b"data")
+    images = db.get_document_images(doc_id)
+    assert len(images) == 1
+    assert images[0]["is_cover"] == 1
+    assert images[0]["data"] == b"data"
+
+
+def test_replace_document_cover_removes_old_cover_first(db):
+    doc_id = db.create_document("Ch 1")
+    db.add_document_image(doc_id, 0, True, "old.jpg", b"old")
+    db.replace_document_cover(doc_id, "new.jpg", b"new")
+    images = db.get_document_images(doc_id)
+    assert len(images) == 1
+    assert images[0]["src_path"] == "new.jpg"
+    assert images[0]["data"] == b"new"
+
+
+def test_replace_document_cover_leaves_non_cover_images_alone(db):
+    doc_id = db.create_document("Ch 1")
+    db.add_document_image(doc_id, 1, False, "inline.jpg", b"inline")
+    db.replace_document_cover(doc_id, "cover.jpg", b"cover")
+    images = db.get_document_images(doc_id)
+    assert len(images) == 2
+    assert {im["src_path"] for im in images} == {"inline.jpg", "cover.jpg"}
+
+
+def test_clear_document_cover_removes_cover_only(db):
+    doc_id = db.create_document("Ch 1")
+    db.add_document_image(doc_id, 0, True, "cover.jpg", b"cover")
+    db.add_document_image(doc_id, 1, False, "inline.jpg", b"inline")
+    db.clear_document_cover(doc_id)
+    images = db.get_document_images(doc_id)
+    assert len(images) == 1
+    assert images[0]["src_path"] == "inline.jpg"
+
+
 # ---------------------------------------------------------------------------
 # Lines
 # ---------------------------------------------------------------------------

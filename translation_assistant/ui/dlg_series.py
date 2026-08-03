@@ -14,6 +14,7 @@ from translation_assistant.core import load_glossary
 from translation_assistant.scraper import _validate_series_url
 
 from translation_assistant.db import Database
+from translation_assistant.ui.dlg_series_epub_metadata import SeriesEpubMetadataDialog
 
 
 class SeriesManagerDialog(QDialog):
@@ -54,6 +55,8 @@ class SeriesManagerDialog(QDialog):
         self._set_url_action.triggered.connect(self._on_set_url)
         self._set_wp_action = QAction("Set WP Fields…", self)
         self._set_wp_action.triggered.connect(self._on_set_wp_fields)
+        self._set_epub_action = QAction("Set EPUB Metadata…", self)
+        self._set_epub_action.triggered.connect(self._on_set_epub_metadata)
         self._open_toc_action = QAction("Open WP TOC Page", self)
         self._open_toc_action.triggered.connect(self._on_open_toc)
         self._add_profile_action = QAction("Add Profile", self)
@@ -119,6 +122,7 @@ class SeriesManagerDialog(QDialog):
         menu = QMenu(self)
         menu.addAction(self._set_url_action)
         menu.addAction(self._set_wp_action)
+        menu.addAction(self._set_epub_action)
         menu.addAction(self._open_toc_action)
         menu.addSeparator()
         menu.addAction(self._add_profile_action)
@@ -255,6 +259,13 @@ class SeriesManagerDialog(QDialog):
             enabled_out = ("1" if idx == 1 else "0" if idx == 2 else None)
             unlock_out = unlock_spin.value() if idx == 1 else -1
             self._db.set_series_wp_password_settings(s["title"], enabled_out, unlock_out)
+
+    def _on_set_epub_metadata(self) -> None:
+        s = self._current_series()
+        if s is None:
+            return
+        dlg = SeriesEpubMetadataDialog(self._db, s["title"], parent=self)
+        dlg.exec()
 
     def _on_add_profile(self) -> None:
         # Same semantics as NewSeriesDialog's "Create new profile" checkbox

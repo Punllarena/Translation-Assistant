@@ -498,6 +498,68 @@ class Database:
         ).fetchone()
         return row is not None
 
+    def get_document_ids_by_volume(self, series_title: str, volume_title: str) -> list[int]:
+        rows = self._conn.execute(
+            "SELECT id FROM documents WHERE series_title = ? AND volume_title = ? "
+            "ORDER BY series_order",
+            (series_title, volume_title),
+        ).fetchall()
+        return [r[0] for r in rows]
+
+    def get_volume_metadata(self, series_title: str, volume_title: str) -> dict:
+        row = self._conn.execute(
+            "SELECT volume_title, volume_author, volume_illustrator, "
+            "volume_publisher, volume_identifier FROM documents "
+            "WHERE series_title = ? AND volume_title = ? LIMIT 1",
+            (series_title, volume_title),
+        ).fetchone()
+        if row is None:
+            return {
+                "volume_title": "", "volume_author": "", "volume_illustrator": "",
+                "volume_publisher": "", "volume_identifier": "", "has_cover": False,
+            }
+        meta = dict(row)
+        meta["has_cover"] = self.volume_has_cover(series_title, volume_title)
+        return meta
+
+    def update_volume_metadata(self, series_title: str, volume_title: str, *,
+                               author: str = "", illustrator: str = "",
+                               publisher: str = "", identifier: str = "") -> int:
+        cur = self._conn.execute(
+            "UPDATE documents SET volume_author = ?, volume_illustrator = ?, "
+            "volume_publisher = ?, volume_identifier = ? "
+            "WHERE series_title = ? AND volume_title = ?",
+            (author, illustrator, publisher, identifier, series_title, volume_title),
+        )
+        self._conn.commit()
+        return cur.rowcount
+
+    def set_volume_title(self, series_title: str, old_volume_title: str, new_volume_title: str) -> None:
+        self._conn.execute(
+            "UPDATE documents SET volume_title = ? WHERE series_title = ? AND volume_title = ?",
+            (new_volume_title, series_title, old_volume_title),
+        )
+        self._conn.commit()
+
+    def replace_document_cover(self, document_id: int, src_path: str, data: bytes) -> None:
+        self._conn.execute(
+            "DELETE FROM document_images WHERE document_id = ? AND is_cover = 1",
+            (document_id,),
+        )
+        self._conn.execute(
+            "INSERT INTO document_images (document_id, anchor_position, is_cover, src_path, data) "
+            "VALUES (?, 0, 1, ?, ?)",
+            (document_id, src_path, data),
+        )
+        self._conn.commit()
+
+    def clear_document_cover(self, document_id: int) -> None:
+        self._conn.execute(
+            "DELETE FROM document_images WHERE document_id = ? AND is_cover = 1",
+            (document_id,),
+        )
+        self._conn.commit()
+
     def get_document_ids_by_series(self, series_title: str) -> list[int]:
         rows = self._conn.execute(
             "SELECT id FROM documents WHERE series_title = ? ORDER BY series_order",
