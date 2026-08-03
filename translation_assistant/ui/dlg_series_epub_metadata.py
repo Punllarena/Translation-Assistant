@@ -105,10 +105,11 @@ class SeriesEpubMetadataDialog(QDialog):
 
         self._db.update_volume_metadata(
             self._series_title, self._volume_title,
-            author=self._author_edit.text().strip(),
-            illustrator=self._illustrator_edit.text().strip(),
-            publisher=self._publisher_edit.text().strip(),
-            identifier=self._identifier_edit.text().strip(),
+            volume_author=self._author_edit.text().strip(),
+            volume_illustrator=self._illustrator_edit.text().strip(),
+            volume_publisher=self._publisher_edit.text().strip(),
+            volume_identifier=self._identifier_edit.text().strip(),
+            new_volume_title=self._volume_title,
         )
 
         if self._pending_cover_path is not None or self._cover_cleared:
