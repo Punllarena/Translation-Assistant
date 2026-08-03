@@ -483,3 +483,18 @@ def test_build_payload_omits_cover_when_absent():
     doc_meta, series_meta, lines = _sample_meta()
     payload = build_payload(doc_meta, series_meta, lines, api_key="key123")
     assert "cover" not in payload
+
+
+def test_build_payload_includes_volume_title():
+    doc_meta, series_meta, lines = _sample_meta()
+    doc_meta["volume_title"] = "Volume 2: The Long Road"
+    payload = build_payload(doc_meta, series_meta, lines, api_key="key123")
+    assert payload["volume_title"] == "Volume 2: The Long Road"
+
+
+def test_build_payload_omits_blank_volume_title():
+    doc_meta, series_meta, lines = _sample_meta()
+    assert "volume_title" not in doc_meta  # helper has no volume_title key
+    assert "volume_title" not in build_payload(doc_meta, series_meta, lines, api_key="key123")
+    doc_meta["volume_title"] = ""
+    assert "volume_title" not in build_payload(doc_meta, series_meta, lines, api_key="key123")
