@@ -677,6 +677,12 @@ class _EditVolumeMetadataDialog(QDialog):
         btn_row.addWidget(cancel_btn)
         layout.addLayout(btn_row)
 
+    def accept(self) -> None:
+        if not self._volume_edit.text().strip():
+            QMessageBox.warning(self, "Volume Title Required", "Volume Title cannot be empty.")
+            return
+        super().accept()
+
     @property
     def volume_title(self) -> str:
         return self._volume_edit.text().strip()

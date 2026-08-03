@@ -11,7 +11,7 @@ import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QDialog, QMenu
 from translation_assistant.db import Database
-from translation_assistant.ui.dlg_open import OpenDocumentDialog
+from translation_assistant.ui.dlg_open import OpenDocumentDialog, _EditVolumeMetadataDialog
 
 
 class _NoExecMenu(QMenu):
@@ -572,6 +572,23 @@ class TestEditVolumeMetadata:
             volume_author="Author Name", volume_illustrator="", volume_publisher="", volume_identifier="",
         )
         assert dlg._doc_ids[id(dlg._tree.currentItem())] == doc_id
+
+    def test_blank_volume_title_rejected_on_accept(self, qapp):
+        from unittest.mock import patch
+        from PySide6.QtWidgets import QMessageBox
+
+        dlg = _EditVolumeMetadataDialog(
+            volume_title="Vol 1",
+            volume_author="",
+            volume_illustrator="",
+            volume_publisher="",
+            volume_identifier="",
+        )
+        dlg._volume_edit.setText("")
+        with patch.object(QMessageBox, "warning") as mock_warn:
+            dlg.accept()
+            mock_warn.assert_called_once()
+        assert dlg.result() != QDialog.DialogCode.Accepted
 
 
 def test_open_dialog_has_five_columns(qapp, mem_db):
