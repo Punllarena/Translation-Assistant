@@ -1272,17 +1272,21 @@ class TranslationAssistantWidget(QWidget):
                         media_type = mimetypes.guess_type(cover_row["src_path"])[0] or "application/octet-stream"
                         cover = {"data": cover_row["data"], "media_type": media_type}
 
-                if not raw_lines:
+                if not raw_lines and not inline_images:
                     # A chapter that extracted to zero lines (e.g. an EPUB
                     # colophon whose text lived outside <p> tags) can never be
                     # "finished" — calculate_progress returns 0%. Treat it as
                     # vacuously complete and omit it: it contributes no
                     # paragraphs either way, so it must not block the volume.
                     continue
-                pct, _ = calculate_progress(raw_lines, translated_lines)
-                if pct < 100:
-                    incomplete = True
-                    break
+                if raw_lines:
+                    pct, _ = calculate_progress(raw_lines, translated_lines)
+                    if pct < 100:
+                        incomplete = True
+                        break
+                # A text-less chapter that still carries images (a colour plate
+                # page, a frontispiece) keeps going: build_epub_content flushes
+                # its images at position 0, so the page exports as image-only.
 
                 heading = doc_meta.get("chapter_title") or doc_meta.get("title", "")
                 content_items = build_epub_content(raw_lines, translated_lines, inline_images)
@@ -1458,6 +1462,15 @@ class TranslationAssistantWidget(QWidget):
         doc_images = self._db.get_document_images(self._doc_id)
         inline_images = [im for im in doc_images if not im["is_cover"] and not im["exclude_export"]]
         cover_image = next((im for im in doc_images if im["is_cover"]), None)
+
+        # EasyWP's proxy resets requests over ~1 MB; full-res EPUB art blows that
+        # on its own. Downscale before it goes into the base64 payload.
+        from translation_assistant.imageopt import shrink_image
+        for im in [*inline_images, *([cover_image] if cover_image else [])]:
+            shrunk = shrink_image(im["data"])
+            if shrunk is not im["data"]:
+                im["data"] = shrunk
+                im["src_path"] = im["src_path"].rsplit(".", 1)[0] + ".jpg"
         if not any(ln["translated_text"].strip() for ln in lines):
             QMessageBox.warning(self, "Nothing to Publish", "No translated lines to publish.")
             return
