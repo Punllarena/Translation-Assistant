@@ -130,6 +130,15 @@ def test_publish_http_error_raises_wp_publish_error():
             publish("https://example.com/endpoint", {"api_key": "k"})
     assert exc_info.value.status_code == 401
 
+def test_publish_http_error_surfaces_plugin_error_key():
+    err = HTTPError("url", 400, "Bad Request", {}, None)
+    err.read = lambda: b'{"error": "Missing field: series_link"}'
+    with patch("urllib.request.urlopen", side_effect=err):
+        with pytest.raises(WPPublishError) as exc_info:
+            publish("https://example.com/endpoint", {"api_key": "k"})
+    assert exc_info.value.message == "Missing field: series_link"
+    assert exc_info.value.status_code == 400
+
 def test_publish_connection_error_raises_wp_publish_error():
     with patch("urllib.request.urlopen", side_effect=URLError("connection refused")):
         with pytest.raises(WPPublishError) as exc_info:
@@ -484,6 +493,13 @@ def test_build_payload_omits_cover_when_absent():
     payload = build_payload(doc_meta, series_meta, lines, api_key="key123")
     assert "cover" not in payload
 
+def test_build_payload_omits_cover_past_chapter_one():
+    doc_meta, series_meta, lines = _sample_meta()
+    doc_meta["series_order"] = 2
+    cover = {"src_path": "cover.png", "data": b"COVERBYTES"}
+    payload = build_payload(doc_meta, series_meta, lines, api_key="key123", cover=cover)
+    assert "cover" not in payload
+
 
 def test_build_payload_includes_volume_title():
     doc_meta, series_meta, lines = _sample_meta()
@@ -498,3 +514,163 @@ def test_build_payload_omits_blank_volume_title():
     assert "volume_title" not in build_payload(doc_meta, series_meta, lines, api_key="key123")
     doc_meta["volume_title"] = ""
     assert "volume_title" not in build_payload(doc_meta, series_meta, lines, api_key="key123")
+
+
+from translation_assistant.wp_publisher import (
+    build_illustrations_payloads, _ILLUS_BATCH_BYTES,
+)
+
+
+def _illus_meta():
+    doc_meta = {"series_title": "Sword of the Wanderer", "volume_title": "Volume 1"}
+    series_meta = {
+        "series_slug": "sword-of-the-wanderer",
+        "series_title_short": "SotW",
+        "syosetu_url": "https://ncode.syosetu.com/n1234ab/",
+    }
+    return doc_meta, series_meta
+
+
+def _img(name, nbytes):
+    return {"src_path": name, "data": b"x" * nbytes}
+
+
+def test_illus_payloads_single_batch_when_small():
+    doc_meta, series_meta = _illus_meta()
+    out = build_illustrations_payloads(
+        doc_meta, series_meta, [_img("a.png", 10), _img("b.png", 10)], api_key="K"
+    )
+    assert len(out) == 1
+    assert out[0]["mode"] == "replace"
+    assert out[0]["volume_title"] == "Volume 1"
+    assert out[0]["series_link"] == "https://ncode.syosetu.com/n1234ab/"
+    assert [i["filename"] for i in out[0]["images"]] == ["a.png", "b.png"]
+    assert "position" not in out[0]["images"][0]
+
+
+def test_illus_payloads_splits_over_budget():
+    doc_meta, series_meta = _illus_meta()
+    # each image base64-inflates ~4/3; make three that each blow ~half the budget
+    half = int(_ILLUS_BATCH_BYTES * 0.5)
+    imgs = [_img(f"{i}.png", half) for i in range(3)]
+    out = build_illustrations_payloads(doc_meta, series_meta, imgs, api_key="K")
+    assert len(out) >= 2
+    assert out[0]["mode"] == "replace"
+    assert all(p["mode"] == "append" for p in out[1:])
+    seen = [i["filename"] for p in out for i in p["images"]]
+    assert seen == ["0.png", "1.png", "2.png"]
+
+
+def test_illus_payloads_cover_only_on_first_batch():
+    doc_meta, series_meta = _illus_meta()
+    half = int(_ILLUS_BATCH_BYTES * 0.5)
+    imgs = [_img(f"{i}.png", half) for i in range(3)]
+    out = build_illustrations_payloads(
+        doc_meta, series_meta, imgs, api_key="K", cover=_img("cover.png", 10)
+    )
+    assert "cover" in out[0]
+    assert out[0]["cover"]["filename"] == "cover.png"
+    assert all("cover" not in p for p in out[1:])
+
+
+def test_illus_payloads_omits_volume_title_when_blank():
+    doc_meta, series_meta = _illus_meta()
+    doc_meta["volume_title"] = ""
+    out = build_illustrations_payloads(doc_meta, series_meta, [_img("a.png", 10)], api_key="K")
+    assert "volume_title" not in out[0]
+
+
+def test_illus_payloads_missing_series_link_key_ok():
+    doc_meta, series_meta = _illus_meta()
+    del series_meta["syosetu_url"]
+    out = build_illustrations_payloads(doc_meta, series_meta, [_img("a.png", 10)], api_key="K")
+    assert out[0]["series_link"] == ""
+
+
+def test_illus_payloads_requires_slug_and_short_title():
+    doc_meta, series_meta = _illus_meta()
+    with pytest.raises(ValueError):
+        build_illustrations_payloads(
+            doc_meta, {"series_slug": "", "series_title_short": "X"}, [_img("a.png", 1)], api_key="K"
+        )
+    with pytest.raises(ValueError):
+        build_illustrations_payloads(
+            doc_meta, {"series_slug": "x", "series_title_short": ""}, [_img("a.png", 1)], api_key="K"
+        )
+
+
+from translation_assistant.wp_publisher import publish_illustrations
+
+
+def test_publish_illustrations_url_from_bare_site():
+    captured = {}
+
+    def fake_urlopen(req, timeout=None):
+        captured["url"] = req.full_url
+        m = MagicMock()
+        m.__enter__ = lambda s: s
+        m.__exit__ = MagicMock(return_value=False)
+        m.read.return_value = json.dumps({"status": "ok", "created": True}).encode()
+        return m
+
+    with patch("urllib.request.urlopen", fake_urlopen):
+        out = publish_illustrations("https://site.com", {"mode": "replace"})
+    assert captured["url"] == "https://site.com/wp-json/ta-publisher/v1/illustrations"
+    assert out["created"] is True
+
+
+def test_publish_illustrations_url_from_publish_endpoint():
+    captured = {}
+
+    def fake_urlopen(req, timeout=None):
+        captured["url"] = req.full_url
+        m = MagicMock()
+        m.__enter__ = lambda s: s
+        m.__exit__ = MagicMock(return_value=False)
+        m.read.return_value = b'{"status": "ok"}'
+        return m
+
+    with patch("urllib.request.urlopen", fake_urlopen):
+        publish_illustrations("https://site.com/wp-json/ta-publisher/v1/publish", {})
+    assert captured["url"] == "https://site.com/wp-json/ta-publisher/v1/illustrations"
+
+
+def test_publish_illustrations_surfaces_error_key():
+    err = HTTPError("url", 400, "Bad Request", {}, None)
+    err.read = lambda: b'{"error": "Missing field: images"}'
+    with patch("urllib.request.urlopen", side_effect=err):
+        with pytest.raises(WPPublishError) as ei:
+            publish_illustrations("https://site.com", {})
+    assert ei.value.message == "Missing field: images"
+    assert ei.value.status_code == 400
+
+
+def test_publish_illustrations_connection_error():
+    with patch("urllib.request.urlopen", side_effect=URLError("refused")):
+        with pytest.raises(WPPublishError) as ei:
+            publish_illustrations("https://site.com", {})
+    assert ei.value.status_code is None
+
+
+def test_illus_payloads_cover_only_volume():
+    doc_meta, series_meta = _illus_meta()
+    out = build_illustrations_payloads(
+        doc_meta, series_meta, [], api_key="K", cover=_img("cover.png", 10)
+    )
+    assert len(out) == 1
+    assert out[0]["mode"] == "replace"
+    assert out[0]["images"] == []
+    assert out[0]["cover"]["filename"] == "cover.png"
+
+
+def test_illus_payloads_big_cover_splits_before_first_image():
+    doc_meta, series_meta = _illus_meta()
+    big = int(_ILLUS_BATCH_BYTES * 0.6)
+    out = build_illustrations_payloads(
+        doc_meta, series_meta, [_img("a.png", big), _img("b.png", 10)],
+        api_key="K", cover=_img("cover.png", big),
+    )
+    assert len(out) == 2
+    assert out[0]["mode"] == "replace" and out[0]["images"] == [] and "cover" in out[0]
+    assert [i["filename"] for i in out[1]["images"]] == ["a.png", "b.png"]
+    assert all("cover" not in p for p in out[1:])

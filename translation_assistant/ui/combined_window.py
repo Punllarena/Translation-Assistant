@@ -115,6 +115,7 @@ class CombinedMainWindow(QMainWindow):
         file_menu.addAction(ta.action_export_epub_series)
         file_menu.addSeparator()
         file_menu.addAction(ta.action_publish_wp)
+        file_menu.addAction(ta.action_publish_volume_illus)
         file_menu.addAction(ta.action_manage_series)
         file_menu.addSeparator()
         db_menu = QMenu("Database", self)

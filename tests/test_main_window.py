@@ -16,6 +16,14 @@ from translation_assistant.settings import AppSettings
 from translation_assistant.ui.main_widget import TranslationAssistantWidget
 
 
+class _Sig:
+    """Minimal stand-in for a Qt signal in worker fakes."""
+    def __init__(self): self._cbs = []
+    def connect(self, cb): self._cbs.append(cb)
+    def emit(self, *a):
+        for cb in self._cbs: cb(*a)
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -732,6 +740,76 @@ class TestExportEpubSeries:
         with zipfile.ZipFile(out) as zf:
             names = zf.namelist()
         assert any(n.endswith("pic.png") for n in names)
+
+    def test_image_only_chapter_exports_its_images(self, win, tmp_path, monkeypatch):
+        """A colour-plate page has zero raw_lines but is not empty — dropping it
+        would throw away every illustration that lives on its own page."""
+        db = win._db
+        self._load_translated_doc(win)
+        plate_id = db.create_document(
+            "p-fmatter-003", series_title="S", series_order=2,
+            chapter_title="p-fmatter-003", volume_title="Vol 1",
+        )
+        db.save_lines(plate_id, [])
+        db.add_document_image(plate_id, 0, False, "image/ph_kuchie2.jpg", b"fake-plate")
+        win._doc_id = db.get_document_ids_by_series("S")[0]
+        monkeypatch.setattr(
+            "translation_assistant.ui.main_widget.QFileDialog.getExistingDirectory",
+            lambda *a, **kw: str(tmp_path),
+        )
+        with patch("translation_assistant.ui.main_widget.QMessageBox.information"):
+            win._on_export_epub_series()
+        import zipfile
+        with zipfile.ZipFile(tmp_path / "S" / "Vol 1.epub") as zf:
+            names = zf.namelist()
+            plate = next(n for n in names if n.endswith("chap2.xhtml"))
+            xhtml = zf.read(plate).decode("utf-8")
+        assert any(n.endswith("ph_kuchie2.jpg") for n in names)
+        assert "ph_kuchie2.jpg" in xhtml
+        assert "<h1>" not in xhtml  # filename-stub title must not print as a heading
+
+    def test_untranslated_image_only_chapter_does_not_block_volume(self, win, tmp_path, monkeypatch):
+        """Zero raw_lines means calculate_progress() would report 0% — the image
+        chapter must stay exempt from the completeness check."""
+        db = win._db
+        self._load_translated_doc(win)
+        plate_id = db.create_document(
+            "Plate", series_title="S", series_order=2,
+            chapter_title="Plate", volume_title="Vol 1",
+        )
+        db.save_lines(plate_id, [])
+        db.add_document_image(plate_id, 0, False, "image/plate.jpg", b"fake-plate")
+        win._doc_id = db.get_document_ids_by_series("S")[0]
+        monkeypatch.setattr(
+            "translation_assistant.ui.main_widget.QFileDialog.getExistingDirectory",
+            lambda *a, **kw: str(tmp_path),
+        )
+        with patch("translation_assistant.ui.main_widget.QMessageBox.information"):
+            win._on_export_epub_series()
+        assert (tmp_path / "S" / "Vol 1.epub").exists()
+
+    def test_excluded_image_only_chapter_is_omitted(self, win, tmp_path, monkeypatch):
+        """Unticking export on the only image of a text-less page leaves nothing
+        to emit — the chapter goes back to being dropped."""
+        from translation_assistant.epub import open_book
+        db = win._db
+        self._load_translated_doc(win)
+        plate_id = db.create_document(
+            "Plate", series_title="S", series_order=2,
+            chapter_title="Plate", volume_title="Vol 1",
+        )
+        db.save_lines(plate_id, [])
+        image_id = db.add_document_image(plate_id, 0, False, "image/plate.jpg", b"fake-plate")
+        db.set_image_exclude_export(image_id, True)
+        win._doc_id = db.get_document_ids_by_series("S")[0]
+        monkeypatch.setattr(
+            "translation_assistant.ui.main_widget.QFileDialog.getExistingDirectory",
+            lambda *a, **kw: str(tmp_path),
+        )
+        with patch("translation_assistant.ui.main_widget.QMessageBox.information"):
+            win._on_export_epub_series()
+        book = open_book(tmp_path / "S" / "Vol 1.epub")
+        assert [c["title"] for c in book["chapters"]] == ["Ch 1"]
 
     def test_exported_epub_contains_cover(self, win, tmp_path, monkeypatch):
         db = win._db
@@ -1512,6 +1590,10 @@ class TestImageCollapseAndExport:
             "translation_assistant.ui.main_widget._PublishWorker", _FakeThread,
         )
 
+        monkeypatch.setattr(
+            "translation_assistant.ui.main_widget.QDialog.exec", lambda self: 1,
+        )
+
         captured = {}
         import translation_assistant.wp_publisher as wp_publisher
         _real_build_payload = wp_publisher.build_payload
@@ -1527,3 +1609,116 @@ class TestImageCollapseAndExport:
         # Verify the payload's images list does not contain the excluded image
         assert "images" in captured["kwargs"]
         assert len(captured["kwargs"]["images"]) == 0
+
+
+class TestIllustrationsWorker:
+    def test_sends_batches_in_order_and_emits_first_result(self, qapp):
+        from translation_assistant.ui import main_widget as mw
+
+        calls = []
+
+        def fake_publish(endpoint, payload):
+            calls.append(payload["mode"])
+            return {"status": "ok", "mode": payload["mode"], "page_url": "u", "created": payload["mode"] == "replace"}
+
+        worker = mw._IllustrationsPublishWorker(
+            "https://site.com",
+            [{"mode": "replace"}, {"mode": "append"}, {"mode": "append"}],
+        )
+        got = {}
+        worker.succeeded.connect(lambda r: got.update(r))
+        with patch("translation_assistant.wp_publisher.publish_illustrations", fake_publish):
+            worker.run()  # run synchronously in-thread for the test
+
+        assert calls == ["replace", "append", "append"]
+        assert got["mode"] == "replace"  # first batch's result
+
+    def test_stops_and_reports_on_batch_failure(self, qapp):
+        from translation_assistant.ui import main_widget as mw
+        from translation_assistant.wp_publisher import WPPublishError
+
+        calls = []
+
+        def fake_publish(endpoint, payload):
+            calls.append(payload["mode"])
+            if payload["mode"] == "append":
+                raise WPPublishError("boom", status_code=500)
+            return {"status": "ok"}
+
+        worker = mw._IllustrationsPublishWorker(
+            "https://site.com", [{"mode": "replace"}, {"mode": "append"}]
+        )
+        errs = []
+        worker.error.connect(errs.append)
+        with patch("translation_assistant.wp_publisher.publish_illustrations", fake_publish):
+            worker.run()
+
+        assert calls == ["replace", "append"]
+        assert errs and errs[0] == "batch 2/2: boom"
+
+
+class TestPublishVolumeIllustrations:
+    def _widget_with_volume(self, tmp_path):
+        w, settings = _make_widget(tmp_path)
+        settings.wp_endpoint_url = "https://site.com"
+        settings.wp_api_key = "K"
+        db = w._db
+        db.set_series_wp_meta("S", "s-slug", "S")
+        d0 = db.create_document("c0", series_title="S", series_order=0, volume_title="Vol 1")
+        d1 = db.create_document("c1", series_title="S", series_order=1, volume_title="Vol 1")
+        d2 = db.create_document("c2", series_title="S", series_order=2, volume_title="Vol 2")
+        db.add_document_image(d1, 0, True, "cover.png", b"C" * 10)     # volume cover
+        db.add_document_image(d1, 1, False, "plate1.png", b"P" * 10)   # inline
+        db.add_document_image(d2, 0, False, "other.png", b"O" * 10)    # different volume
+        return w, d1
+
+    def test_gathers_volume_images_and_starts_worker(self, qapp, tmp_path, monkeypatch):
+        from translation_assistant.ui import main_widget as mw
+
+        w, d1 = self._widget_with_volume(tmp_path)
+        w._doc_id = d1
+
+        started = {}
+
+        class FakeWorker:
+            def __init__(self, endpoint, payloads, parent=None):
+                started["endpoint"] = endpoint
+                started["payloads"] = payloads
+                self.succeeded = _Sig()
+                self.error = _Sig()
+            def start(self):
+                started["started"] = True
+
+        monkeypatch.setattr(mw, "_IllustrationsPublishWorker", FakeWorker)
+        monkeypatch.setattr(mw.QMessageBox, "question",
+                            lambda *a, **k: mw.QMessageBox.StandardButton.Yes)
+        monkeypatch.setattr("translation_assistant.imageopt.shrink_image", lambda b, **k: b)
+
+        w._on_publish_volume_illustrations()
+
+        assert started.get("started") is True
+        assert started["endpoint"] == "https://site.com"
+        p0 = started["payloads"][0]
+        assert p0["mode"] == "replace"
+        assert p0["volume_title"] == "Vol 1"
+        assert p0["cover"]["filename"] == "cover.png"
+        assert [i["filename"] for i in p0["images"]] == ["plate1.png"]  # only this volume, non-cover
+
+    def test_no_images_shows_info_and_no_worker(self, qapp, tmp_path, monkeypatch):
+        from translation_assistant.ui import main_widget as mw
+
+        w, settings = _make_widget(tmp_path)
+        settings.wp_endpoint_url = "https://site.com"
+        settings.wp_api_key = "K"
+        w._db.set_series_wp_meta("S", "s-slug", "S")
+        d = w._db.create_document("c1", series_title="S", series_order=1, volume_title="Vol 1")
+        w._doc_id = d
+
+        infos = []
+        monkeypatch.setattr(mw.QMessageBox, "information", lambda *a, **k: infos.append(a))
+        made = []
+        monkeypatch.setattr(mw, "_IllustrationsPublishWorker",
+                            lambda *a, **k: made.append(a))
+
+        w._on_publish_volume_illustrations()
+        assert infos and not made
