@@ -130,6 +130,15 @@ def test_publish_http_error_raises_wp_publish_error():
             publish("https://example.com/endpoint", {"api_key": "k"})
     assert exc_info.value.status_code == 401
 
+def test_publish_http_error_surfaces_plugin_error_key():
+    err = HTTPError("url", 400, "Bad Request", {}, None)
+    err.read = lambda: b'{"error": "Missing field: series_link"}'
+    with patch("urllib.request.urlopen", side_effect=err):
+        with pytest.raises(WPPublishError) as exc_info:
+            publish("https://example.com/endpoint", {"api_key": "k"})
+    assert exc_info.value.message == "Missing field: series_link"
+    assert exc_info.value.status_code == 400
+
 def test_publish_connection_error_raises_wp_publish_error():
     with patch("urllib.request.urlopen", side_effect=URLError("connection refused")):
         with pytest.raises(WPPublishError) as exc_info:
@@ -482,6 +491,13 @@ def test_build_payload_includes_cover_when_present():
 def test_build_payload_omits_cover_when_absent():
     doc_meta, series_meta, lines = _sample_meta()
     payload = build_payload(doc_meta, series_meta, lines, api_key="key123")
+    assert "cover" not in payload
+
+def test_build_payload_omits_cover_past_chapter_one():
+    doc_meta, series_meta, lines = _sample_meta()
+    doc_meta["series_order"] = 2
+    cover = {"src_path": "cover.png", "data": b"COVERBYTES"}
+    payload = build_payload(doc_meta, series_meta, lines, api_key="key123", cover=cover)
     assert "cover" not in payload
 
 

@@ -27,6 +27,15 @@ def slugify(text: str) -> str:
     return re.sub(r"[-\s]+", "-", text).strip("-")
 
 
+_BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
+
+
+def _bold_to_html(text: str) -> str:
+    """Converts **bold** markers to <strong> tags (same convention as epub._paragraph_to_html)."""
+    parts = _BOLD_RE.split(text)
+    return "".join(f"<strong>{p}</strong>" if i % 2 == 1 else p for i, p in enumerate(parts))
+
+
 def build_chapter_body(lines: list[dict]) -> str:
     parts = []
     i = 0
@@ -42,7 +51,7 @@ def build_chapter_body(lines: list[dict]) -> str:
             i += 1
         text = " ".join(t for t in group if t.strip())
         if text:
-            parts.append(f"<p>{text}</p>")
+            parts.append(f"<p>{_bold_to_html(text)}</p>")
     return "\n".join(parts)
 
 
@@ -218,7 +227,9 @@ def build_payload(
         payload["first_line"] = get_first_line(lines)
         if images:
             payload["images"] = build_image_payload(lines, images)
-        if cover is not None:
+        if cover is not None and doc_meta["series_order"] == 1:
+            # Cover only rides along on chapter 1 — repeating a ~1 MB base64
+            # blob on every chapter blew the WP host's request-body limit.
             payload["cover"] = _encode_image(cover)
     if password is not None:
         payload["password"] = password
@@ -284,7 +295,7 @@ def check_status(
     except HTTPError as exc:
         try:
             body = json.loads(exc.read())
-            msg = body.get("message", str(exc))
+            msg = body.get("error") or body.get("message") or str(exc)
         except Exception:
             msg = str(exc)
         raise WPPublishError(msg, status_code=exc.code) from exc
@@ -321,7 +332,7 @@ def publish(endpoint_url: str, payload: dict, timeout: int = 15) -> dict:
                 return {"created": False}
         try:
             body = json.loads(exc.read())
-            msg = body.get("message", str(exc))
+            msg = body.get("error") or body.get("message") or str(exc)
         except Exception:
             msg = str(exc)
         raise WPPublishError(msg, status_code=exc.code) from exc
