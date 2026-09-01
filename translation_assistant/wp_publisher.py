@@ -156,7 +156,10 @@ def build_illustrations_payloads(
     size = len(enc_cover["data_base64"]) if enc_cover else 0
     for e in encoded:
         b = len(e["data_base64"])
-        if batches[-1] and size + b > _ILLUS_BATCH_BYTES:
+        # Split when the running batch already has content, OR when batch 0 is
+        # still empty but already carries the cover's bytes — so a big cover and
+        # the first image never share a single over-budget request body.
+        if (batches[-1] or (enc_cover is not None and len(batches) == 1)) and size + b > _ILLUS_BATCH_BYTES:
             batches.append([])
             size = 0
         batches[-1].append(e)
@@ -398,7 +401,7 @@ def publish(endpoint_url: str, payload: dict, timeout: int = 15) -> dict:
 _ILLUSTRATIONS_PATH = "/wp-json/ta-publisher/v1/illustrations"
 
 
-def publish_illustrations(endpoint_url: str, payload: dict, timeout: int = 20) -> dict:
+def publish_illustrations(endpoint_url: str, payload: dict, timeout: int = 60) -> dict:
     base = endpoint_url.rstrip("/")
     if base.endswith(_ENDPOINT_PATH):
         base = base[: -len(_ENDPOINT_PATH)]

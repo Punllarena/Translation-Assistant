@@ -1621,9 +1621,6 @@ class TestIllustrationsWorker:
             calls.append(payload["mode"])
             return {"status": "ok", "mode": payload["mode"], "page_url": "u", "created": payload["mode"] == "replace"}
 
-        with patch.object(mw, "_IllustrationsPublishWorker") as _:
-            pass  # ensure the symbol exists; real check below
-
         worker = mw._IllustrationsPublishWorker(
             "https://site.com",
             [{"mode": "replace"}, {"mode": "append"}, {"mode": "append"}],

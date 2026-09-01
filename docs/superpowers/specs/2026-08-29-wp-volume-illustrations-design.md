@@ -88,14 +88,18 @@ register_rest_route( 'ta-publisher/v1', '/illustrations', [
   `series_title_short`, `images`. `series_link`, `volume_title`, `cover`
   all optional (`series_link` optional to match `tap_handle_publish`
   after plugin commit `a94aded` — EPUB-imported series send `""`).
-  - `images` must be a non-empty array — 400 `"Missing field: images"`
-    otherwise.
+  - `images` must be an array; it may be `[]` **when a `cover` object is
+    present** (cover-only volume → a page with just the cover). 400
+    `"Missing field: images"` only when `images` is not an array, or is
+    empty with no `cover`.
   - `mode` optional; `"replace"` (default) or `"append"`. Anything else
     → 400.
 - `TAP_Auth::validate_key()` → 401 on failure.
 - `new TAP_Publisher()->publish_illustrations( $data, $user_id )`.
 - `is_wp_error` → 500 with `[ 'error' => $result->get_error_message() ]`
   (the client reads `error` first, then `message`).
+- This route (with the cover-only `images: []` acceptance above) ships in
+  plugin version **1.5.5**.
 
 ### A2. `TAP_Publisher::publish_illustrations( array $data, int $user_id ): array|WP_Error`
 
@@ -133,9 +137,15 @@ $existing = get_page_by_path( "{$series_slug}/{$slug}", OBJECT, 'page' );
   (so `attach_image` has the real `$post_id`). On content-update
   `WP_Error`, `wp_delete_post( $id, true )` and return it (mirrors
   `create_chapter_page`). `created => true`.
-- Then `append_toc_entry( $index_id, 'Illustrations',
-  get_permalink( $gallery_id ), $volume_title )` — idempotent substring
-  check; also emits the volume `<h3>` when first needed, order-independent.
+- Then, **only when `$created` is true** (the gallery page was just
+  inserted), `append_toc_entry( $index_id, 'Illustrations',
+  get_permalink( $gallery_id ), $volume_title )`. The substring check inside
+  `append_toc_entry` guards only the volume `<h3>` heading — the
+  `<p><a>…Illustrations…</a></p>` entry line itself is NOT de-duped, so
+  calling it on every `replace` would stack a second identical link on each
+  re-publish. Gating on `if ($created)` means a re-publish of an existing
+  gallery does not touch the ToC at all. The `<h3>` emit stays
+  order-independent.
 
 **`mode === 'append'`** (later batches):
 
@@ -181,7 +191,9 @@ New private helper
 
 `translation-assistant-publisher.php` header `Version: 1.5.3` → `1.5.4`.
 (Plugin is already at 1.5.3 as of commit `a94aded`; the spec's original
-`1.5.2` is stale.)
+`1.5.2` is stale.) The final review wave then took it to **1.5.5** — a
+deployed 1.5.4 still 400s a cover-only request, so accepting `images: []`
+with a `cover` present needs its own version.
 
 ### A5. Plugin files touched
 
@@ -487,7 +499,14 @@ user → File ▸ Publish Volume Illustrations…
   `<h3>` — matches existing behaviour for volume-less chapters.
 - **Re-run after adding/removing an image:** the `replace` batch deletes
   the page's attachments and overwrites the body; `append` batches rebuild
-  the rest. TOC link already present, substring check skips a duplicate.
+  the rest. The ToC is untouched — `append_toc_entry` runs only on the
+  first-ever create (`if ($created)`), so a re-run adds no second link.
+- **Illustrations published *after* a later volume's chapters exist:**
+  `append_toc_entry` always inserts immediately before `<!-- ta-toc-end -->`
+  (the ToC tail), so the "Illustrations" link lands at the bottom of the
+  ToC — visually under the wrong volume heading. Publish volumes in order,
+  or move the link by editing the index page. (Pre-existing plugin
+  behaviour, not specific to this feature.)
 - **A later `append` batch fails mid-run:** the page is left with batch 0
   (+ any batches that landed). Re-running the whole action from `replace`
   is the recovery — it wipes and rebuilds. No partial-resume logic.

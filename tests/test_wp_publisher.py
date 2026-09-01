@@ -650,3 +650,27 @@ def test_publish_illustrations_connection_error():
         with pytest.raises(WPPublishError) as ei:
             publish_illustrations("https://site.com", {})
     assert ei.value.status_code is None
+
+
+def test_illus_payloads_cover_only_volume():
+    doc_meta, series_meta = _illus_meta()
+    out = build_illustrations_payloads(
+        doc_meta, series_meta, [], api_key="K", cover=_img("cover.png", 10)
+    )
+    assert len(out) == 1
+    assert out[0]["mode"] == "replace"
+    assert out[0]["images"] == []
+    assert out[0]["cover"]["filename"] == "cover.png"
+
+
+def test_illus_payloads_big_cover_splits_before_first_image():
+    doc_meta, series_meta = _illus_meta()
+    big = int(_ILLUS_BATCH_BYTES * 0.6)
+    out = build_illustrations_payloads(
+        doc_meta, series_meta, [_img("a.png", big), _img("b.png", 10)],
+        api_key="K", cover=_img("cover.png", big),
+    )
+    assert len(out) == 2
+    assert out[0]["mode"] == "replace" and out[0]["images"] == [] and "cover" in out[0]
+    assert [i["filename"] for i in out[1]["images"]] == ["a.png", "b.png"]
+    assert all("cover" not in p for p in out[1:])
