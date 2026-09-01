@@ -116,6 +116,61 @@ def build_image_payload(lines: list[dict], images: list[dict]) -> list[dict]:
     return result
 
 
+_ILLUS_BATCH_BYTES = 800_000
+
+
+def build_illustrations_payloads(
+    doc_meta: dict,
+    series_meta: dict,
+    images: list[dict],
+    api_key: str,
+    cover: dict | None = None,
+) -> list[dict]:
+    """Split a volume's illustrations into per-request payloads.
+
+    The WP host's proxy resets bodies over ~1 MB, so a volume's art cannot
+    ship in one JSON POST. Element 0 carries ``mode: "replace"`` (plus the
+    cover, if any); the rest carry ``mode: "append"``. Images arrive
+    already downscaled by the caller (``imageopt.shrink_image``) — this
+    function only groups them under ``_ILLUS_BATCH_BYTES`` of base64.
+    """
+    if not series_meta.get("series_slug"):
+        raise ValueError("series_slug is required — set it in Series Manager")
+    if not series_meta.get("series_title_short"):
+        raise ValueError("series_title_short is required — set it in Series Manager")
+
+    base = {
+        "api_key":            api_key,
+        "series_title":       doc_meta["series_title"],
+        "series_slug":        series_meta["series_slug"],
+        "series_title_short": series_meta["series_title_short"],
+        "series_link":        series_meta.get("syosetu_url") or "",
+    }
+    if doc_meta.get("volume_title"):
+        base["volume_title"] = doc_meta["volume_title"]
+
+    enc_cover = _encode_image(cover) if cover is not None else None
+    encoded = [_encode_image(im) for im in images]
+
+    batches: list[list[dict]] = [[]]
+    size = len(enc_cover["data_base64"]) if enc_cover else 0
+    for e in encoded:
+        b = len(e["data_base64"])
+        if batches[-1] and size + b > _ILLUS_BATCH_BYTES:
+            batches.append([])
+            size = 0
+        batches[-1].append(e)
+        size += b
+
+    payloads = []
+    for i, batch in enumerate(batches):
+        p = {**base, "images": batch, "mode": "replace" if i == 0 else "append"}
+        if i == 0 and enc_cover is not None:
+            p["cover"] = enc_cover
+        payloads.append(p)
+    return payloads
+
+
 _ALPHANUM = string.ascii_letters + string.digits
 
 
