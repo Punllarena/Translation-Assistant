@@ -733,6 +733,76 @@ class TestExportEpubSeries:
             names = zf.namelist()
         assert any(n.endswith("pic.png") for n in names)
 
+    def test_image_only_chapter_exports_its_images(self, win, tmp_path, monkeypatch):
+        """A colour-plate page has zero raw_lines but is not empty — dropping it
+        would throw away every illustration that lives on its own page."""
+        db = win._db
+        self._load_translated_doc(win)
+        plate_id = db.create_document(
+            "p-fmatter-003", series_title="S", series_order=2,
+            chapter_title="p-fmatter-003", volume_title="Vol 1",
+        )
+        db.save_lines(plate_id, [])
+        db.add_document_image(plate_id, 0, False, "image/ph_kuchie2.jpg", b"fake-plate")
+        win._doc_id = db.get_document_ids_by_series("S")[0]
+        monkeypatch.setattr(
+            "translation_assistant.ui.main_widget.QFileDialog.getExistingDirectory",
+            lambda *a, **kw: str(tmp_path),
+        )
+        with patch("translation_assistant.ui.main_widget.QMessageBox.information"):
+            win._on_export_epub_series()
+        import zipfile
+        with zipfile.ZipFile(tmp_path / "S" / "Vol 1.epub") as zf:
+            names = zf.namelist()
+            plate = next(n for n in names if n.endswith("chap2.xhtml"))
+            xhtml = zf.read(plate).decode("utf-8")
+        assert any(n.endswith("ph_kuchie2.jpg") for n in names)
+        assert "ph_kuchie2.jpg" in xhtml
+        assert "<h1>" not in xhtml  # filename-stub title must not print as a heading
+
+    def test_untranslated_image_only_chapter_does_not_block_volume(self, win, tmp_path, monkeypatch):
+        """Zero raw_lines means calculate_progress() would report 0% — the image
+        chapter must stay exempt from the completeness check."""
+        db = win._db
+        self._load_translated_doc(win)
+        plate_id = db.create_document(
+            "Plate", series_title="S", series_order=2,
+            chapter_title="Plate", volume_title="Vol 1",
+        )
+        db.save_lines(plate_id, [])
+        db.add_document_image(plate_id, 0, False, "image/plate.jpg", b"fake-plate")
+        win._doc_id = db.get_document_ids_by_series("S")[0]
+        monkeypatch.setattr(
+            "translation_assistant.ui.main_widget.QFileDialog.getExistingDirectory",
+            lambda *a, **kw: str(tmp_path),
+        )
+        with patch("translation_assistant.ui.main_widget.QMessageBox.information"):
+            win._on_export_epub_series()
+        assert (tmp_path / "S" / "Vol 1.epub").exists()
+
+    def test_excluded_image_only_chapter_is_omitted(self, win, tmp_path, monkeypatch):
+        """Unticking export on the only image of a text-less page leaves nothing
+        to emit — the chapter goes back to being dropped."""
+        from translation_assistant.epub import open_book
+        db = win._db
+        self._load_translated_doc(win)
+        plate_id = db.create_document(
+            "Plate", series_title="S", series_order=2,
+            chapter_title="Plate", volume_title="Vol 1",
+        )
+        db.save_lines(plate_id, [])
+        image_id = db.add_document_image(plate_id, 0, False, "image/plate.jpg", b"fake-plate")
+        db.set_image_exclude_export(image_id, True)
+        win._doc_id = db.get_document_ids_by_series("S")[0]
+        monkeypatch.setattr(
+            "translation_assistant.ui.main_widget.QFileDialog.getExistingDirectory",
+            lambda *a, **kw: str(tmp_path),
+        )
+        with patch("translation_assistant.ui.main_widget.QMessageBox.information"):
+            win._on_export_epub_series()
+        book = open_book(tmp_path / "S" / "Vol 1.epub")
+        assert [c["title"] for c in book["chapters"]] == ["Ch 1"]
+
     def test_exported_epub_contains_cover(self, win, tmp_path, monkeypatch):
         db = win._db
         doc_id = db.create_document(
@@ -1510,6 +1580,10 @@ class TestImageCollapseAndExport:
         )
         monkeypatch.setattr(
             "translation_assistant.ui.main_widget._PublishWorker", _FakeThread,
+        )
+
+        monkeypatch.setattr(
+            "translation_assistant.ui.main_widget.QDialog.exec", lambda self: 1,
         )
 
         captured = {}
