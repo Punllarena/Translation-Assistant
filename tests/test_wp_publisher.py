@@ -597,3 +597,56 @@ def test_illus_payloads_requires_slug_and_short_title():
         build_illustrations_payloads(
             doc_meta, {"series_slug": "x", "series_title_short": ""}, [_img("a.png", 1)], api_key="K"
         )
+
+
+from translation_assistant.wp_publisher import publish_illustrations
+
+
+def test_publish_illustrations_url_from_bare_site():
+    captured = {}
+
+    def fake_urlopen(req, timeout=None):
+        captured["url"] = req.full_url
+        m = MagicMock()
+        m.__enter__ = lambda s: s
+        m.__exit__ = MagicMock(return_value=False)
+        m.read.return_value = json.dumps({"status": "ok", "created": True}).encode()
+        return m
+
+    with patch("urllib.request.urlopen", fake_urlopen):
+        out = publish_illustrations("https://site.com", {"mode": "replace"})
+    assert captured["url"] == "https://site.com/wp-json/ta-publisher/v1/illustrations"
+    assert out["created"] is True
+
+
+def test_publish_illustrations_url_from_publish_endpoint():
+    captured = {}
+
+    def fake_urlopen(req, timeout=None):
+        captured["url"] = req.full_url
+        m = MagicMock()
+        m.__enter__ = lambda s: s
+        m.__exit__ = MagicMock(return_value=False)
+        m.read.return_value = b'{"status": "ok"}'
+        return m
+
+    with patch("urllib.request.urlopen", fake_urlopen):
+        publish_illustrations("https://site.com/wp-json/ta-publisher/v1/publish", {})
+    assert captured["url"] == "https://site.com/wp-json/ta-publisher/v1/illustrations"
+
+
+def test_publish_illustrations_surfaces_error_key():
+    err = HTTPError("url", 400, "Bad Request", {}, None)
+    err.read = lambda: b'{"error": "Missing field: images"}'
+    with patch("urllib.request.urlopen", side_effect=err):
+        with pytest.raises(WPPublishError) as ei:
+            publish_illustrations("https://site.com", {})
+    assert ei.value.message == "Missing field: images"
+    assert ei.value.status_code == 400
+
+
+def test_publish_illustrations_connection_error():
+    with patch("urllib.request.urlopen", side_effect=URLError("refused")):
+        with pytest.raises(WPPublishError) as ei:
+            publish_illustrations("https://site.com", {})
+    assert ei.value.status_code is None

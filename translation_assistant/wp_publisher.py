@@ -393,3 +393,37 @@ def publish(endpoint_url: str, payload: dict, timeout: int = 15) -> dict:
         raise WPPublishError(msg, status_code=exc.code) from exc
     except URLError as exc:
         raise WPPublishError(f"Could not reach {endpoint_url}: {exc.reason}", status_code=None) from exc
+
+
+_ILLUSTRATIONS_PATH = "/wp-json/ta-publisher/v1/illustrations"
+
+
+def publish_illustrations(endpoint_url: str, payload: dict, timeout: int = 20) -> dict:
+    base = endpoint_url.rstrip("/")
+    if base.endswith(_ENDPOINT_PATH):
+        base = base[: -len(_ENDPOINT_PATH)]
+    url = base + _ILLUSTRATIONS_PATH
+    data = json.dumps(payload).encode()
+    req = urllib.request.Request(
+        url, data=data, headers={"Content-Type": "application/json"}, method="POST"
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            body = resp.read()
+            try:
+                return json.loads(body)
+            except json.JSONDecodeError:
+                raise WPPublishError(
+                    f"Server returned non-JSON response: {body[:200]!r}", status_code=None
+                )
+    except HTTPError as exc:
+        try:
+            body = json.loads(exc.read())
+            msg = body.get("error") or body.get("message") or str(exc)
+        except Exception:
+            msg = str(exc)
+        raise WPPublishError(msg, status_code=exc.code) from exc
+    except URLError as exc:
+        raise WPPublishError(
+            f"Could not reach {url}: {exc.reason}", status_code=None
+        ) from exc
