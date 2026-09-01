@@ -16,6 +16,14 @@ from translation_assistant.settings import AppSettings
 from translation_assistant.ui.main_widget import TranslationAssistantWidget
 
 
+class _Sig:
+    """Minimal stand-in for a Qt signal in worker fakes."""
+    def __init__(self): self._cbs = []
+    def connect(self, cb): self._cbs.append(cb)
+    def emit(self, *a):
+        for cb in self._cbs: cb(*a)
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -1650,3 +1658,70 @@ class TestIllustrationsWorker:
 
         assert calls == ["replace", "append"]
         assert errs and errs[0] == "batch 2/2: boom"
+
+
+class TestPublishVolumeIllustrations:
+    def _widget_with_volume(self, tmp_path):
+        w, settings = _make_widget(tmp_path)
+        settings.wp_endpoint_url = "https://site.com"
+        settings.wp_api_key = "K"
+        db = w._db
+        db.set_series_wp_meta("S", "s-slug", "S")
+        d0 = db.create_document("c0", series_title="S", series_order=0, volume_title="Vol 1")
+        d1 = db.create_document("c1", series_title="S", series_order=1, volume_title="Vol 1")
+        d2 = db.create_document("c2", series_title="S", series_order=2, volume_title="Vol 2")
+        db.add_document_image(d1, 0, True, "cover.png", b"C" * 10)     # volume cover
+        db.add_document_image(d1, 1, False, "plate1.png", b"P" * 10)   # inline
+        db.add_document_image(d2, 0, False, "other.png", b"O" * 10)    # different volume
+        return w, d1
+
+    def test_gathers_volume_images_and_starts_worker(self, qapp, tmp_path, monkeypatch):
+        from translation_assistant.ui import main_widget as mw
+
+        w, d1 = self._widget_with_volume(tmp_path)
+        w._doc_id = d1
+
+        started = {}
+
+        class FakeWorker:
+            def __init__(self, endpoint, payloads, parent=None):
+                started["endpoint"] = endpoint
+                started["payloads"] = payloads
+                self.succeeded = _Sig()
+                self.error = _Sig()
+            def start(self):
+                started["started"] = True
+
+        monkeypatch.setattr(mw, "_IllustrationsPublishWorker", FakeWorker)
+        monkeypatch.setattr(mw.QMessageBox, "question",
+                            lambda *a, **k: mw.QMessageBox.StandardButton.Yes)
+        monkeypatch.setattr("translation_assistant.imageopt.shrink_image", lambda b, **k: b)
+
+        w._on_publish_volume_illustrations()
+
+        assert started.get("started") is True
+        assert started["endpoint"] == "https://site.com"
+        p0 = started["payloads"][0]
+        assert p0["mode"] == "replace"
+        assert p0["volume_title"] == "Vol 1"
+        assert p0["cover"]["filename"] == "cover.png"
+        assert [i["filename"] for i in p0["images"]] == ["plate1.png"]  # only this volume, non-cover
+
+    def test_no_images_shows_info_and_no_worker(self, qapp, tmp_path, monkeypatch):
+        from translation_assistant.ui import main_widget as mw
+
+        w, settings = _make_widget(tmp_path)
+        settings.wp_endpoint_url = "https://site.com"
+        settings.wp_api_key = "K"
+        w._db.set_series_wp_meta("S", "s-slug", "S")
+        d = w._db.create_document("c1", series_title="S", series_order=1, volume_title="Vol 1")
+        w._doc_id = d
+
+        infos = []
+        monkeypatch.setattr(mw.QMessageBox, "information", lambda *a, **k: infos.append(a))
+        made = []
+        monkeypatch.setattr(mw, "_IllustrationsPublishWorker",
+                            lambda *a, **k: made.append(a))
+
+        w._on_publish_volume_illustrations()
+        assert infos and not made

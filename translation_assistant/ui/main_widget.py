@@ -232,6 +232,10 @@ class TranslationAssistantWidget(QWidget):
         self.action_publish_wp.triggered.connect(self._on_publish_wp)
         self.action_publish_wp.setEnabled(False)
 
+        self.action_publish_volume_illus = QAction("Publish Volume Illustrations to WordPress…", self)
+        self.action_publish_volume_illus.triggered.connect(self._on_publish_volume_illustrations)
+        self.action_publish_volume_illus.setEnabled(False)
+
         self.action_manage_series = QAction("Manage Series…", self)
         self.action_manage_series.triggered.connect(self._on_manage_series)
 
@@ -646,6 +650,7 @@ class TranslationAssistantWidget(QWidget):
         self.action_save.setEnabled(True)
         self.action_export.setEnabled(True)
         self.action_publish_wp.setEnabled(True)
+        self.action_publish_volume_illus.setEnabled(True)
         self.action_clipboard.setEnabled(True)
         self.action_go_to_line.setEnabled(True)
         self.action_export_md_tl_doc.setEnabled(True)
@@ -1414,6 +1419,7 @@ class TranslationAssistantWidget(QWidget):
         self.action_save.setEnabled(False)
         self.action_export.setEnabled(False)
         self.action_publish_wp.setEnabled(False)
+        self.action_publish_volume_illus.setEnabled(False)
         self._load_glossary_for_profile()
         self._filesaved_label.setText("Database imported.")
 
@@ -1423,6 +1429,115 @@ class TranslationAssistantWidget(QWidget):
             dlg = SeriesManagerDialog(self._db, settings=self._settings, parent=self)
             remember_dialog_geometry(dlg, self._settings, "dlg_series")
             dlg.exec()
+
+    def _ensure_wp_ready(self, series_title: str):
+        """(endpoint_url, api_key, series_meta) once WP settings + series slug
+        are known, prompting for whatever is missing; None if the user backs out."""
+        from translation_assistant.ui.dlg_wp_settings import WPSettingsDialog
+
+        endpoint_url = self._settings.wp_endpoint_url
+        api_key = self._settings.wp_api_key
+        if not endpoint_url or not api_key:
+            if not WPSettingsDialog(self._settings, parent=self).exec():
+                return None
+            endpoint_url = self._settings.wp_endpoint_url
+            api_key = self._settings.wp_api_key
+            if not endpoint_url or not api_key:
+                return None
+
+        series_meta = self._db.get_series_wp_meta(series_title)
+        if not series_meta["series_slug"] or not series_meta["series_title_short"]:
+            from translation_assistant.ui.dlg_series import SeriesManagerDialog
+            QMessageBox.information(
+                self, "WP Fields Missing",
+                f'Set "Series Slug" and "Short Title" for "{series_title}" in Series Manager.',
+            )
+            dlg = SeriesManagerDialog(self._db, settings=self._settings, parent=self)
+            remember_dialog_geometry(dlg, self._settings, "dlg_series")
+            dlg.exec()
+            series_meta = self._db.get_series_wp_meta(series_title)
+            if not series_meta["series_slug"] or not series_meta["series_title_short"]:
+                return None
+        return endpoint_url, api_key, series_meta
+
+    def _on_publish_volume_illustrations(self) -> None:
+        from translation_assistant.wp_publisher import build_illustrations_payloads
+        from translation_assistant.imageopt import shrink_image
+
+        self._save_current_translation()
+        if self._doc_id is None:
+            return
+        doc_meta = self._db.get_document(self._doc_id)
+        series_title = doc_meta["series_title"]
+        volume_title = doc_meta.get("volume_title", "")
+
+        ready = self._ensure_wp_ready(series_title)
+        if ready is None:
+            return
+        endpoint_url, api_key, series_meta = ready
+
+        inline_images: list[dict] = []
+        cover_image: dict | None = None
+        for d in self._db.get_document_ids_by_volume(series_title, volume_title):
+            for im in self._db.get_document_images(d):
+                if im["is_cover"]:
+                    if cover_image is None:
+                        cover_image = im
+                elif not im["exclude_export"]:
+                    inline_images.append(im)
+
+        if not inline_images and cover_image is None:
+            QMessageBox.information(
+                self, "No Illustrations",
+                "This volume has no illustrations to publish.",
+            )
+            return
+
+        vol_label = volume_title or series_title
+        n = len(inline_images) + (1 if cover_image else 0)
+        if QMessageBox.question(
+            self, "Publish Volume Illustrations",
+            f"Publish {n} illustration(s) from “{vol_label}” to WordPress?\n\n"
+            "An existing illustrations page for this volume will be overwritten.",
+        ) != QMessageBox.StandardButton.Yes:
+            return
+
+        def _shrunk(im: dict) -> dict:
+            out = dict(im)
+            s = shrink_image(im["data"])
+            if s is not im["data"]:
+                out["data"] = s
+                out["src_path"] = im["src_path"].rsplit(".", 1)[0] + ".jpg"
+            return out
+
+        inline_images = [_shrunk(im) for im in inline_images]
+        cover_image = _shrunk(cover_image) if cover_image else None
+
+        try:
+            payloads = build_illustrations_payloads(
+                doc_meta, series_meta, inline_images, api_key=api_key, cover=cover_image,
+            )
+        except ValueError as exc:
+            QMessageBox.warning(self, "Payload Error", str(exc))
+            return
+
+        self.action_publish_volume_illus.setEnabled(False)
+        self._illus_worker = _IllustrationsPublishWorker(endpoint_url, payloads, parent=self)
+        self._illus_worker.succeeded.connect(self._on_publish_illus_done)
+        self._illus_worker.error.connect(self._on_publish_illus_error)
+        self._illus_worker.start()
+
+    def _on_publish_illus_done(self, result: dict) -> None:
+        self.action_publish_volume_illus.setEnabled(True)
+        word = "Created" if result.get("created") else "Updated"
+        url = result.get("page_url", "")
+        QMessageBox.information(
+            self, "Illustrations Published", f"{word} the volume illustrations page.\n\n{url}",
+        )
+
+    def _on_publish_illus_error(self, message: str) -> None:
+        self.action_publish_volume_illus.setEnabled(True)
+        QMessageBox.warning(self, "Publish Failed", message)
 
     def _on_publish_wp(self) -> None:
         from translation_assistant.ui.dlg_wp_settings import WPSettingsDialog
