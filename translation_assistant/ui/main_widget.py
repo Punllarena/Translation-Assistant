@@ -45,6 +45,32 @@ class _PublishWorker(QThread):
             self.error.emit(str(exc))
 
 
+class _IllustrationsPublishWorker(QThread):
+    succeeded = Signal(dict)
+    error = Signal(str)
+
+    def __init__(self, endpoint_url: str, payloads: list[dict], parent=None) -> None:
+        super().__init__(parent)
+        self._endpoint_url = endpoint_url
+        self._payloads = payloads
+
+    def run(self) -> None:
+        from translation_assistant.wp_publisher import publish_illustrations, WPPublishError
+        first = None
+        for i, payload in enumerate(self._payloads):
+            try:
+                result = publish_illustrations(self._endpoint_url, payload)
+            except WPPublishError as exc:
+                self.error.emit(f"batch {i + 1}/{len(self._payloads)}: {exc.message}")
+                return
+            except Exception as exc:
+                self.error.emit(f"batch {i + 1}/{len(self._payloads)}: {exc}")
+                return
+            if first is None:
+                first = result
+        self.succeeded.emit(first or {})
+
+
 class _StatusCheckWorker(QThread):
     succeeded = Signal(dict)
     error = Signal(str)

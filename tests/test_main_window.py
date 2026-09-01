@@ -1527,3 +1527,52 @@ class TestImageCollapseAndExport:
         # Verify the payload's images list does not contain the excluded image
         assert "images" in captured["kwargs"]
         assert len(captured["kwargs"]["images"]) == 0
+
+
+class TestIllustrationsWorker:
+    def test_sends_batches_in_order_and_emits_first_result(self, qapp):
+        from translation_assistant.ui import main_widget as mw
+
+        calls = []
+
+        def fake_publish(endpoint, payload):
+            calls.append(payload["mode"])
+            return {"status": "ok", "mode": payload["mode"], "page_url": "u", "created": payload["mode"] == "replace"}
+
+        with patch.object(mw, "_IllustrationsPublishWorker") as _:
+            pass  # ensure the symbol exists; real check below
+
+        worker = mw._IllustrationsPublishWorker(
+            "https://site.com",
+            [{"mode": "replace"}, {"mode": "append"}, {"mode": "append"}],
+        )
+        got = {}
+        worker.succeeded.connect(lambda r: got.update(r))
+        with patch("translation_assistant.wp_publisher.publish_illustrations", fake_publish):
+            worker.run()  # run synchronously in-thread for the test
+
+        assert calls == ["replace", "append", "append"]
+        assert got["mode"] == "replace"  # first batch's result
+
+    def test_stops_and_reports_on_batch_failure(self, qapp):
+        from translation_assistant.ui import main_widget as mw
+        from translation_assistant.wp_publisher import WPPublishError
+
+        calls = []
+
+        def fake_publish(endpoint, payload):
+            calls.append(payload["mode"])
+            if payload["mode"] == "append":
+                raise WPPublishError("boom", status_code=500)
+            return {"status": "ok"}
+
+        worker = mw._IllustrationsPublishWorker(
+            "https://site.com", [{"mode": "replace"}, {"mode": "append"}]
+        )
+        errs = []
+        worker.error.connect(errs.append)
+        with patch("translation_assistant.wp_publisher.publish_illustrations", fake_publish):
+            worker.run()
+
+        assert calls == ["replace", "append"]
+        assert errs and errs[0] == "batch 2/2: boom"
