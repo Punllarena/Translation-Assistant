@@ -1465,14 +1465,20 @@ class TestImageCollapseAndExport:
         img_id = win._db.add_document_image(win._doc_id, 1, False, "images/pic.png", b"fake-bytes")
         win._db.set_image_exclude_export(img_id, 1)
 
-        class _FakeThread:
+        from translation_assistant.ui import wp_publish_flow as wpf
+
+        class _AcceptConfirm:
+            def __init__(self, *a, **k):
+                pass
+            def exec(self):
+                return 1
+            def scheduled_date_utc(self):
+                return None
+
+        class _NoRunWorker:
             def __init__(self, *a, **k):
                 pass
             def start(self):
-                pass
-            def quit(self):
-                pass
-            def wait(self, *a, **k):
                 pass
             def connect(self, *a, **k):
                 pass
@@ -1483,16 +1489,8 @@ class TestImageCollapseAndExport:
             def error(self):
                 return self
 
-        monkeypatch.setattr(
-            "translation_assistant.ui.main_widget._StatusCheckWorker", _FakeThread,
-        )
-        monkeypatch.setattr(
-            "translation_assistant.ui.main_widget._PublishWorker", _FakeThread,
-        )
-
-        monkeypatch.setattr(
-            "translation_assistant.ui.main_widget.QDialog.exec", lambda self: 1,
-        )
+        monkeypatch.setattr(wpf, "PublishConfirmDialog", _AcceptConfirm)
+        monkeypatch.setattr(wpf, "PublishWorker", _NoRunWorker)
 
         captured = {}
         import translation_assistant.wp_publisher as wp_publisher

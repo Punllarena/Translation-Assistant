@@ -15,10 +15,6 @@ from PySide6.QtWidgets import (
 from translation_assistant._version import BUILD_DATE
 from translation_assistant.settings import AppSettings
 from translation_assistant.ui import remember_dialog_geometry
-from translation_assistant.ui.wp_publish_flow import (
-    PublishWorker as _PublishWorker,
-    StatusCheckWorker as _StatusCheckWorker,
-)
 from translation_assistant.ui.card_list import CardListView, SERIF_FAMILIES
 from translation_assistant.jp_highlighter import JpSyntaxHighlighter
 from translation_assistant.spellcheck import SpellHighlighter
