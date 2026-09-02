@@ -567,6 +567,8 @@ class OpenDocumentDialog(QDialog):
             volume_illustrator=doc["volume_illustrator"],
             volume_publisher=doc["volume_publisher"],
             volume_identifier=doc["volume_identifier"],
+            db=self._db,
+            series_title=doc["series_title"],
             parent=self,
         )
         if dlg.exec() == QDialog.DialogCode.Accepted:
@@ -802,8 +804,11 @@ class _EditMetadataDialog(QDialog):
 
 class _EditVolumeMetadataDialog(QDialog):
     def __init__(self, *, volume_title: str, volume_author: str, volume_illustrator: str,
-                 volume_publisher: str, volume_identifier: str, parent=None) -> None:
+                 volume_publisher: str, volume_identifier: str, db=None,
+                 series_title: str = "", parent=None) -> None:
         super().__init__(parent)
+        self._db = db
+        self._series_title = series_title
         self.setWindowTitle("Edit Volume Metadata")
         self.setMinimumWidth(380)
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
@@ -816,6 +821,7 @@ class _EditVolumeMetadataDialog(QDialog):
         form.setSpacing(4)
 
         self._volume_edit = QLineEdit(volume_title)
+        self._volume_edit.editingFinished.connect(self._prefill_from_volume)
         form.addRow("Volume Title:", self._volume_edit)
 
         self._author_edit = QLineEdit(volume_author)
@@ -842,6 +848,27 @@ class _EditVolumeMetadataDialog(QDialog):
         btn_row.addWidget(ok_btn)
         btn_row.addWidget(cancel_btn)
         layout.addLayout(btn_row)
+
+    def _prefill_from_volume(self) -> None:
+        """When the typed volume title matches an existing volume in the series,
+        fill in author/illustrator/publisher/ISBN -- but only fields the user
+        has left blank, so typed input is never clobbered."""
+        if self._db is None:
+            return
+        title = self._volume_edit.text().strip()
+        if not title:
+            return
+        meta = self._db.get_volume_metadata(self._series_title, title)
+        if not meta["volume_title"]:
+            return  # no such volume yet
+        for edit, key in (
+            (self._author_edit, "volume_author"),
+            (self._illustrator_edit, "volume_illustrator"),
+            (self._publisher_edit, "volume_publisher"),
+            (self._identifier_edit, "volume_identifier"),
+        ):
+            if not edit.text().strip():
+                edit.setText(meta[key])
 
     def accept(self) -> None:
         if not self._volume_edit.text().strip():

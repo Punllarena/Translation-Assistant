@@ -671,6 +671,43 @@ class TestEditVolumeMetadata:
         mock_q.assert_not_called()
         assert mem_db.get_document(doc_a)["volume_title"] == "C"
 
+    def test_prefill_from_existing_volume_fills_blank_fields(self, qapp, mem_db):
+        mem_db.create_document(
+            "Ch 1", series_title="S", volume_title="Vol 1", chapter_title="Ch 1",
+            volume_author="Real Author", volume_illustrator="Real Illust",
+            volume_publisher="Real Pub", volume_identifier="urn:isbn:9",
+        )
+        dlg = _EditVolumeMetadataDialog(
+            volume_title="", volume_author="", volume_illustrator="",
+            volume_publisher="", volume_identifier="",
+            db=mem_db, series_title="S",
+        )
+        dlg._volume_edit.setText("Vol 1")
+        dlg._prefill_from_volume()
+        assert dlg._author_edit.text() == "Real Author"
+        assert dlg._illustrator_edit.text() == "Real Illust"
+        assert dlg._publisher_edit.text() == "Real Pub"
+        assert dlg._identifier_edit.text() == "urn:isbn:9"
+
+    def test_prefill_does_not_clobber_typed_fields_or_unknown_volume(self, qapp, mem_db):
+        mem_db.create_document(
+            "Ch 1", series_title="S", volume_title="Vol 1", chapter_title="Ch 1",
+            volume_author="Real Author",
+        )
+        dlg = _EditVolumeMetadataDialog(
+            volume_title="", volume_author="Typed Author", volume_illustrator="",
+            volume_publisher="", volume_identifier="",
+            db=mem_db, series_title="S",
+        )
+        dlg._volume_edit.setText("Vol 1")
+        dlg._prefill_from_volume()
+        assert dlg._author_edit.text() == "Typed Author"  # not clobbered
+
+        dlg._volume_edit.setText("No Such Vol")
+        dlg._illustrator_edit.setText("")
+        dlg._prefill_from_volume()
+        assert dlg._illustrator_edit.text() == ""  # unknown volume -> no-op
+
     def test_blank_volume_title_rejected_on_accept(self, qapp):
         from unittest.mock import patch
         from PySide6.QtWidgets import QMessageBox
