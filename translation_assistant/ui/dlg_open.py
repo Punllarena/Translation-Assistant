@@ -4,7 +4,7 @@ Document picker dialog — two-panel layout with series list on left, chapter tr
 from datetime import datetime
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QFont
+from PySide6.QtGui import QColor, QFont, QKeySequence, QShortcut, QTextDocument
 from PySide6.QtWidgets import (
     QDialog, QFormLayout, QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit,
     QListWidget, QListWidgetItem, QMenu, QMessageBox, QPlainTextEdit, QPushButton, QSpinBox,
@@ -845,6 +845,80 @@ class _EditVolumeMetadataDialog(QDialog):
         return self._identifier_edit.text().strip()
 
 
+def _build_find_row(dialog: QDialog, editor: QPlainTextEdit) -> QHBoxLayout:
+    """Persistent find bar for a plain-text editor.
+
+    Sets ``_find_edit`` / ``_find_label`` / ``_find_next`` / ``_find_prev`` on
+    ``dialog`` and returns the row layout to drop under the editor. Ctrl+F
+    focuses the field (pre-filled from the editor selection); Return / ▶ finds
+    next, Shift+Return / ◀ finds previous; the search wraps and is
+    case-insensitive.
+    """
+    find_edit = QLineEdit()
+    find_edit.setPlaceholderText("Find…")
+    label = QLabel("")
+    prev_btn = QPushButton("◀")
+    next_btn = QPushButton("▶")
+    prev_btn.setFixedWidth(32)
+    next_btn.setFixedWidth(32)
+
+    def search(backward: bool) -> None:
+        needle = find_edit.text()
+        if not needle:
+            label.setText("")
+            find_edit.setStyleSheet("")
+            return
+        haystack = editor.toPlainText().lower()
+        total = haystack.count(needle.lower())
+        if total == 0:
+            find_edit.setStyleSheet("QLineEdit { background: #f8d7da; }")
+            label.setText("0/0")
+            return
+        find_edit.setStyleSheet("")
+        flags = (
+            QTextDocument.FindFlag.FindBackward if backward
+            else QTextDocument.FindFlag(0)
+        )
+        if not editor.find(needle, flags):
+            cur = editor.textCursor()
+            cur.movePosition(
+                cur.MoveOperation.End if backward else cur.MoveOperation.Start
+            )
+            editor.setTextCursor(cur)
+            editor.find(needle, flags)
+        pos = editor.textCursor().selectionStart()
+        idx = haystack.count(needle.lower(), 0, pos) + 1
+        label.setText(f"{idx}/{total}")
+
+    next_btn.clicked.connect(lambda: search(False))
+    prev_btn.clicked.connect(lambda: search(True))
+    find_edit.returnPressed.connect(lambda: search(False))
+
+    def focus_find() -> None:
+        sel = editor.textCursor().selectedText()
+        if sel:
+            find_edit.setText(sel)
+        find_edit.setFocus()
+        find_edit.selectAll()
+
+    QShortcut(QKeySequence("Ctrl+F"), dialog).activated.connect(focus_find)
+    QShortcut(QKeySequence("Shift+Return"), find_edit).activated.connect(
+        lambda: search(True)
+    )
+
+    dialog._find_edit = find_edit
+    dialog._find_label = label
+    dialog._find_next = lambda: search(False)
+    dialog._find_prev = lambda: search(True)
+
+    row = QHBoxLayout()
+    row.addWidget(find_edit)
+    row.addWidget(prev_btn)
+    row.addWidget(next_btn)
+    row.addWidget(label)
+    return row
+
+
 class _EditSourceDialog(QDialog):
     def __init__(self, doc_id: int, doc_title: str, db: Database, parent=None) -> None:
         super().__init__(parent)
@@ -867,6 +941,8 @@ class _EditSourceDialog(QDialog):
         rows = self._db.get_lines(doc_id)
         text = "\n".join(r["raw_text"] for r in rows)
         self._editor.setPlainText(text)
+
+        layout.addLayout(_build_find_row(self, self._editor))
 
         btn_row = QHBoxLayout()
         save_btn = QPushButton("Save")
@@ -931,6 +1007,8 @@ class _SplitChapterDialog(QDialog):
         )
         self._editor.textChanged.connect(self._update_save_enabled)
         layout.addWidget(self._editor)
+
+        layout.addLayout(_build_find_row(self, self._editor))
 
         btn_row = QHBoxLayout()
         insert_btn = QPushButton("Insert Split Here")

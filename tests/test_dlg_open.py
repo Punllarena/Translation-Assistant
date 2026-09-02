@@ -1126,3 +1126,79 @@ class TestSplitChapterAction:
                           lambda self: QDialog.DialogCode.Rejected):
             dlg._on_split()
         assert len(mem_db.list_documents()) == 1
+
+
+def _make_editor_dialog(kind, mem_db, lines):
+    doc_id = mem_db.create_document("Story")
+    mem_db.save_lines(doc_id, [
+        {"line_number": i, "prefix": "%", "raw_text": t, "translated_text": ""}
+        for i, t in enumerate(lines)
+    ])
+    if kind == "edit":
+        from translation_assistant.ui.dlg_open import _EditSourceDialog
+        return _EditSourceDialog(doc_id, "Story", mem_db)
+    from translation_assistant.ui.dlg_open import _SplitChapterDialog
+    return _SplitChapterDialog(doc_id, "Story", mem_db)
+
+
+@pytest.mark.parametrize("kind", ["edit", "split"])
+class TestEditorFindRow:
+    def test_find_row_present(self, qapp, mem_db, kind):
+        dlg = _make_editor_dialog(kind, mem_db, ["alpha", "beta"])
+        assert isinstance(dlg._find_edit, type(dlg._find_edit))
+        assert dlg._find_edit is not None
+
+    def test_find_next_selects_match(self, qapp, mem_db, kind):
+        dlg = _make_editor_dialog(kind, mem_db, ["alpha beta", "gamma beta"])
+        dlg._find_edit.setText("gamma")
+        dlg._find_next()
+        assert dlg._editor.textCursor().selectedText() == "gamma"
+
+    def test_find_next_advances_and_wraps(self, qapp, mem_db, kind):
+        dlg = _make_editor_dialog(kind, mem_db, ["x", "x", "x"])
+        dlg._find_edit.setText("x")
+        dlg._find_next()
+        p1 = dlg._editor.textCursor().selectionStart()
+        dlg._find_next()
+        p2 = dlg._editor.textCursor().selectionStart()
+        assert p2 > p1
+        dlg._find_next()          # third
+        dlg._find_next()          # wrap to first
+        assert dlg._editor.textCursor().selectionStart() == p1
+
+    def test_find_prev_goes_backward(self, qapp, mem_db, kind):
+        dlg = _make_editor_dialog(kind, mem_db, ["x", "x", "x"])
+        dlg._find_edit.setText("x")
+        dlg._find_next()
+        dlg._find_next()
+        mid = dlg._editor.textCursor().selectionStart()
+        dlg._find_prev()
+        assert dlg._editor.textCursor().selectionStart() < mid
+
+    def test_find_case_insensitive(self, qapp, mem_db, kind):
+        dlg = _make_editor_dialog(kind, mem_db, ["Alpha BETA"])
+        dlg._find_edit.setText("beta")
+        dlg._find_next()
+        assert dlg._editor.textCursor().selectedText().lower() == "beta"
+
+    def test_find_label_shows_index_and_total(self, qapp, mem_db, kind):
+        dlg = _make_editor_dialog(kind, mem_db, ["a a a"])
+        dlg._find_edit.setText("a")
+        dlg._find_next()
+        assert dlg._find_label.text() == "1/3"
+        dlg._find_next()
+        assert dlg._find_label.text() == "2/3"
+
+    def test_find_no_match_shows_zero(self, qapp, mem_db, kind):
+        dlg = _make_editor_dialog(kind, mem_db, ["alpha"])
+        dlg._find_edit.setText("zzz")
+        dlg._find_next()
+        assert dlg._find_label.text() == "0/0"
+        assert dlg._editor.textCursor().selectedText() == ""
+
+    def test_ctrl_f_shortcut_focuses_field(self, qapp, mem_db, kind):
+        from PySide6.QtGui import QKeySequence
+        dlg = _make_editor_dialog(kind, mem_db, ["alpha"])
+        seqs = {sc.key().toString() for sc in dlg.findChildren(__import__(
+            "PySide6.QtGui", fromlist=["QShortcut"]).QShortcut)}
+        assert QKeySequence("Ctrl+F").toString() in seqs
