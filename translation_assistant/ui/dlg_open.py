@@ -3,12 +3,13 @@ Document picker dialog — two-panel layout with series list on left, chapter tr
 """
 from datetime import datetime
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QColor, QFont, QKeySequence, QShortcut, QTextDocument
 from PySide6.QtWidgets import (
-    QDialog, QFormLayout, QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit,
-    QListWidget, QListWidgetItem, QMenu, QMessageBox, QPlainTextEdit, QPushButton, QSpinBox,
-    QSplitter, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
+    QDialog, QDialogButtonBox, QFormLayout, QHBoxLayout, QHeaderView, QInputDialog, QLabel,
+    QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox, QPlainTextEdit,
+    QProgressDialog, QPushButton, QSpinBox, QSplitter, QTreeWidget, QTreeWidgetItem,
+    QVBoxLayout, QWidget,
 )
 
 from translation_assistant.core import natural_key
@@ -29,6 +30,51 @@ class _ChapterTree(QTreeWidget):
         super().dropEvent(event)
         if event.isAccepted():
             self._on_reordered()
+
+
+class _BatchPublishWorker(QThread):
+    progress = Signal(int, int, int, dict)      # index, total, doc_id, {"ok": bool, ...}
+    finished_all = Signal(list)                 # [{doc_id, series_order, ok, result|error}]
+
+    def __init__(self, db, settings, endpoint_url, api_key, jobs, parent=None):
+        super().__init__(parent)
+        self._db = db
+        self._settings = settings
+        self._endpoint_url = endpoint_url
+        self._api_key = api_key
+        self._jobs = jobs                       # [(doc_id, scheduled_date | None)]
+        self._cancel = False
+
+    def cancel(self):
+        self._cancel = True
+
+    def run(self):
+        from translation_assistant.ui.wp_publish_flow import (
+            PublishJobError, build_job, job_to_payload,
+        )
+        from translation_assistant.wp_publisher import WPPublishError, publish
+        summary = []
+        total = len(self._jobs)
+        for i, (doc_id, sched) in enumerate(self._jobs):
+            if self._cancel:
+                break
+            row = {"doc_id": doc_id, "series_order": None, "scheduled_date": sched}
+            try:
+                job = build_job(self._db, self._settings, doc_id)
+                row["series_order"] = job.series_order
+                payload = job_to_payload(
+                    job, self._api_key, scheduled_date=sched,
+                    attribution=self._settings.wp_attribution_enabled,
+                )
+                result = publish(self._endpoint_url, payload)
+                row.update(ok=True, result=result, password=job.password)
+            except (PublishJobError, ValueError, WPPublishError) as exc:
+                row.update(ok=False, error=str(exc))
+            except Exception as exc:  # noqa: BLE001 — worker boundary
+                row.update(ok=False, error=str(exc))
+            summary.append(row)
+            self.progress.emit(i + 1, total, doc_id, row)
+        self.finished_all.emit(summary)
 
 
 class OpenDocumentDialog(QDialog):
@@ -337,6 +383,8 @@ class OpenDocumentDialog(QDialog):
         menu.addSeparator()
         act_publish = menu.addAction("Publish to WordPress…")
         act_publish.setEnabled(len(merge_ids) == 1 and self._settings is not None)
+        act_publish_batch = menu.addAction("Publish / Schedule Chapters…")
+        act_publish_batch.setEnabled(len(merge_ids) >= 2 and self._settings is not None)
         chosen = menu.exec(self._tree.viewport().mapToGlobal(pos))
         if chosen == act_merge:
             self._on_merge()
@@ -361,6 +409,126 @@ class OpenDocumentDialog(QDialog):
                 self._db, self._settings, merge_ids[0], self,
                 on_status_changed=lambda: self._load_chapters(series_raw),
             )
+        elif chosen == act_publish_batch:
+            self._on_publish_batch(merge_ids)
+
+    def _on_publish_batch(self, doc_ids: list[int]) -> None:
+        from datetime import timezone
+        from translation_assistant.ui.wp_publish_flow import (
+            ensure_series_wp_meta, ensure_wp_config,
+        )
+        from translation_assistant.wp_publisher import compute_auto_schedule
+
+        cfg = ensure_wp_config(self._settings, self)
+        if cfg is None:
+            return
+        endpoint_url, api_key = cfg
+
+        docs = {d["id"]: d for d in self._db.list_documents()}
+        ordered = sorted(
+            doc_ids,
+            key=lambda i: (docs[i]["series_title"] or "", docs[i]["series_order"]),
+        )
+        for series_title in {docs[i]["series_title"] for i in ordered}:
+            if ensure_series_wp_meta(self._db, self._settings, series_title, self) is None:
+                QMessageBox.warning(
+                    self, "WP Fields Missing",
+                    f'Set slug + short title for "{series_title}" in Series Manager.',
+                )
+                return
+
+        chapters = [
+            (docs[i]["series_order"], docs[i]["chapter_title"] or docs[i]["title"],
+             (self._db.get_document_wp_status(i)["wp_status"] or ""))
+            for i in ordered
+        ]
+        dlg = _BatchPublishDialog(chapters, self._settings, parent=self)
+        if not dlg.exec():
+            return
+
+        schedule = dlg.schedule_enabled()
+        slots: list[str | None] = []
+        if schedule:
+            assigned: list[str] = []
+            start_utc = dlg.start_qdatetime().toPython().astimezone(
+                timezone.utc
+            ).strftime("%Y-%m-%dT%H:%M:%SZ")
+            for n in range(len(ordered)):
+                if n == 0:
+                    slot = start_utc
+                else:
+                    slot = compute_auto_schedule(
+                        assigned[-1], assigned, dlg.chapters_per_day(),
+                        self._settings.wp_default_schedule_time,
+                    ).astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                assigned.append(slot)
+                slots.append(slot)
+        else:
+            slots = [None] * len(ordered)
+
+        jobs = list(zip(ordered, slots))
+        prog = QProgressDialog("Publishing…", "Cancel", 0, len(jobs), self)
+        prog.setWindowModality(Qt.WindowModality.WindowModal)
+        prog.setMinimumDuration(0)
+
+        worker = _BatchPublishWorker(
+            self._db, self._settings, endpoint_url, api_key, jobs, parent=self
+        )
+        self._batch_worker = worker  # keepalive
+
+        def _on_progress(idx, total, doc_id, row):
+            prog.setValue(idx)
+            prog.setLabelText(f"Publishing chapter {idx} of {total}…")
+            if prog.wasCanceled():
+                worker.cancel()
+
+        def _on_done(summary):
+            prog.close()
+            from translation_assistant.ui.wp_publish_flow import persist_publish_result
+            for row in summary:
+                if row.get("ok"):
+                    persist_publish_result(
+                        self._db, row["doc_id"], row["result"],
+                        scheduled_date=row["scheduled_date"],
+                        chapter_index=row["series_order"],
+                    )
+            self._load_chapters(self._current_series_raw())
+            self._show_batch_summary(summary)
+
+        worker.progress.connect(_on_progress)
+        worker.finished_all.connect(_on_done)
+        worker.start()
+
+    def _show_batch_summary(self, summary: list[dict]) -> None:
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Batch Publish — Results")
+        dlg.setWindowFlags(dlg.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
+        dlg.setMinimumWidth(460)
+        layout = QVBoxLayout(dlg)
+        ok = sum(1 for r in summary if r.get("ok"))
+        layout.addWidget(QLabel(f"{ok} / {len(summary)} published."))
+        lines = []
+        for r in summary:
+            tag = "✓" if r.get("ok") else "✗"
+            detail = (
+                (r.get("scheduled_date") or "now") if r.get("ok") else r.get("error", "")
+            )
+            lines.append(f"{tag} ch {r.get('series_order')}: {detail}")
+        pws = [
+            f"ch {r['series_order']}: {r['password']}"
+            for r in summary if r.get("ok") and r.get("password")
+        ]
+        if pws:
+            lines.append("")
+            lines.append("Passwords:")
+            lines.extend(pws)
+        box = QPlainTextEdit("\n".join(lines))
+        box.setReadOnly(True)
+        layout.addWidget(box)
+        btns = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
+        btns.accepted.connect(dlg.accept)
+        layout.addWidget(btns)
+        dlg.exec()
 
     def _on_series_context_menu(self, pos) -> None:
         item = self._series_list.itemAt(pos)
@@ -905,6 +1073,68 @@ class _EditVolumeMetadataDialog(QDialog):
     @property
     def volume_identifier(self) -> str:
         return self._identifier_edit.text().strip()
+
+
+class _BatchPublishDialog(QDialog):
+    def __init__(self, chapters, settings, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Publish / Schedule Chapters")
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
+        from PySide6.QtWidgets import QCheckBox, QDateTimeEdit
+        from PySide6.QtCore import QDateTime, QTime
+        layout = QVBoxLayout(self)
+
+        listing = "\n".join(f"  {o}. {t}  {c}".rstrip() for o, t, c in chapters)
+        lbl = QLabel(f"{len(chapters)} chapters selected:\n{listing}")
+        layout.addWidget(lbl)
+
+        form = QFormLayout()
+        self._schedule_cb = QCheckBox("Schedule (unchecked = publish all now)")
+        self._schedule_cb.setChecked(True)
+        form.addRow(self._schedule_cb)
+
+        default_time = settings.wp_default_schedule_time
+        h = m = None
+        if default_time:
+            try:
+                h, m = map(int, default_time.split(":"))
+            except (ValueError, IndexError):
+                default_time = ""
+        candidate = QDateTime.currentDateTime().addSecs(3600)
+        if default_time:
+            candidate = QDateTime.currentDateTime()
+            candidate.setTime(QTime(h, m))
+            if candidate <= QDateTime.currentDateTime():
+                candidate = candidate.addDays(1)
+        self._start = QDateTimeEdit(candidate)
+        self._start.setCalendarPopup(True)
+        self._start.setDisplayFormat("yyyy-MM-dd HH:mm")
+        form.addRow("Start:", self._start)
+
+        self._per_day = QSpinBox()
+        self._per_day.setMinimum(1)
+        self._per_day.setValue(max(1, settings.wp_chapters_per_day))
+        form.addRow("Chapters per day:", self._per_day)
+        layout.addLayout(form)
+
+        self._schedule_cb.toggled.connect(self._start.setEnabled)
+        self._schedule_cb.toggled.connect(self._per_day.setEnabled)
+
+        btns = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        btns.accepted.connect(self.accept)
+        btns.rejected.connect(self.reject)
+        layout.addWidget(btns)
+
+    def schedule_enabled(self):
+        return self._schedule_cb.isChecked()
+
+    def start_qdatetime(self):
+        return self._start.dateTime()
+
+    def chapters_per_day(self):
+        return self._per_day.value()
 
 
 def _build_find_row(dialog: QDialog, editor: QPlainTextEdit) -> QHBoxLayout:

@@ -1344,3 +1344,140 @@ def _capture_menu(seen):
         def exec(self, *a, **k):
             return None
     return _M
+
+
+class TestBatchPublish:
+    def _dlg(self, mem_db, tmp_settings, n=3):
+        for i in range(1, n + 1):
+            doc_id = mem_db.create_document(
+                f"C{i}", series_title="Nov", series_order=i, chapter_title=f"Ch {i}"
+            )
+            mem_db.save_lines(doc_id, [
+                {"line_number": 0, "prefix": "%", "raw_text": "a", "translated_text": "b"},
+            ])
+        mem_db.set_series_wp_meta("Nov", series_slug="nov", series_title_short="N")
+        tmp_settings.wp_endpoint_url = "https://ex.com"
+        tmp_settings.wp_api_key = "key"
+        dlg = OpenDocumentDialog(mem_db, settings=tmp_settings)
+        _select_series(dlg, "Nov")
+        return dlg
+
+    def test_batch_menu_item_enabled_only_for_multi(self, qapp, mem_db, tmp_settings, monkeypatch):
+        dlg = self._dlg(mem_db, tmp_settings, n=2)
+        dlg._tree.selectAll()
+        seen = {}
+        import translation_assistant.ui.dlg_open as mod
+        monkeypatch.setattr(mod, "QMenu", _capture_menu(seen))
+        dlg._on_chapter_context_menu(dlg._tree.visualItemRect(dlg._tree.topLevelItem(0)).center())
+        assert seen["Publish / Schedule Chapters…"] is True
+
+    def test_batch_publish_now_writes_status_for_all(self, qapp, mem_db, tmp_settings, monkeypatch):
+        dlg = self._dlg(mem_db, tmp_settings, n=3)
+        doc_ids = [dlg._doc_ids[id(dlg._tree.topLevelItem(i))] for i in range(3)]
+
+        import translation_assistant.wp_publisher as wp
+        monkeypatch.setattr(
+            wp, "publish",
+            lambda endpoint, payload: {"created": True, "post_url": f"https://ex.com/p{payload['chapter_index']}/"},
+        )
+
+        class _NowDialog:
+            def __init__(self, *a, **k): pass
+            def exec(self): return 1
+            def schedule_enabled(self): return False
+            def start_qdatetime(self): return None
+            def chapters_per_day(self): return 1
+
+        monkeypatch.setattr("translation_assistant.ui.dlg_open._BatchPublishDialog", _NowDialog)
+        # run the worker synchronously
+        monkeypatch.setattr(
+            "translation_assistant.ui.dlg_open._BatchPublishWorker.start",
+            lambda self: self.run(),
+        )
+        monkeypatch.setattr(
+            "translation_assistant.ui.dlg_open.QProgressDialog", _DummyProgress
+        )
+        monkeypatch.setattr(
+            "translation_assistant.ui.dlg_open.QDialog.exec", lambda self: 1
+        )
+
+        dlg._on_publish_batch(doc_ids)
+
+        for did in doc_ids:
+            assert mem_db.get_document_wp_status(did)["wp_status"] == "publish"
+
+    def test_batch_schedule_steps_dates(self, qapp, mem_db, tmp_settings, monkeypatch):
+        dlg = self._dlg(mem_db, tmp_settings, n=3)
+        doc_ids = [dlg._doc_ids[id(dlg._tree.topLevelItem(i))] for i in range(3)]
+        tmp_settings.wp_default_schedule_time = "09:00"
+
+        seen_dates = []
+        import translation_assistant.wp_publisher as wp
+        def _fake_publish(endpoint, payload):
+            seen_dates.append(payload.get("publish_date"))
+            return {"created": True, "post_url": "https://ex.com/p/"}
+        monkeypatch.setattr(wp, "publish", _fake_publish)
+
+        from PySide6.QtCore import QDateTime, QDate, QTime
+        start = QDateTime(QDate(2026, 9, 3), QTime(9, 0))
+
+        class _SchedDialog:
+            def __init__(self, *a, **k): pass
+            def exec(self): return 1
+            def schedule_enabled(self): return True
+            def start_qdatetime(self): return start
+            def chapters_per_day(self): return 2
+
+        monkeypatch.setattr("translation_assistant.ui.dlg_open._BatchPublishDialog", _SchedDialog)
+        monkeypatch.setattr("translation_assistant.ui.dlg_open._BatchPublishWorker.start", lambda self: self.run())
+        monkeypatch.setattr("translation_assistant.ui.dlg_open.QProgressDialog", _DummyProgress)
+        monkeypatch.setattr("translation_assistant.ui.dlg_open.QDialog.exec", lambda self: 1)
+
+        dlg._on_publish_batch(doc_ids)
+
+        assert all(d is not None for d in seen_dates)
+        assert seen_dates[0].startswith("2026-09-03")
+        assert seen_dates[1].startswith("2026-09-03")   # chapters_per_day == 2
+        assert seen_dates[2].startswith("2026-09-04")   # rolls to next day
+
+    def test_batch_continues_past_one_failure(self, qapp, mem_db, tmp_settings, monkeypatch):
+        dlg = self._dlg(mem_db, tmp_settings, n=3)
+        doc_ids = [dlg._doc_ids[id(dlg._tree.topLevelItem(i))] for i in range(3)]
+
+        import translation_assistant.wp_publisher as wp
+        from translation_assistant.wp_publisher import WPPublishError
+        calls = {"n": 0}
+        def _flaky(endpoint, payload):
+            calls["n"] += 1
+            if calls["n"] == 2:
+                raise WPPublishError("boom", status_code=500)
+            return {"created": True, "post_url": "https://ex.com/p/"}
+        monkeypatch.setattr(wp, "publish", _flaky)
+
+        class _NowDialog:
+            def __init__(self, *a, **k): pass
+            def exec(self): return 1
+            def schedule_enabled(self): return False
+            def start_qdatetime(self): return None
+            def chapters_per_day(self): return 1
+
+        monkeypatch.setattr("translation_assistant.ui.dlg_open._BatchPublishDialog", _NowDialog)
+        monkeypatch.setattr("translation_assistant.ui.dlg_open._BatchPublishWorker.start", lambda self: self.run())
+        monkeypatch.setattr("translation_assistant.ui.dlg_open.QProgressDialog", _DummyProgress)
+        monkeypatch.setattr("translation_assistant.ui.dlg_open.QDialog.exec", lambda self: 1)
+
+        dlg._on_publish_batch(doc_ids)
+
+        assert calls["n"] == 3  # did not stop at the failure
+        statuses = [mem_db.get_document_wp_status(d)["wp_status"] for d in doc_ids]
+        assert statuses == ["publish", None, "publish"]
+
+
+class _DummyProgress:
+    def __init__(self, *a, **k): pass
+    def setValue(self, *a): pass
+    def setLabelText(self, *a): pass
+    def wasCanceled(self): return False
+    def close(self): pass
+    def setWindowModality(self, *a): pass
+    def setMinimumDuration(self, *a): pass
