@@ -650,7 +650,6 @@ def test_stats_dialog_daily_avg_label(qapp):
 
 
 def test_stats_dialog_day_click_selects_table_row(qapp):
-    from datetime import date
     from translation_assistant.ui.dlg_stats import StatsDialog
     db = _stats_db()
     doc_id = db.create_document("Ch1", series_title="S")
@@ -659,10 +658,13 @@ def test_stats_dialog_day_click_selects_table_row(qapp):
     ])
     db.save_translation(doc_id, 0, "hello")
     dlg = StatsDialog(db)
-    today_iso = date.today().isoformat()
-    dlg._on_day_clicked(today_iso)
+    # The heatmap "today" cell and the day-detail table must key the same
+    # calendar date as the DB pipeline; otherwise clicking today selects nothing.
+    hist_date = db.get_all_daily_stats()[0]["date"]
+    assert dlg._heatmap._today.isoformat() == hist_date
+    dlg._on_day_clicked(dlg._heatmap._today.isoformat())
     sel = dlg._table.selectedItems()
-    assert sel and sel[0].data(Qt.ItemDataRole.UserRole) == today_iso
+    assert sel and sel[0].data(Qt.ItemDataRole.UserRole) == hist_date
     dlg.close()
 
 

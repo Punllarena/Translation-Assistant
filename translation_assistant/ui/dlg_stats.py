@@ -1,7 +1,12 @@
 """
 Usage statistics dialog — heatmap + summary + per-series breakdown.
 """
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
+
+
+def _utc_today() -> date:
+    """Today's date in UTC — matches how the DB buckets ``translated_at``."""
+    return datetime.now(timezone.utc).date()
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QFont, QPainter
@@ -54,7 +59,7 @@ class HeatmapWidget(QWidget):
         self._metric = metric
         self.setMouseTracking(True)
 
-        today = date.today()
+        today = _utc_today()
         days_since_sunday = (today.weekday() + 1) % 7
         this_week_sunday = today - timedelta(days=days_since_sunday)
         self._start = this_week_sunday - timedelta(weeks=51)
@@ -238,7 +243,7 @@ class StatsDialog(QDialog):
         legend_row.addWidget(QLabel("More"))
         layout.addLayout(legend_row)
 
-        today_label = f"Today ({_fmt_date(date.today().isoformat())})"
+        today_label = f"Today ({_fmt_date(_utc_today().isoformat())})"
         periods = [
             (today_label, summary["today"]),
             ("Last 7 days",  summary["week"]),
@@ -303,14 +308,14 @@ class StatsDialog(QDialog):
         self._refresh_metric_views()
 
     def _refresh_metric_views(self) -> None:
-        comp = compute_period_comparisons(self._all_history, self._metric, date.today())
+        comp = compute_period_comparisons(self._all_history, self._metric, _utc_today())
         for row, key in enumerate(("today", "week", "month")):
             self._summary_table.setItem(
                 row, 4, QTableWidgetItem(_fmt_pct(comp["periods"][key]["pct_change"]))
             )
         self._summary_table.setItem(3, 4, QTableWidgetItem("—"))
 
-        streaks = compute_streaks(self._all_history)
+        streaks = compute_streaks(self._all_history, _utc_today())
         parts = [
             f"Current streak: {streaks['current_streak']} days",
             f"Longest streak: {streaks['longest_streak']} days",
@@ -373,7 +378,7 @@ class StatsDialog(QDialog):
         self._refresh_table()
 
     def _refresh_table(self):
-        cutoff = (date.today() - timedelta(days=self._show_days - 1)).isoformat()
+        cutoff = (_utc_today() - timedelta(days=self._show_days - 1)).isoformat()
         rows = sorted(
             [r for r in self._all_history if r["date"] >= cutoff],
             key=lambda r: r["date"],
