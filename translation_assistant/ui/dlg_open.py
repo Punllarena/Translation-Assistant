@@ -6,7 +6,7 @@ from datetime import datetime
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
-    QDialog, QFormLayout, QHBoxLayout, QHeaderView, QLineEdit,
+    QDialog, QFormLayout, QHBoxLayout, QHeaderView, QInputDialog, QLineEdit,
     QListWidget, QListWidgetItem, QMenu, QMessageBox, QPlainTextEdit, QPushButton, QSpinBox,
     QSplitter, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
@@ -56,6 +56,8 @@ class OpenDocumentDialog(QDialog):
         self._db = db
         self._settings = settings
         self._selected_doc_id: int | None = None
+        self._initial_doc_id = current_doc_id
+        self.open_doc_merged_away = False
         self._doc_ids: dict[int, int] = {}  # id(QTreeWidgetItem) → doc_id
         self._source_urls: dict[int, str] = {}
         self._volume_titles: dict[int, str] = {}
@@ -113,6 +115,7 @@ class OpenDocumentDialog(QDialog):
         # every other column's logical index (and all the index-keyed code) unchanged.
         self._tree.header().moveSection(7, 1)
         self._tree.setSelectionBehavior(QTreeWidget.SelectionBehavior.SelectRows)
+        self._tree.setSelectionMode(QTreeWidget.SelectionMode.ExtendedSelection)
         self._tree.setEditTriggers(QTreeWidget.EditTrigger.NoEditTriggers)
         self._tree.currentItemChanged.connect(self._on_chapter_selection_changed)
         self._tree.itemDoubleClicked.connect(self._on_item_double_clicked)
@@ -312,7 +315,9 @@ class OpenDocumentDialog(QDialog):
         item = self._tree.itemAt(pos)
         if item is None:
             return
-        self._tree.setCurrentItem(item)
+        if not item.isSelected():
+            self._tree.setCurrentItem(item)
+        merge_ids = self._selected_doc_ids()
         menu = QMenu(self)
         act_open = menu.addAction("Open")
         menu.addSeparator()
@@ -322,10 +327,14 @@ class OpenDocumentDialog(QDialog):
         act_refetch = menu.addAction("Re-fetch")
         act_refetch.setEnabled(bool(self._source_urls.get(id(item), "")))
         act_renumber = menu.addAction("Renumber by Title")
+        act_merge = menu.addAction("Merge Chapters")
+        act_merge.setEnabled(len(merge_ids) >= 2)
         menu.addSeparator()
         act_delete = menu.addAction("Delete")
         chosen = menu.exec(self._tree.viewport().mapToGlobal(pos))
-        if chosen == act_open:
+        if chosen == act_merge:
+            self._on_merge()
+        elif chosen == act_open:
             self._on_open()
         elif chosen == act_edit:
             self._on_edit()
@@ -415,23 +424,91 @@ class OpenDocumentDialog(QDialog):
         self._selected_doc_id = self._doc_ids[id(leaf)]
         self.accept()
 
-    def _on_delete(self) -> None:
-        leaf = self._current_leaf()
-        if leaf is None:
+    def _selected_doc_ids(self) -> list[int]:
+        return [
+            self._doc_ids[id(it)]
+            for it in self._tree.selectedItems()
+            if id(it) in self._doc_ids
+        ]
+
+    def _on_merge(self) -> None:
+        doc_ids = self._selected_doc_ids()
+        if len(doc_ids) < 2:
             return
-        title = leaf.text(1)
+        docs = sorted(
+            (self._db.get_document(d) for d in doc_ids),
+            key=lambda d: d["series_order"],
+        )
+        target = docs[0]
+
+        def _name(d):
+            return d["chapter_title"] or d["title"]
+
+        published = [
+            d for d in docs
+            if (self._db.get_document_wp_status(d["id"]) or {}).get("wp_status")
+        ]
+        msg = (
+            f"Merge these {len(docs)} chapters into one?\n\n"
+            + " + ".join(_name(d) for d in docs)
+            + f"\n\nThey are joined in this order and become "
+            f'"{_name(target)}".'
+        )
+        if published:
+            msg += (
+                "\n\nWarning: one or more selected chapters is published to "
+                "WordPress. Only the first chapter's WordPress post stays "
+                "tracked here; the others' posts remain on the site but are no "
+                "longer managed by this app."
+            )
+        if QMessageBox.question(
+            self, "Merge Chapters", msg,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        ) != QMessageBox.StandardButton.Yes:
+            return
+
+        default_title = _name(target)
+        new_title, ok = QInputDialog.getText(
+            self, "Merge Chapters", "Merged chapter title:", text=default_title
+        )
+        if not ok:
+            return
+        new_title = new_title.strip() or default_title
+
+        merged_id = self._db.merge_documents(doc_ids, new_title)
+        if self._initial_doc_id in doc_ids and self._initial_doc_id != merged_id:
+            self.open_doc_merged_away = True
+
+        series_raw = self._current_series_raw()
+        self._load_series()
+        self._restore_series(series_raw)
+        self._select_doc(merged_id)
+
+    def _on_delete(self) -> None:
+        leaves = [lf for lf in self._tree.selectedItems() if id(lf) in self._doc_ids]
+        if not leaves:
+            cur = self._current_leaf()
+            leaves = [cur] if cur is not None and id(cur) in self._doc_ids else []
+        if not leaves:
+            return
+        if len(leaves) == 1:
+            prompt = f'Delete "{leaves[0].text(1)}"? This cannot be undone.'
+        else:
+            prompt = f"Delete these {len(leaves)} chapters? This cannot be undone."
         answer = QMessageBox.question(
             self,
             "Delete Document",
-            f'Delete "{title}"? This cannot be undone.',
+            prompt,
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
         if answer != QMessageBox.StandardButton.Yes:
             return
-        doc_id = self._doc_ids.pop(id(leaf), None)
-        if doc_id is not None:
-            self._db.delete_document(doc_id)
+        for lf in leaves:
+            doc_id = self._doc_ids.pop(id(lf), None)
+            if doc_id is not None:
+                self._db.delete_document(doc_id)
         series_raw = self._current_series_raw()
         self._load_series()
         self._restore_series(series_raw)

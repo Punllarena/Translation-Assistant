@@ -810,3 +810,171 @@ class TestVolumeColumn:
         dlg = OpenDocumentDialog(mem_db)
         dlg._sort_chapters(7)
         assert [dlg._tree.topLevelItem(i).text(7) for i in range(2)] == ["Vol 1", "Vol 2"]
+
+
+def _mk_series_chapters(db, titles, *, series="S"):
+    ids = []
+    for i, t in enumerate(titles, start=1):
+        doc_id = db.create_document(
+            t, series_title=series, series_order=i, chapter_title=t
+        )
+        db.save_lines(doc_id, [
+            {"line_number": 0, "prefix": "%", "raw_text": f"{t}-l0",
+             "translated_text": f"{t}-t0"},
+        ])
+        ids.append(doc_id)
+    return ids
+
+
+def _select_leaves(dlg, doc_ids):
+    dlg._tree.clearSelection()
+    for i in range(dlg._tree.topLevelItemCount()):
+        item = dlg._tree.topLevelItem(i)
+        if dlg._doc_ids.get(id(item)) in doc_ids:
+            item.setSelected(True)
+
+
+class TestMergeChapters:
+    def test_tree_allows_multi_selection(self, qapp, mem_db):
+        from PySide6.QtWidgets import QAbstractItemView
+        dlg = OpenDocumentDialog(mem_db)
+        assert dlg._tree.selectionMode() == QAbstractItemView.SelectionMode.ExtendedSelection
+
+    def test_merge_noop_with_single_selection(self, qapp, mem_db):
+        ids = _mk_series_chapters(mem_db, ["A", "B"])
+        dlg = OpenDocumentDialog(mem_db)
+        _select_leaves(dlg, {ids[0]})
+        dlg._on_merge()
+        assert len(mem_db.list_documents()) == 2
+
+    def test_merge_combines_selected_chapters(self, qapp, mem_db):
+        from unittest.mock import patch
+        from PySide6.QtWidgets import QMessageBox, QInputDialog
+        ids = _mk_series_chapters(mem_db, ["A", "B", "C"])
+        dlg = OpenDocumentDialog(mem_db)
+        _select_leaves(dlg, {ids[0], ids[1]})
+        with patch.object(QMessageBox, "question",
+                          return_value=QMessageBox.StandardButton.Yes), \
+             patch.object(QInputDialog, "getText", return_value=("AB", True)):
+            dlg._on_merge()
+        docs = mem_db.list_documents()
+        assert len(docs) == 2
+        merged = mem_db.get_lines(ids[0])
+        assert [ln["raw_text"] for ln in merged] == ["A-l0", "B-l0"]
+        assert mem_db.get_document(ids[0])["chapter_title"] == "AB"
+
+    def test_merge_title_prompt_prefilled_with_first_chapter(self, qapp, mem_db):
+        from unittest.mock import patch
+        from PySide6.QtWidgets import QMessageBox, QInputDialog
+        ids = _mk_series_chapters(mem_db, ["Alpha", "Beta"])
+        dlg = OpenDocumentDialog(mem_db)
+        _select_leaves(dlg, set(ids))
+        with patch.object(QMessageBox, "question",
+                          return_value=QMessageBox.StandardButton.Yes), \
+             patch.object(QInputDialog, "getText",
+                          return_value=("Alpha", True)) as mock_text:
+            dlg._on_merge()
+        # prefill passed as the `text=` kwarg or 4th positional arg
+        _, kwargs = mock_text.call_args
+        prefill = kwargs.get("text")
+        if prefill is None:
+            prefill = mock_text.call_args[0][3]
+        assert prefill == "Alpha"
+
+    def test_merge_warns_when_a_chapter_is_published(self, qapp, mem_db):
+        from unittest.mock import patch
+        from PySide6.QtWidgets import QMessageBox, QInputDialog
+        ids = _mk_series_chapters(mem_db, ["A", "B"])
+        mem_db.set_document_wp_status(ids[1], "publish", "http://x/b", "2026-01-01", 2)
+        dlg = OpenDocumentDialog(mem_db)
+        _select_leaves(dlg, set(ids))
+        with patch.object(QMessageBox, "question",
+                          return_value=QMessageBox.StandardButton.Yes) as mock_q, \
+             patch.object(QInputDialog, "getText", return_value=("AB", True)):
+            dlg._on_merge()
+        text = " ".join(str(a) for a in mock_q.call_args[0])
+        assert "WordPress" in text
+
+    def test_merge_aborted_at_confirm_changes_nothing(self, qapp, mem_db):
+        from unittest.mock import patch
+        from PySide6.QtWidgets import QMessageBox
+        ids = _mk_series_chapters(mem_db, ["A", "B"])
+        dlg = OpenDocumentDialog(mem_db)
+        _select_leaves(dlg, set(ids))
+        with patch.object(QMessageBox, "question",
+                          return_value=QMessageBox.StandardButton.No):
+            dlg._on_merge()
+        assert len(mem_db.list_documents()) == 2
+
+    def test_merge_aborted_at_title_changes_nothing(self, qapp, mem_db):
+        from unittest.mock import patch
+        from PySide6.QtWidgets import QMessageBox, QInputDialog
+        ids = _mk_series_chapters(mem_db, ["A", "B"])
+        dlg = OpenDocumentDialog(mem_db)
+        _select_leaves(dlg, set(ids))
+        with patch.object(QMessageBox, "question",
+                          return_value=QMessageBox.StandardButton.Yes), \
+             patch.object(QInputDialog, "getText", return_value=("", False)):
+            dlg._on_merge()
+        assert len(mem_db.list_documents()) == 2
+
+    def test_merge_flags_open_doc_when_merged_away(self, qapp, mem_db):
+        from unittest.mock import patch
+        from PySide6.QtWidgets import QMessageBox, QInputDialog
+        ids = _mk_series_chapters(mem_db, ["A", "B"])
+        dlg = OpenDocumentDialog(mem_db, current_doc_id=ids[1])
+        _select_leaves(dlg, set(ids))
+        with patch.object(QMessageBox, "question",
+                          return_value=QMessageBox.StandardButton.Yes), \
+             patch.object(QInputDialog, "getText", return_value=("AB", True)):
+            dlg._on_merge()
+        assert dlg.open_doc_merged_away is True
+
+    def test_merge_does_not_flag_when_open_doc_is_target(self, qapp, mem_db):
+        from unittest.mock import patch
+        from PySide6.QtWidgets import QMessageBox, QInputDialog
+        ids = _mk_series_chapters(mem_db, ["A", "B"])
+        dlg = OpenDocumentDialog(mem_db, current_doc_id=ids[0])
+        _select_leaves(dlg, set(ids))
+        with patch.object(QMessageBox, "question",
+                          return_value=QMessageBox.StandardButton.Yes), \
+             patch.object(QInputDialog, "getText", return_value=("AB", True)):
+            dlg._on_merge()
+        assert dlg.open_doc_merged_away is False
+
+
+class TestBatchDelete:
+    def test_delete_batch_removes_all_selected(self, qapp, mem_db):
+        from unittest.mock import patch
+        from PySide6.QtWidgets import QMessageBox
+        ids = _mk_series_chapters(mem_db, ["A", "B", "C"])
+        dlg = OpenDocumentDialog(mem_db)
+        _select_leaves(dlg, {ids[0], ids[2]})
+        with patch.object(QMessageBox, "question",
+                          return_value=QMessageBox.StandardButton.Yes):
+            dlg._on_delete()
+        left = {d["chapter_title"] for d in mem_db.list_documents()}
+        assert left == {"B"}
+
+    def test_delete_batch_confirmation_mentions_count(self, qapp, mem_db):
+        from unittest.mock import patch
+        from PySide6.QtWidgets import QMessageBox
+        ids = _mk_series_chapters(mem_db, ["A", "B", "C"])
+        dlg = OpenDocumentDialog(mem_db)
+        _select_leaves(dlg, set(ids))
+        with patch.object(QMessageBox, "question",
+                          return_value=QMessageBox.StandardButton.No) as mock_q:
+            dlg._on_delete()
+        assert "3" in " ".join(str(a) for a in mock_q.call_args[0])
+        assert len(mem_db.list_documents()) == 3
+
+    def test_delete_batch_aborted_changes_nothing(self, qapp, mem_db):
+        from unittest.mock import patch
+        from PySide6.QtWidgets import QMessageBox
+        ids = _mk_series_chapters(mem_db, ["A", "B"])
+        dlg = OpenDocumentDialog(mem_db)
+        _select_leaves(dlg, set(ids))
+        with patch.object(QMessageBox, "question",
+                          return_value=QMessageBox.StandardButton.No):
+            dlg._on_delete()
+        assert len(mem_db.list_documents()) == 2

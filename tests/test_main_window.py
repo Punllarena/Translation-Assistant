@@ -515,6 +515,26 @@ class TestOpenDocument:
         win.open_document(doc_id)
         assert win._settings.profile_used == "Default"
 
+    def test_on_open_clears_view_when_open_doc_merged_away(self, win):
+        from unittest.mock import patch, MagicMock
+        doc_id = win._db.create_document("Ch1")
+        win._db.save_lines(doc_id, [
+            {"line_number": 0, "prefix": "%", "raw_text": "Text", "translated_text": ""},
+        ])
+        win.open_document(doc_id)
+        assert win._doc_id == doc_id
+
+        fake_dlg = MagicMock()
+        fake_dlg.exec.return_value = 0
+        fake_dlg.selected_doc_id = None
+        fake_dlg.open_doc_merged_away = True
+        with patch("translation_assistant.ui.dlg_open.OpenDocumentDialog",
+                   return_value=fake_dlg), \
+             patch("translation_assistant.ui.main_widget.remember_dialog_geometry"):
+            win._on_open()
+        assert win._doc_id is None
+        assert win._raw_lines == []
+
 
 # ---------------------------------------------------------------------------
 # Glossary and parse chars

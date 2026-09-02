@@ -1130,6 +1130,8 @@ class TranslationAssistantWidget(QWidget):
             remember_dialog_geometry(dlg, self._settings, "dlg_open")
             if dlg.exec() and dlg.selected_doc_id is not None:
                 self.open_document(dlg.selected_doc_id)
+            elif getattr(dlg, "open_doc_merged_away", False):
+                self._clear_open_document()
 
     def _on_import(self) -> None:
         with self._topmost_suspended():
@@ -1403,6 +1405,11 @@ class TranslationAssistantWidget(QWidget):
         self._db.close()
         shutil.copy2(src, self._settings.db_path)
         self._db = Database(self._settings.db_path)
+        self._clear_open_document()
+        self._filesaved_label.setText("Database imported.")
+
+    def _clear_open_document(self) -> None:
+        """Reset all view state so no document is open."""
         self._doc_id = None
         self._raw_lines = []
         self._translated_lines = []
@@ -1421,7 +1428,6 @@ class TranslationAssistantWidget(QWidget):
         self.action_publish_wp.setEnabled(False)
         self.action_publish_volume_illus.setEnabled(False)
         self._load_glossary_for_profile()
-        self._filesaved_label.setText("Database imported.")
 
     def _on_manage_series(self) -> None:
         from translation_assistant.ui.dlg_series import SeriesManagerDialog

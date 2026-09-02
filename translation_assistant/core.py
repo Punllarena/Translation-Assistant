@@ -635,13 +635,15 @@ def extract_frequent_nouns(
 # Stats computation
 # ---------------------------------------------------------------------------
 
-def compute_streaks(history: list[dict]) -> dict:
+def compute_streaks(history: list[dict], today: date | None = None) -> dict:
     """
     Compute current streak, longest streak, and best day from daily stats history.
 
     Args:
         history: list of dicts with keys "date" (ISO string "YYYY-MM-DD") and
                  "paragraphs" (int).
+        today: reference date for the "current" streak; defaults to date.today().
+               Callers using UTC-bucketed history should pass a UTC date.
 
     Returns:
         dict with keys:
@@ -668,7 +670,8 @@ def compute_streaks(history: list[dict]) -> dict:
         else:
             run = 1
 
-    today = date.today()
+    if today is None:
+        today = date.today()
     check = today if today.isoformat() in active_set else today - timedelta(days=1)
     current = 0
     while check.isoformat() in active_set:

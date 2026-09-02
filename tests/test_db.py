@@ -1524,3 +1524,123 @@ def test_update_volume_metadata_does_not_touch_other_volumes(db):
     )
     assert db.get_document(doc_v1)["volume_author"] == "Author V1"
     assert db.get_document(doc_v2)["volume_author"] == ""
+
+
+# ---------------------------------------------------------------------------
+# merge_documents
+# ---------------------------------------------------------------------------
+
+def _mk_chapter(db, chapter_title, order, raw_lines, *, series="S"):
+    doc_id = db.create_document(
+        chapter_title, series_title=series, series_order=order,
+        chapter_title=chapter_title,
+    )
+    db.save_lines(doc_id, [
+        {"line_number": i, "prefix": "%", "raw_text": t,
+         "translated_text": f"tr:{t}"}
+        for i, t in enumerate(raw_lines)
+    ])
+    return doc_id
+
+
+def test_merge_documents_concatenates_lines_in_series_order(db):
+    a = _mk_chapter(db, "A", 1, ["a0", "a1"])
+    b = _mk_chapter(db, "B", 2, ["b0", "b1"])
+    target = db.merge_documents([b, a], "Merged")
+    assert target == a
+    raws = [ln["raw_text"] for ln in db.get_lines(a)]
+    assert raws == ["a0", "a1", "b0", "b1"]
+    trs = [ln["translated_text"] for ln in db.get_lines(a)]
+    assert trs == ["tr:a0", "tr:a1", "tr:b0", "tr:b1"]
+
+
+def test_merge_documents_renumbers_lines_contiguously(db):
+    a = _mk_chapter(db, "A", 1, ["a0", "a1"])
+    b = _mk_chapter(db, "B", 2, ["b0"])
+    db.merge_documents([a, b], "Merged")
+    assert [ln["line_number"] for ln in db.get_lines(a)] == [0, 1, 2]
+
+
+def test_merge_documents_forces_paragraph_prefix_at_boundary(db):
+    a = _mk_chapter(db, "A", 1, ["a0"])
+    b = db.create_document("B", series_title="S", series_order=2, chapter_title="B")
+    db.save_lines(b, [
+        {"line_number": 0, "prefix": "$", "raw_text": "b0", "translated_text": ""},
+        {"line_number": 1, "prefix": "$", "raw_text": "b1", "translated_text": ""},
+    ])
+    db.merge_documents([a, b], "Merged")
+    lines = db.get_lines(a)
+    assert lines[1]["prefix"] == "%"   # first line of B forced to paragraph start
+    assert lines[2]["prefix"] == "$"   # later continuation lines untouched
+
+
+def test_merge_documents_reanchors_images(db):
+    a = _mk_chapter(db, "A", 1, ["a0", "a1", "a2"])
+    b = _mk_chapter(db, "B", 2, ["b0", "b1"])
+    db.add_document_image(a, 1, False, "a.png", b"a")
+    db.add_document_image(b, 0, False, "b.png", b"b")
+    db.merge_documents([a, b], "Merged")
+    imgs = {img["src_path"]: img["anchor_position"] for img in db.get_document_images(a)}
+    assert imgs == {"a.png": 1, "b.png": 3}   # b's image shifted by len(A) == 3
+    assert db.get_document_images(b) == []
+
+
+def test_merge_documents_deletes_source_documents(db):
+    a = _mk_chapter(db, "A", 1, ["a0"])
+    b = _mk_chapter(db, "B", 2, ["b0"])
+    db.merge_documents([a, b], "Merged")
+    with pytest.raises(ValueError):
+        db.get_document(b)
+
+
+def test_merge_documents_sets_merged_title_on_target(db):
+    a = _mk_chapter(db, "A", 1, ["a0"])
+    b = _mk_chapter(db, "B", 2, ["b0"])
+    db.merge_documents([a, b], "Combined Chapter")
+    assert db.get_document(a)["chapter_title"] == "Combined Chapter"
+
+
+def test_merge_documents_preserves_target_wp_status(db):
+    a = _mk_chapter(db, "A", 1, ["a0"])
+    b = _mk_chapter(db, "B", 2, ["b0"])
+    db.set_document_wp_status(a, "publish", "http://x/a", "2026-01-01", 1)
+    db.set_document_wp_status(b, "publish", "http://x/b", "2026-01-02", 2)
+    db.merge_documents([a, b], "Merged")
+    wp = db.get_document_wp_status(a)
+    assert wp["wp_status"] == "publish"
+    assert wp["wp_post_url"] == "http://x/a"
+
+
+def test_merge_documents_compacts_series_order(db):
+    a = _mk_chapter(db, "A", 1, ["a0"])
+    b = _mk_chapter(db, "B", 2, ["b0"])
+    c = _mk_chapter(db, "C", 3, ["c0"])
+    d = _mk_chapter(db, "D", 4, ["d0"])
+    db.merge_documents([b, c], "BC")
+    orders = {
+        db.get_document(x)["chapter_title"]: db.get_document(x)["series_order"]
+        for x in (a, b, d)
+    }
+    assert orders == {"A": 1, "BC": 2, "D": 3}
+
+
+def test_merge_documents_three_way(db):
+    a = _mk_chapter(db, "A", 1, ["a0"])
+    b = _mk_chapter(db, "B", 2, ["b0"])
+    c = _mk_chapter(db, "C", 3, ["c0"])
+    target = db.merge_documents([c, a, b], "ABC")
+    assert target == a
+    assert [ln["raw_text"] for ln in db.get_lines(a)] == ["a0", "b0", "c0"]
+
+
+def test_merge_documents_rejects_single_document(db):
+    a = _mk_chapter(db, "A", 1, ["a0"])
+    with pytest.raises(ValueError):
+        db.merge_documents([a], "Merged")
+
+
+def test_merge_documents_rejects_mixed_series(db):
+    a = _mk_chapter(db, "A", 1, ["a0"], series="S1")
+    b = _mk_chapter(db, "B", 2, ["b0"], series="S2")
+    with pytest.raises(ValueError):
+        db.merge_documents([a, b], "Merged")
