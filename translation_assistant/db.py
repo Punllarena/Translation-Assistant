@@ -561,6 +561,27 @@ class Database:
         self._conn.commit()
         return cur.rowcount
 
+    def set_document_volume(self, doc_id: int, *,
+                            volume_title: str,
+                            volume_author: str,
+                            volume_illustrator: str,
+                            volume_publisher: str,
+                            volume_identifier: str) -> None:
+        """Set the five denormalized volume columns on a single document row.
+
+        Used to assign a chapter that has no volume yet (``volume_title=''``)
+        into one, without the bulk WHERE-by-volume_title sweep in
+        ``update_volume_metadata`` (which would drag every other volume-less
+        chapter in the series along with it).
+        """
+        self._conn.execute(
+            "UPDATE documents SET volume_title=?, volume_author=?, volume_illustrator=?, "
+            "volume_publisher=?, volume_identifier=? WHERE id=?",
+            (volume_title, volume_author, volume_illustrator, volume_publisher,
+             volume_identifier, doc_id),
+        )
+        self._conn.commit()
+
     def set_volume_title(self, series_title: str, old_volume_title: str, new_volume_title: str) -> None:
         self._conn.execute(
             "UPDATE documents SET volume_title = ? WHERE series_title = ? AND volume_title = ?",
@@ -728,6 +749,11 @@ class Database:
                 series_title=doc["series_title"],
                 series_order=base_order + k,
                 chapter_title=title,
+                volume_title=doc["volume_title"],
+                volume_author=doc["volume_author"],
+                volume_illustrator=doc["volume_illustrator"],
+                volume_publisher=doc["volume_publisher"],
+                volume_identifier=doc["volume_identifier"],
             )
             self.save_lines(new_id, [
                 {

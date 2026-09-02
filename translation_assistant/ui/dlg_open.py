@@ -415,8 +415,7 @@ class OpenDocumentDialog(QDialog):
         self._delete_btn.setEnabled(is_leaf)
         has_url = is_leaf and bool(self._source_urls.get(id(leaf), ""))
         self._refetch_btn.setEnabled(has_url)
-        has_volume = is_leaf and bool(self._volume_titles.get(id(leaf), ""))
-        self._edit_volume_btn.setEnabled(has_volume)
+        self._edit_volume_btn.setEnabled(is_leaf)
 
     # ------------------------------------------------------------------
     # Button handlers
@@ -667,6 +666,32 @@ class OpenDocumentDialog(QDialog):
     def _do_edit_volume(self, doc_id: int, series_title: str, old_volume_title: str, *,
                         new_volume_title: str, volume_author: str, volume_illustrator: str,
                         volume_publisher: str, volume_identifier: str) -> None:
+        if not old_volume_title:
+            # Chapter has no volume yet: assign just this one row. A bulk
+            # update_volume_metadata(series, "") would sweep in every other
+            # volume-less chapter in the series.
+            if new_volume_title:
+                existing_meta = self._db.get_volume_metadata(series_title, new_volume_title)
+                if self._db.get_document_ids_by_volume(series_title, new_volume_title):
+                    # Joining an existing volume — inherit its metadata.
+                    volume_author = existing_meta["volume_author"]
+                    volume_illustrator = existing_meta["volume_illustrator"]
+                    volume_publisher = existing_meta["volume_publisher"]
+                    volume_identifier = existing_meta["volume_identifier"]
+                self._db.set_document_volume(
+                    doc_id,
+                    volume_title=new_volume_title,
+                    volume_author=volume_author,
+                    volume_illustrator=volume_illustrator,
+                    volume_publisher=volume_publisher,
+                    volume_identifier=volume_identifier,
+                )
+            series_raw = self._current_series_raw()
+            self._load_series()
+            self._restore_series(series_raw)
+            self._select_doc(doc_id)
+            return
+
         merge = False
         if new_volume_title != old_volume_title:
             existing = self._db.get_document_ids_by_volume(series_title, new_volume_title)
