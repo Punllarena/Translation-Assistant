@@ -679,6 +679,97 @@ class Database:
 
         return target_id
 
+    def split_document(self, doc_id: int, cuts: list[tuple[int, str]]) -> list[int]:
+        """Split one chapter into consecutive segments at ``cuts``.
+
+        ``cuts`` is ``[(start_line_number, new_title), ...]`` in strictly
+        increasing line order, each ``1 <= start <= line_count - 1``. Segment 0
+        (lines ``[0, cuts[0][0])``) stays in ``doc_id``, keeping its id, title
+        and wp_* fields. Each later segment becomes a new document whose
+        ``chapter_title`` is the given title (blank -> ``"<title> (n)"``); its
+        first line is forced to a '%' paragraph prefix, later prefixes and the
+        per-line translated_text are carried over by index, and any image whose
+        anchor falls in the segment is moved to it. Within the series the new
+        chapters take the slots right after the original and the rest shift
+        down; series_order is then compacted to 1..N. Returns
+        ``[doc_id, new_id, ...]`` in segment order.
+        """
+        if not cuts:
+            raise ValueError("split_document needs at least one cut")
+        starts = [c[0] for c in cuts]
+        if starts != sorted(starts) or len(set(starts)) != len(starts):
+            raise ValueError("cut points must be strictly increasing")
+
+        doc = self.get_document(doc_id)
+        lines = self.get_lines(doc_id)
+        n = len(lines)
+        if starts[0] < 1 or starts[-1] > n - 1:
+            raise ValueError("cut points out of range")
+
+        bounds = [0] + starts + [n]
+        images = self.get_document_images(doc_id)
+        base_name = doc["chapter_title"] or doc["title"]
+        base_order = doc["series_order"]
+        n_new = len(cuts)
+
+        if doc["series_title"]:
+            self._conn.execute(
+                "UPDATE documents SET series_order = series_order + ? "
+                "WHERE series_title = ? AND series_order > ?",
+                (n_new, doc["series_title"], base_order),
+            )
+
+        new_ids = [doc_id]
+        for k in range(1, len(bounds) - 1):
+            lo, hi = bounds[k], bounds[k + 1]
+            title = (cuts[k - 1][1] or "").strip() or f"{base_name} ({k + 1})"
+            new_id = self.create_document(
+                title,
+                series_title=doc["series_title"],
+                series_order=base_order + k,
+                chapter_title=title,
+            )
+            self.save_lines(new_id, [
+                {
+                    "line_number": i - lo,
+                    "prefix": "%" if i == lo else lines[i]["prefix"],
+                    "raw_text": lines[i]["raw_text"],
+                    "translated_text": lines[i]["translated_text"],
+                }
+                for i in range(lo, hi)
+            ])
+            for img in images:
+                if lo <= img["anchor_position"] < hi:
+                    self._conn.execute(
+                        "UPDATE document_images SET document_id = ?, anchor_position = ? "
+                        "WHERE id = ?",
+                        (new_id, img["anchor_position"] - lo, img["id"]),
+                    )
+            new_ids.append(new_id)
+
+        self.save_lines(doc_id, [
+            {
+                "line_number": i,
+                "prefix": lines[i]["prefix"],
+                "raw_text": lines[i]["raw_text"],
+                "translated_text": lines[i]["translated_text"],
+            }
+            for i in range(bounds[0], bounds[1])
+        ])
+        self._conn.execute(
+            "UPDATE documents SET updated_at = datetime('now') WHERE id = ?", (doc_id,)
+        )
+        self._conn.commit()
+
+        if doc["series_title"]:
+            remaining = self._conn.execute(
+                "SELECT id FROM documents WHERE series_title = ? ORDER BY series_order, id",
+                (doc["series_title"],),
+            ).fetchall()
+            self.set_series_orders([(r[0], i + 1) for i, r in enumerate(remaining)])
+
+        return new_ids
+
     def get_document(self, doc_id: int) -> dict:
         row = self._conn.execute(
             "SELECT id, title, series_title, series_order, chapter_title, "

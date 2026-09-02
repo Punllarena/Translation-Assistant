@@ -1132,6 +1132,8 @@ class TranslationAssistantWidget(QWidget):
                 self.open_document(dlg.selected_doc_id)
             elif getattr(dlg, "open_doc_merged_away", False):
                 self._clear_open_document()
+            elif getattr(dlg, "open_doc_split", False) and self._doc_id is not None:
+                self.open_document(self._doc_id)
 
     def _on_import(self) -> None:
         with self._topmost_suspended():

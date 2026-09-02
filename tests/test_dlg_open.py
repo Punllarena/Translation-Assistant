@@ -978,3 +978,151 @@ class TestBatchDelete:
                           return_value=QMessageBox.StandardButton.No):
             dlg._on_delete()
         assert len(mem_db.list_documents()) == 2
+
+
+def _mk_long_chapter(db, raw_lines, *, series="S", order=1, title="Ch1"):
+    doc_id = db.create_document(
+        title, series_title=series, series_order=order, chapter_title=title
+    )
+    db.save_lines(doc_id, [
+        {"line_number": i, "prefix": "%", "raw_text": t, "translated_text": f"tr:{t}"}
+        for i, t in enumerate(raw_lines)
+    ])
+    return doc_id
+
+
+class TestSplitChapterDialog:
+    def test_loads_one_line_per_raw_line(self, qapp, mem_db):
+        from translation_assistant.ui.dlg_open import _SplitChapterDialog
+        doc = _mk_long_chapter(mem_db, ["l0", "l1", "l2"])
+        dlg = _SplitChapterDialog(doc, "Ch1", mem_db)
+        assert dlg._editor.toPlainText().split("\n") == ["l0", "l1", "l2"]
+
+    def test_insert_marker_button_places_sentinel_on_its_own_line(self, qapp, mem_db):
+        from translation_assistant.ui.dlg_open import _SplitChapterDialog, SPLIT_MARKER
+        doc = _mk_long_chapter(mem_db, ["l0", "l1", "l2"])
+        dlg = _SplitChapterDialog(doc, "Ch1", mem_db)
+        cur = dlg._editor.textCursor()
+        cur.movePosition(cur.MoveOperation.Start)
+        cur.movePosition(cur.MoveOperation.Down)  # start of line "l1"
+        dlg._editor.setTextCursor(cur)
+        dlg._insert_marker()
+        assert dlg._editor.toPlainText().split("\n") == [
+            "l0", SPLIT_MARKER, "l1", "l2",
+        ]
+
+    def test_save_button_disabled_without_marker(self, qapp, mem_db):
+        from translation_assistant.ui.dlg_open import _SplitChapterDialog, SPLIT_MARKER
+        doc = _mk_long_chapter(mem_db, ["l0", "l1"])
+        dlg = _SplitChapterDialog(doc, "Ch1", mem_db)
+        assert not dlg._save_btn.isEnabled()
+        dlg._editor.setPlainText(f"l0\n{SPLIT_MARKER}\nl1")
+        assert dlg._save_btn.isEnabled()
+
+    def test_split_parses_title_from_marker_line(self, qapp, mem_db):
+        from translation_assistant.ui.dlg_open import _SplitChapterDialog, SPLIT_MARKER
+        doc = _mk_long_chapter(mem_db, ["l0", "l1", "l2"])
+        dlg = _SplitChapterDialog(doc, "Ch1", mem_db)
+        dlg._editor.setPlainText(f"l0\n{SPLIT_MARKER}Second Half\nl1\nl2")
+        dlg._on_split()
+        new_ids = dlg._new_ids
+        assert mem_db.get_document(new_ids[1])["chapter_title"] == "Second Half"
+        assert [ln["raw_text"] for ln in mem_db.get_lines(new_ids[1])] == ["l1", "l2"]
+
+    def test_split_blank_marker_leaves_title_empty_for_db_autoname(self, qapp, mem_db):
+        from translation_assistant.ui.dlg_open import _SplitChapterDialog, SPLIT_MARKER
+        doc = _mk_long_chapter(mem_db, ["l0", "l1"], title="My Chapter")
+        dlg = _SplitChapterDialog(doc, "My Chapter", mem_db)
+        dlg._editor.setPlainText(f"l0\n{SPLIT_MARKER}\nl1")
+        dlg._on_split()
+        assert mem_db.get_document(dlg._new_ids[1])["chapter_title"] == "My Chapter (2)"
+
+    def test_split_ignores_leading_and_trailing_markers(self, qapp, mem_db):
+        from translation_assistant.ui.dlg_open import _SplitChapterDialog, SPLIT_MARKER
+        doc = _mk_long_chapter(mem_db, ["l0", "l1", "l2"])
+        dlg = _SplitChapterDialog(doc, "Ch1", mem_db)
+        dlg._editor.setPlainText(f"{SPLIT_MARKER}\nl0\nl1\n{SPLIT_MARKER}P2\nl2\n{SPLIT_MARKER}")
+        dlg._on_split()
+        assert len(dlg._new_ids) == 2  # only the middle marker counts
+        assert [ln["raw_text"] for ln in mem_db.get_lines(doc)] == ["l0", "l1"]
+
+    def test_split_no_valid_marker_warns_and_no_change(self, qapp, mem_db):
+        from unittest.mock import patch
+        from PySide6.QtWidgets import QMessageBox
+        from translation_assistant.ui.dlg_open import _SplitChapterDialog, SPLIT_MARKER
+        doc = _mk_long_chapter(mem_db, ["l0", "l1"])
+        dlg = _SplitChapterDialog(doc, "Ch1", mem_db)
+        dlg._editor.setPlainText(f"{SPLIT_MARKER}\nl0\nl1")
+        with patch.object(QMessageBox, "warning") as mock_warn:
+            dlg._on_split()
+        assert mock_warn.called
+        assert len(mem_db.list_documents()) == 1
+
+
+class TestSplitChapterAction:
+    def test_on_split_creates_segments(self, qapp, mem_db):
+        from unittest.mock import patch
+        from PySide6.QtWidgets import QDialog
+        from translation_assistant.ui.dlg_open import _SplitChapterDialog
+        ids = _mk_series_chapters(mem_db, ["A", "B"])
+        long_doc = _mk_long_chapter(mem_db, ["s0", "s1", "s2"], order=2, title="B")
+        mem_db.delete_document(ids[1])
+        dlg = OpenDocumentDialog(mem_db)
+        _select_leaves(dlg, {long_doc})
+
+        def fake_exec(self):
+            self._editor.setPlainText("s0\n---CHAPTER SPLIT---B2\ns1\ns2")
+            self._on_split()
+            return QDialog.DialogCode.Accepted
+
+        with patch.object(_SplitChapterDialog, "exec", fake_exec):
+            dlg._on_split()
+        titles = {d["chapter_title"] for d in mem_db.list_documents()}
+        assert {"A", "B", "B2"} <= titles
+
+    def test_on_split_flags_open_doc_when_current(self, qapp, mem_db):
+        from unittest.mock import patch
+        from PySide6.QtWidgets import QDialog
+        from translation_assistant.ui.dlg_open import _SplitChapterDialog
+        long_doc = _mk_long_chapter(mem_db, ["s0", "s1", "s2"])
+        dlg = OpenDocumentDialog(mem_db, current_doc_id=long_doc)
+        _select_leaves(dlg, {long_doc})
+
+        def fake_exec(self):
+            self._editor.setPlainText("s0\n---CHAPTER SPLIT---P2\ns1\ns2")
+            self._on_split()
+            return QDialog.DialogCode.Accepted
+
+        with patch.object(_SplitChapterDialog, "exec", fake_exec):
+            dlg._on_split()
+        assert dlg.open_doc_split is True
+
+    def test_on_split_does_not_flag_other_doc(self, qapp, mem_db):
+        from unittest.mock import patch
+        from PySide6.QtWidgets import QDialog
+        from translation_assistant.ui.dlg_open import _SplitChapterDialog
+        a = _mk_series_chapters(mem_db, ["A"])[0]
+        long_doc = _mk_long_chapter(mem_db, ["s0", "s1", "s2"], order=2, title="B")
+        dlg = OpenDocumentDialog(mem_db, current_doc_id=a)
+        _select_leaves(dlg, {long_doc})
+
+        def fake_exec(self):
+            self._editor.setPlainText("s0\n---CHAPTER SPLIT---P2\ns1\ns2")
+            self._on_split()
+            return QDialog.DialogCode.Accepted
+
+        with patch.object(_SplitChapterDialog, "exec", fake_exec):
+            dlg._on_split()
+        assert dlg.open_doc_split is False
+
+    def test_on_split_cancelled_changes_nothing(self, qapp, mem_db):
+        from unittest.mock import patch
+        from PySide6.QtWidgets import QDialog
+        from translation_assistant.ui.dlg_open import _SplitChapterDialog
+        long_doc = _mk_long_chapter(mem_db, ["s0", "s1", "s2"])
+        dlg = OpenDocumentDialog(mem_db)
+        _select_leaves(dlg, {long_doc})
+        with patch.object(_SplitChapterDialog, "exec",
+                          lambda self: QDialog.DialogCode.Rejected):
+            dlg._on_split()
+        assert len(mem_db.list_documents()) == 1

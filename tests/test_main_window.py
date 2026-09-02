@@ -535,6 +535,32 @@ class TestOpenDocument:
         assert win._doc_id is None
         assert win._raw_lines == []
 
+    def test_on_open_reloads_view_when_open_doc_split(self, win):
+        from unittest.mock import patch, MagicMock
+        doc_id = win._db.create_document("Ch1")
+        win._db.save_lines(doc_id, [
+            {"line_number": 0, "prefix": "%", "raw_text": "Old", "translated_text": ""},
+        ])
+        win.open_document(doc_id)
+        # simulate the split having happened while the open dialog was up
+        win._db.save_lines(doc_id, [
+            {"line_number": 0, "prefix": "%", "raw_text": "New A", "translated_text": ""},
+            {"line_number": 1, "prefix": "%", "raw_text": "New B", "translated_text": ""},
+        ])
+
+        fake_dlg = MagicMock()
+        fake_dlg.exec.return_value = 0
+        fake_dlg.selected_doc_id = None
+        fake_dlg.open_doc_merged_away = False
+        fake_dlg.open_doc_split = True
+        with patch("translation_assistant.ui.dlg_open.OpenDocumentDialog",
+                   return_value=fake_dlg), \
+             patch("translation_assistant.ui.main_widget.remember_dialog_geometry"):
+            win._on_open()
+        assert win._doc_id == doc_id
+        assert len(win._raw_lines) == 2
+        assert "New B" in win._raw_lines[1]
+
 
 # ---------------------------------------------------------------------------
 # Glossary and parse chars
