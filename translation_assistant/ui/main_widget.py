@@ -15,6 +15,10 @@ from PySide6.QtWidgets import (
 from translation_assistant._version import BUILD_DATE
 from translation_assistant.settings import AppSettings
 from translation_assistant.ui import remember_dialog_geometry
+from translation_assistant.ui.wp_publish_flow import (
+    PublishWorker as _PublishWorker,
+    StatusCheckWorker as _StatusCheckWorker,
+)
 from translation_assistant.ui.card_list import CardListView, SERIF_FAMILIES
 from translation_assistant.jp_highlighter import JpSyntaxHighlighter
 from translation_assistant.spellcheck import SpellHighlighter
@@ -23,26 +27,6 @@ _PUNCTUATIONS = ["「」", "『』", "【】", "…", "〜", "〈〉", "《》",
 
 def _sanitize_filename(name: str) -> str:
     return re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', name).strip(". ")
-
-
-class _PublishWorker(QThread):
-    succeeded = Signal(dict)
-    error = Signal(str)
-
-    def __init__(self, endpoint_url: str, payload: dict, parent=None) -> None:
-        super().__init__(parent)
-        self._endpoint_url = endpoint_url
-        self._payload = payload
-
-    def run(self) -> None:
-        from translation_assistant.wp_publisher import publish, WPPublishError
-        try:
-            result = publish(self._endpoint_url, self._payload)
-            self.succeeded.emit(result)
-        except WPPublishError as exc:
-            self.error.emit(exc.message)
-        except Exception as exc:
-            self.error.emit(str(exc))
 
 
 class _IllustrationsPublishWorker(QThread):
@@ -69,37 +53,6 @@ class _IllustrationsPublishWorker(QThread):
             if first is None:
                 first = result
         self.succeeded.emit(first or {})
-
-
-class _StatusCheckWorker(QThread):
-    succeeded = Signal(dict)
-    error = Signal(str)
-
-    def __init__(
-        self,
-        endpoint_url: str,
-        api_key: str,
-        series_slug: str,
-        chapter: int,
-        parent=None,
-    ) -> None:
-        super().__init__(parent)
-        self._endpoint_url = endpoint_url
-        self._api_key = api_key
-        self._series_slug = series_slug
-        self._chapter = chapter
-
-    def run(self) -> None:
-        from translation_assistant.wp_publisher import check_status, WPPublishError
-        try:
-            result = check_status(
-                self._endpoint_url, self._api_key, self._series_slug, self._chapter
-            )
-            self.succeeded.emit(result)
-        except WPPublishError as exc:
-            self.error.emit(exc.message)
-        except Exception as exc:
-            self.error.emit(str(exc))
 
 
 class _ClickableLabel(QLabel):
