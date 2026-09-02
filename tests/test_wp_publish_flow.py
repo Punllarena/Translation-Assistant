@@ -106,9 +106,46 @@ class TestPersistPublishResult:
         assert db.get_document_wp_status(doc_id)["wp_status"] == "future"
 
 
+class TestEnsureWpConfig:
+    def test_returns_pair_when_already_configured(self, monkeypatch):
+        s = _Settings()
+        s.wp_endpoint_url = "https://ex.com"
+        s.wp_api_key = "key"
+        assert wpf.ensure_wp_config(s, None) == ("https://ex.com", "key")
+
+    def test_pops_dialog_and_returns_none_on_cancel(self, monkeypatch):
+        s = _Settings()
+        s.wp_endpoint_url = ""
+        s.wp_api_key = ""
+        monkeypatch.setattr(wpf, "WPSettingsDialog", lambda *a, **k: _RejectDialog())
+        assert wpf.ensure_wp_config(s, None) is None
+
+
+class TestEnsureSeriesWpMeta:
+    def test_returns_meta_when_fields_set(self, db):
+        db.set_series_wp_meta("Nov", series_slug="nov", series_title_short="N")
+        meta = wpf.ensure_series_wp_meta(db, _Settings(), "Nov", None)
+        assert meta["series_slug"] == "nov"
+
+    def test_returns_none_when_still_unset_after_dialog(self, db, monkeypatch):
+        monkeypatch.setattr(wpf, "SeriesManagerDialog", lambda *a, **k: _RejectDialog())
+        monkeypatch.setattr(wpf, "remember_dialog_geometry", lambda *a, **k: None)
+        assert wpf.ensure_series_wp_meta(db, _Settings(), "Nov", None) is None
+
+
+class _RejectDialog:
+    def exec(self):
+        return 0
+
+
 class _Settings:
     """Minimal stand-in for AppSettings — only the wp_* attrs build_job reads."""
     def __init__(self, **over):
         self.wp_password_enabled = over.get("wp_password_enabled", False)
         self.wp_unlock_after = over.get("wp_unlock_after", 0)
         self.wp_attribution_enabled = over.get("wp_attribution_enabled", True)
+        self.wp_endpoint_url = over.get("wp_endpoint_url", "")
+        self.wp_api_key = over.get("wp_api_key", "")
+        self.wp_default_schedule_time = over.get("wp_default_schedule_time", "")
+        self.wp_chapters_per_day = over.get("wp_chapters_per_day", 1)
+        self.wp_schedule_scope_global = over.get("wp_schedule_scope_global", True)

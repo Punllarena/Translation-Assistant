@@ -14,6 +14,9 @@ from PySide6.QtCore import QThread, Signal
 
 import translation_assistant.wp_publisher as _wp
 from translation_assistant.wp_publisher import WPPublishError
+from translation_assistant.ui import remember_dialog_geometry
+from translation_assistant.ui.dlg_series import SeriesManagerDialog
+from translation_assistant.ui.dlg_wp_settings import WPSettingsDialog
 
 
 class PublishWorker(QThread):
@@ -159,3 +162,39 @@ def persist_publish_result(
         doc_id, status, result.get("post_url") or None, date, chapter_index
     )
     return True
+
+
+def ensure_wp_config(settings, parent):
+    """Ensure WordPress endpoint_url and api_key are configured.
+
+    Returns (endpoint_url, api_key) if both are set, else None after showing settings dialog.
+    """
+    endpoint_url = settings.wp_endpoint_url
+    api_key = settings.wp_api_key
+    if endpoint_url and api_key:
+        return endpoint_url, api_key
+    dlg = WPSettingsDialog(settings, parent=parent)
+    if not dlg.exec():
+        return None
+    endpoint_url = settings.wp_endpoint_url
+    api_key = settings.wp_api_key
+    if not endpoint_url or not api_key:
+        return None
+    return endpoint_url, api_key
+
+
+def ensure_series_wp_meta(db, settings, series_title: str, parent):
+    """Ensure series has series_slug and series_title_short set.
+
+    Returns the series_wp_meta dict if both fields are set, else None after showing dialog.
+    """
+    meta = db.get_series_wp_meta(series_title)
+    if meta["series_slug"] and meta["series_title_short"]:
+        return meta
+    dlg = SeriesManagerDialog(db, settings=settings, parent=parent)
+    remember_dialog_geometry(dlg, settings, "dlg_series")
+    dlg.exec()
+    meta = db.get_series_wp_meta(series_title)
+    if not meta["series_slug"] or not meta["series_title_short"]:
+        return None
+    return meta
