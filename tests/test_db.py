@@ -1644,3 +1644,135 @@ def test_merge_documents_rejects_mixed_series(db):
     b = _mk_chapter(db, "B", 2, ["b0"], series="S2")
     with pytest.raises(ValueError):
         db.merge_documents([a, b], "Merged")
+
+
+# ---------------------------------------------------------------------------
+# split_document
+# ---------------------------------------------------------------------------
+
+def _mk_split_source(db, raw_lines, *, series="S", order=1, title="Ch1"):
+    doc_id = db.create_document(
+        title, series_title=series, series_order=order, chapter_title=title,
+    )
+    db.save_lines(doc_id, [
+        {"line_number": i, "prefix": "%", "raw_text": t, "translated_text": f"tr:{t}"}
+        for i, t in enumerate(raw_lines)
+    ])
+    return doc_id
+
+
+def test_split_document_partitions_lines_at_cut(db):
+    doc = _mk_split_source(db, ["l0", "l1", "l2", "l3"])
+    new_ids = db.split_document(doc, [(2, "Part 2")])
+    assert new_ids[0] == doc
+    assert [ln["raw_text"] for ln in db.get_lines(doc)] == ["l0", "l1"]
+    assert [ln["raw_text"] for ln in db.get_lines(new_ids[1])] == ["l2", "l3"]
+
+
+def test_split_document_renumbers_each_segment_from_zero(db):
+    doc = _mk_split_source(db, ["l0", "l1", "l2", "l3", "l4"])
+    new_ids = db.split_document(doc, [(2, "P2"), (4, "P3")])
+    assert [ln["line_number"] for ln in db.get_lines(new_ids[1])] == [0, 1]
+    assert [ln["line_number"] for ln in db.get_lines(new_ids[2])] == [0]
+
+
+def test_split_document_preserves_translations_by_index(db):
+    doc = _mk_split_source(db, ["l0", "l1", "l2", "l3"])
+    new_ids = db.split_document(doc, [(2, "P2")])
+    assert [ln["translated_text"] for ln in db.get_lines(doc)] == ["tr:l0", "tr:l1"]
+    assert [ln["translated_text"] for ln in db.get_lines(new_ids[1])] == ["tr:l2", "tr:l3"]
+
+
+def test_split_document_forces_paragraph_prefix_at_segment_head(db):
+    doc = db.create_document("Ch1", series_title="S", series_order=1, chapter_title="Ch1")
+    db.save_lines(doc, [
+        {"line_number": 0, "prefix": "%", "raw_text": "l0", "translated_text": ""},
+        {"line_number": 1, "prefix": "$", "raw_text": "l1", "translated_text": ""},
+        {"line_number": 2, "prefix": "$", "raw_text": "l2", "translated_text": ""},
+    ])
+    new_ids = db.split_document(doc, [(1, "P2")])
+    seg = db.get_lines(new_ids[1])
+    assert seg[0]["prefix"] == "%"   # forced
+    assert seg[1]["prefix"] == "$"   # untouched
+
+
+def test_split_document_reanchors_images_to_owning_segment(db):
+    doc = _mk_split_source(db, ["l0", "l1", "l2", "l3"])
+    db.add_document_image(doc, 0, False, "a.png", b"a")
+    db.add_document_image(doc, 3, False, "b.png", b"b")
+    new_ids = db.split_document(doc, [(2, "P2")])
+    assert {i["src_path"]: i["anchor_position"] for i in db.get_document_images(doc)} == {"a.png": 0}
+    assert {i["src_path"]: i["anchor_position"]
+            for i in db.get_document_images(new_ids[1])} == {"b.png": 1}
+
+
+def test_split_document_new_segment_takes_typed_title(db):
+    doc = _mk_split_source(db, ["l0", "l1"])
+    new_ids = db.split_document(doc, [(1, "Second Half")])
+    assert db.get_document(new_ids[1])["chapter_title"] == "Second Half"
+
+
+def test_split_document_blank_title_autonames(db):
+    doc = _mk_split_source(db, ["l0", "l1", "l2"], title="My Chapter")
+    new_ids = db.split_document(doc, [(1, ""), (2, "  ")])
+    assert db.get_document(new_ids[1])["chapter_title"] == "My Chapter (2)"
+    assert db.get_document(new_ids[2])["chapter_title"] == "My Chapter (3)"
+
+
+def test_split_document_original_keeps_wp_status(db):
+    doc = _mk_split_source(db, ["l0", "l1"])
+    db.set_document_wp_status(doc, "publish", "http://x/1", "2026-01-01", 1)
+    db.split_document(doc, [(1, "P2")])
+    wp = db.get_document_wp_status(doc)
+    assert wp["wp_status"] == "publish"
+    assert wp["wp_post_url"] == "http://x/1"
+
+
+def test_split_document_new_segments_unpublished(db):
+    doc = _mk_split_source(db, ["l0", "l1"])
+    db.set_document_wp_status(doc, "publish", "http://x/1", "2026-01-01", 1)
+    new_ids = db.split_document(doc, [(1, "P2")])
+    assert db.get_document_wp_status(new_ids[1])["wp_status"] is None
+
+
+def test_split_document_inserts_segments_after_original_in_series_order(db):
+    a = _mk_chapter(db, "A", 1, ["a0"])
+    src = _mk_split_source(db, ["s0", "s1", "s2"], order=2, title="Src")
+    c = _mk_chapter(db, "C", 3, ["c0"])
+    new_ids = db.split_document(src, [(1, "Src2"), (2, "Src3")])
+    orders = {
+        db.get_document(x)["chapter_title"]: db.get_document(x)["series_order"]
+        for x in (a, src, new_ids[1], new_ids[2], c)
+    }
+    assert orders == {"A": 1, "Src": 2, "Src2": 3, "Src3": 4, "C": 5}
+
+
+def test_split_document_three_way(db):
+    doc = _mk_split_source(db, ["l0", "l1", "l2", "l3", "l4", "l5"])
+    new_ids = db.split_document(doc, [(2, "P2"), (4, "P3")])
+    assert len(new_ids) == 3
+    assert [ln["raw_text"] for ln in db.get_lines(doc)] == ["l0", "l1"]
+    assert [ln["raw_text"] for ln in db.get_lines(new_ids[1])] == ["l2", "l3"]
+    assert [ln["raw_text"] for ln in db.get_lines(new_ids[2])] == ["l4", "l5"]
+
+
+def test_split_document_rejects_no_cuts(db):
+    doc = _mk_split_source(db, ["l0", "l1"])
+    with pytest.raises(ValueError):
+        db.split_document(doc, [])
+
+
+def test_split_document_rejects_out_of_range_cut(db):
+    doc = _mk_split_source(db, ["l0", "l1", "l2"])
+    with pytest.raises(ValueError):
+        db.split_document(doc, [(0, "P2")])
+    with pytest.raises(ValueError):
+        db.split_document(doc, [(3, "P2")])
+
+
+def test_split_document_rejects_non_increasing_cuts(db):
+    doc = _mk_split_source(db, ["l0", "l1", "l2", "l3"])
+    with pytest.raises(ValueError):
+        db.split_document(doc, [(2, "P2"), (2, "P3")])
+    with pytest.raises(ValueError):
+        db.split_document(doc, [(3, "P2"), (1, "P3")])

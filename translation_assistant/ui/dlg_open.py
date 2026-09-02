@@ -4,9 +4,9 @@ Document picker dialog — two-panel layout with series list on left, chapter tr
 from datetime import datetime
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QFont
+from PySide6.QtGui import QColor, QFont, QKeySequence, QShortcut, QTextDocument
 from PySide6.QtWidgets import (
-    QDialog, QFormLayout, QHBoxLayout, QHeaderView, QInputDialog, QLineEdit,
+    QDialog, QFormLayout, QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit,
     QListWidget, QListWidgetItem, QMenu, QMessageBox, QPlainTextEdit, QPushButton, QSpinBox,
     QSplitter, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
@@ -58,6 +58,7 @@ class OpenDocumentDialog(QDialog):
         self._selected_doc_id: int | None = None
         self._initial_doc_id = current_doc_id
         self.open_doc_merged_away = False
+        self.open_doc_split = False
         self._doc_ids: dict[int, int] = {}  # id(QTreeWidgetItem) → doc_id
         self._source_urls: dict[int, str] = {}
         self._volume_titles: dict[int, str] = {}
@@ -329,11 +330,15 @@ class OpenDocumentDialog(QDialog):
         act_renumber = menu.addAction("Renumber by Title")
         act_merge = menu.addAction("Merge Chapters")
         act_merge.setEnabled(len(merge_ids) >= 2)
+        act_split = menu.addAction("Split Chapter…")
+        act_split.setEnabled(len(merge_ids) <= 1)
         menu.addSeparator()
         act_delete = menu.addAction("Delete")
         chosen = menu.exec(self._tree.viewport().mapToGlobal(pos))
         if chosen == act_merge:
             self._on_merge()
+        elif chosen == act_split:
+            self._on_split()
         elif chosen == act_open:
             self._on_open()
         elif chosen == act_edit:
@@ -484,6 +489,29 @@ class OpenDocumentDialog(QDialog):
         self._load_series()
         self._restore_series(series_raw)
         self._select_doc(merged_id)
+
+    def _on_split(self) -> None:
+        sel = self._selected_doc_ids()
+        if len(sel) == 1:
+            doc_id = sel[0]
+        else:
+            leaf = self._current_leaf()
+            if leaf is None or id(leaf) not in self._doc_ids:
+                return
+            doc_id = self._doc_ids[id(leaf)]
+        doc = self._db.get_document(doc_id)
+        name = doc["chapter_title"] or doc["title"]
+        dlg = _SplitChapterDialog(doc_id, name, self._db, parent=self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        if not getattr(dlg, "_new_ids", None):
+            return
+        if self._initial_doc_id == doc_id:
+            self.open_doc_split = True
+        series_raw = self._current_series_raw()
+        self._load_series()
+        self._restore_series(series_raw)
+        self._select_doc(doc_id)
 
     def _on_delete(self) -> None:
         leaves = [lf for lf in self._tree.selectedItems() if id(lf) in self._doc_ids]
@@ -817,6 +845,80 @@ class _EditVolumeMetadataDialog(QDialog):
         return self._identifier_edit.text().strip()
 
 
+def _build_find_row(dialog: QDialog, editor: QPlainTextEdit) -> QHBoxLayout:
+    """Persistent find bar for a plain-text editor.
+
+    Sets ``_find_edit`` / ``_find_label`` / ``_find_next`` / ``_find_prev`` on
+    ``dialog`` and returns the row layout to drop under the editor. Ctrl+F
+    focuses the field (pre-filled from the editor selection); Return / ▶ finds
+    next, Shift+Return / ◀ finds previous; the search wraps and is
+    case-insensitive.
+    """
+    find_edit = QLineEdit()
+    find_edit.setPlaceholderText("Find…")
+    label = QLabel("")
+    prev_btn = QPushButton("◀")
+    next_btn = QPushButton("▶")
+    prev_btn.setFixedWidth(32)
+    next_btn.setFixedWidth(32)
+
+    def search(backward: bool) -> None:
+        needle = find_edit.text()
+        if not needle:
+            label.setText("")
+            find_edit.setStyleSheet("")
+            return
+        haystack = editor.toPlainText().lower()
+        total = haystack.count(needle.lower())
+        if total == 0:
+            find_edit.setStyleSheet("QLineEdit { background: #f8d7da; }")
+            label.setText("0/0")
+            return
+        find_edit.setStyleSheet("")
+        flags = (
+            QTextDocument.FindFlag.FindBackward if backward
+            else QTextDocument.FindFlag(0)
+        )
+        if not editor.find(needle, flags):
+            cur = editor.textCursor()
+            cur.movePosition(
+                cur.MoveOperation.End if backward else cur.MoveOperation.Start
+            )
+            editor.setTextCursor(cur)
+            editor.find(needle, flags)
+        pos = editor.textCursor().selectionStart()
+        idx = haystack.count(needle.lower(), 0, pos) + 1
+        label.setText(f"{idx}/{total}")
+
+    next_btn.clicked.connect(lambda: search(False))
+    prev_btn.clicked.connect(lambda: search(True))
+    find_edit.returnPressed.connect(lambda: search(False))
+
+    def focus_find() -> None:
+        sel = editor.textCursor().selectedText()
+        if sel:
+            find_edit.setText(sel)
+        find_edit.setFocus()
+        find_edit.selectAll()
+
+    QShortcut(QKeySequence("Ctrl+F"), dialog).activated.connect(focus_find)
+    QShortcut(QKeySequence("Shift+Return"), find_edit).activated.connect(
+        lambda: search(True)
+    )
+
+    dialog._find_edit = find_edit
+    dialog._find_label = label
+    dialog._find_next = lambda: search(False)
+    dialog._find_prev = lambda: search(True)
+
+    row = QHBoxLayout()
+    row.addWidget(find_edit)
+    row.addWidget(prev_btn)
+    row.addWidget(next_btn)
+    row.addWidget(label)
+    return row
+
+
 class _EditSourceDialog(QDialog):
     def __init__(self, doc_id: int, doc_title: str, db: Database, parent=None) -> None:
         super().__init__(parent)
@@ -840,6 +942,8 @@ class _EditSourceDialog(QDialog):
         text = "\n".join(r["raw_text"] for r in rows)
         self._editor.setPlainText(text)
 
+        layout.addLayout(_build_find_row(self, self._editor))
+
         btn_row = QHBoxLayout()
         save_btn = QPushButton("Save")
         save_btn.setDefault(True)
@@ -857,6 +961,105 @@ class _EditSourceDialog(QDialog):
         formatted = build_new_file(text)
         raw_lines, _, _ = parse_file_content(formatted)
         self._db.replace_raw_content(self._doc_id, raw_lines)
+        self.accept()
+
+
+SPLIT_MARKER = "---CHAPTER SPLIT---"
+
+
+class _SplitChapterDialog(QDialog):
+    """Place ``SPLIT_MARKER`` lines to break one chapter into consecutive ones.
+
+    One text line per original raw line. The *Insert Split Here* button drops a
+    marker on its own line (type the new chapter's title right after it). Only
+    marker positions matter — text edits here are ignored; use *Edit Source* to
+    change wording. On save, cuts are handed to ``Database.split_document`` and
+    the new document ids land in ``self._new_ids``.
+    """
+
+    def __init__(self, doc_id: int, doc_title: str, db: Database, parent=None) -> None:
+        super().__init__(parent)
+        self._doc_id = doc_id
+        self._db = db
+        self._new_ids: list[int] = []
+        self.setWindowTitle(f"Split Chapter — {doc_title}")
+        self.setMinimumSize(500, 400)
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(6)
+
+        hint = QLabel(
+            "Place a split marker where each new chapter begins; type its title "
+            "after the marker. Text edits here are ignored — use Edit Source to "
+            "change wording."
+        )
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+
+        self._editor = QPlainTextEdit()
+        editor_font = QFont("monospace")
+        editor_font.setPointSize(10)
+        self._editor.setFont(editor_font)
+        self._editor.setPlainText(
+            "\n".join(r["raw_text"] for r in self._db.get_lines(doc_id))
+        )
+        self._editor.textChanged.connect(self._update_save_enabled)
+        layout.addWidget(self._editor)
+
+        layout.addLayout(_build_find_row(self, self._editor))
+
+        btn_row = QHBoxLayout()
+        insert_btn = QPushButton("Insert Split Here")
+        insert_btn.clicked.connect(self._insert_marker)
+        self._save_btn = QPushButton("Split")
+        self._save_btn.setDefault(True)
+        self._save_btn.clicked.connect(self._on_split)
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+        btn_row.addWidget(insert_btn)
+        btn_row.addStretch()
+        btn_row.addWidget(self._save_btn)
+        btn_row.addWidget(cancel_btn)
+        layout.addLayout(btn_row)
+
+        self._update_save_enabled()
+
+    def _update_save_enabled(self) -> None:
+        self._save_btn.setEnabled(SPLIT_MARKER in self._editor.toPlainText())
+
+    def _insert_marker(self) -> None:
+        c = self._editor.textCursor()
+        c.movePosition(c.MoveOperation.StartOfBlock)
+        c.insertText(SPLIT_MARKER + "\n")
+        c.movePosition(c.MoveOperation.PreviousCharacter)  # back onto the marker line
+        self._editor.setTextCursor(c)
+        self._editor.setFocus()
+
+    def _cuts(self) -> list[tuple[int, str]]:
+        cuts: list[tuple[int, str]] = []
+        n = 0  # count of real (non-marker) lines seen so far
+        for raw in self._editor.toPlainText().split("\n"):
+            s = raw.strip()
+            if s == SPLIT_MARKER or s.startswith(SPLIT_MARKER):
+                title = s[len(SPLIT_MARKER):].strip()
+                if n >= 1 and (not cuts or cuts[-1][0] != n):
+                    cuts.append((n, title))
+            else:
+                n += 1
+        # a marker at/after the last real line is not a valid cut
+        return [(pos, title) for pos, title in cuts if pos <= n - 1]
+
+    def _on_split(self) -> None:
+        cuts = self._cuts()
+        if not cuts:
+            QMessageBox.warning(
+                self, "Split Chapter",
+                "Place at least one split marker between two lines.",
+            )
+            return
+        self._new_ids = self._db.split_document(self._doc_id, cuts)
         self.accept()
 
 
