@@ -334,6 +334,9 @@ class OpenDocumentDialog(QDialog):
         act_split.setEnabled(len(merge_ids) <= 1)
         menu.addSeparator()
         act_delete = menu.addAction("Delete")
+        menu.addSeparator()
+        act_publish = menu.addAction("Publish to WordPress…")
+        act_publish.setEnabled(len(merge_ids) == 1 and self._settings is not None)
         chosen = menu.exec(self._tree.viewport().mapToGlobal(pos))
         if chosen == act_merge:
             self._on_merge()
@@ -351,6 +354,13 @@ class OpenDocumentDialog(QDialog):
             self._renumber_by_title()
         elif chosen == act_delete:
             self._on_delete()
+        elif chosen == act_publish:
+            from translation_assistant.ui.wp_publish_flow import run_single_publish
+            series_raw = self._current_series_raw()
+            run_single_publish(
+                self._db, self._settings, merge_ids[0], self,
+                on_status_changed=lambda: self._load_chapters(series_raw),
+            )
 
     def _on_series_context_menu(self, pos) -> None:
         item = self._series_list.itemAt(pos)

@@ -1269,3 +1269,78 @@ class TestEditorFindRow:
         seqs = {sc.key().toString() for sc in dlg.findChildren(__import__(
             "PySide6.QtGui", fromlist=["QShortcut"]).QShortcut)}
         assert QKeySequence("Ctrl+F").toString() in seqs
+
+
+class TestPublishFromContextMenu:
+    def _dlg(self, qapp, mem_db, tmp_settings, n=1):
+        for i in range(1, n + 1):
+            doc_id = mem_db.create_document(
+                f"C{i}", series_title="Nov", series_order=i, chapter_title=f"Ch {i}"
+            )
+            mem_db.save_lines(doc_id, [
+                {"line_number": 0, "prefix": "%", "raw_text": "a", "translated_text": "b"},
+            ])
+        dlg = OpenDocumentDialog(mem_db, settings=tmp_settings)
+        _select_series(dlg, "Nov")
+        return dlg
+
+    def test_menu_item_enabled_for_single_selection(self, qapp, mem_db, tmp_settings, monkeypatch):
+        dlg = self._dlg(qapp, mem_db, tmp_settings, n=2)
+        dlg._tree.setCurrentItem(dlg._tree.topLevelItem(0))
+        seen = {}
+        import translation_assistant.ui.dlg_open as mod
+        monkeypatch.setattr(mod, "QMenu", _capture_menu(seen))
+        dlg._on_chapter_context_menu(dlg._tree.visualItemRect(dlg._tree.topLevelItem(0)).center())
+        assert seen["Publish to WordPress…"] is True
+
+    def test_menu_item_disabled_for_multi_selection(self, qapp, mem_db, tmp_settings, monkeypatch):
+        dlg = self._dlg(qapp, mem_db, tmp_settings, n=2)
+        dlg._tree.selectAll()
+        seen = {}
+        import translation_assistant.ui.dlg_open as mod
+        monkeypatch.setattr(mod, "QMenu", _capture_menu(seen))
+        dlg._on_chapter_context_menu(dlg._tree.visualItemRect(dlg._tree.topLevelItem(0)).center())
+        assert seen["Publish to WordPress…"] is False
+
+    def test_dispatch_calls_run_single_publish_with_selected_doc(self, qapp, mem_db, tmp_settings, monkeypatch):
+        dlg = self._dlg(qapp, mem_db, tmp_settings, n=1)
+        item = dlg._tree.topLevelItem(0)
+        dlg._tree.setCurrentItem(item)
+        target_doc_id = dlg._doc_ids[id(item)]
+
+        captured = {}
+        import translation_assistant.ui.wp_publish_flow as wpf
+        monkeypatch.setattr(
+            wpf, "run_single_publish",
+            lambda db, settings, doc_id, parent, **kw: captured.update(
+                doc_id=doc_id, has_cb="on_status_changed" in kw
+            ),
+        )
+
+        class _PickPublishMenu(QMenu):
+            def exec(self, *a, **k):
+                for act in self.actions():
+                    if act.text() == "Publish to WordPress…":
+                        return act
+                return None
+
+        monkeypatch.setattr("translation_assistant.ui.dlg_open.QMenu", _PickPublishMenu)
+        dlg._on_chapter_context_menu(dlg._tree.visualItemRect(item).center())
+        assert captured["doc_id"] == target_doc_id
+        assert captured["has_cb"] is True
+
+
+def _capture_menu(seen):
+    class _M(QMenu):
+        def addAction(self, text, *a, **k):
+            act = super().addAction(text, *a, **k)
+            seen[text] = act.isEnabled()
+            _orig = act.setEnabled
+            def _rec(v, _o=_orig, _t=text):
+                seen[_t] = v
+                _o(v)
+            act.setEnabled = _rec
+            return act
+        def exec(self, *a, **k):
+            return None
+    return _M
