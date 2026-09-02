@@ -525,11 +525,41 @@ class TestOpenDocumentDialog:
 
 
 class TestEditVolumeMetadata:
-    def test_edit_volume_btn_disabled_for_non_volume_document(self, qapp, mem_db):
+    def test_edit_volume_btn_enabled_for_non_volume_document(self, qapp, mem_db):
+        # Enabled even with no volume yet, so the chapter can be assigned one.
         mem_db.create_document("Doc")  # no volume_title -- plain/legacy document
         dlg = OpenDocumentDialog(mem_db)
         dlg._tree.setCurrentItem(_first_leaf(dlg))
-        assert not dlg._edit_volume_btn.isEnabled()
+        assert dlg._edit_volume_btn.isEnabled()
+
+    def test_do_edit_volume_assigns_lone_chapter_without_sweeping_series(self, qapp, mem_db):
+        a = mem_db.create_document("Ch A", series_title="S", chapter_title="Ch A")
+        b = mem_db.create_document("Ch B", series_title="S", chapter_title="Ch B")
+        dlg = OpenDocumentDialog(mem_db)
+        dlg._do_edit_volume(
+            a, "S", "",
+            new_volume_title="Vol 1",
+            volume_author="Auth", volume_illustrator="", volume_publisher="", volume_identifier="",
+        )
+        assert mem_db.get_document(a)["volume_title"] == "Vol 1"
+        assert mem_db.get_document(b)["volume_title"] == ""  # untouched
+
+    def test_do_edit_volume_lone_chapter_joins_existing_volume_metadata(self, qapp, mem_db):
+        mem_db.create_document(
+            "Ch 1", series_title="S", volume_title="Vol 1", chapter_title="Ch 1",
+            volume_author="Real Author", volume_identifier="urn:isbn:9",
+        )
+        new = mem_db.create_document("Ch 2", series_title="S", chapter_title="Ch 2")
+        dlg = OpenDocumentDialog(mem_db)
+        dlg._do_edit_volume(
+            new, "S", "",
+            new_volume_title="Vol 1",
+            volume_author="", volume_illustrator="", volume_publisher="", volume_identifier="",
+        )
+        meta = mem_db.get_document(new)
+        assert meta["volume_title"] == "Vol 1"
+        assert meta["volume_author"] == "Real Author"
+        assert meta["volume_identifier"] == "urn:isbn:9"
 
     def test_edit_volume_btn_enabled_for_volume_document(self, qapp, mem_db):
         mem_db.create_document("Doc", volume_title="Vol 1")

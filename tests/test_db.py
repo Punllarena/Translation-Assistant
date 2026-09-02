@@ -1728,6 +1728,25 @@ def test_split_document_original_keeps_wp_status(db):
     assert wp["wp_post_url"] == "http://x/1"
 
 
+def test_split_document_new_segments_inherit_volume(db):
+    doc = db.create_document(
+        "Ch1", series_title="S", series_order=1, chapter_title="Ch1",
+        volume_title="Vol 1", volume_author="Auth", volume_illustrator="Illus",
+        volume_publisher="Pub", volume_identifier="urn:isbn:1",
+    )
+    db.save_lines(doc, [
+        {"line_number": i, "prefix": "%", "raw_text": f"l{i}", "translated_text": ""}
+        for i in range(4)
+    ])
+    new_ids = db.split_document(doc, [(2, "P2")])
+    seg = db.get_document(new_ids[1])
+    assert seg["volume_title"] == "Vol 1"
+    assert seg["volume_author"] == "Auth"
+    assert seg["volume_illustrator"] == "Illus"
+    assert seg["volume_publisher"] == "Pub"
+    assert seg["volume_identifier"] == "urn:isbn:1"
+
+
 def test_split_document_new_segments_unpublished(db):
     doc = _mk_split_source(db, ["l0", "l1"])
     db.set_document_wp_status(doc, "publish", "http://x/1", "2026-01-01", 1)
