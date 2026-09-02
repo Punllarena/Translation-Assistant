@@ -1406,6 +1406,50 @@ class TestBatchPublish:
         for did in doc_ids:
             assert mem_db.get_document_wp_status(did)["wp_status"] == "publish"
 
+    def test_batch_publish_runs_on_a_real_qthread(self, qapp, mem_db, tmp_settings, monkeypatch):
+        """Regression: _BatchPublishWorker must not touch the DB from its thread.
+
+        Every other batch test monkeypatches _BatchPublishWorker.start to run
+        synchronously on the main thread, which hid a cross-thread sqlite crash
+        (Database uses check_same_thread=True). This one runs the worker on a
+        genuine separate QThread; publish() is stubbed so there is no network.
+        """
+        dlg = self._dlg(mem_db, tmp_settings, n=3)
+        doc_ids = [dlg._doc_ids[id(dlg._tree.topLevelItem(i))] for i in range(3)]
+
+        import translation_assistant.wp_publisher as wp
+        monkeypatch.setattr(
+            wp, "publish",
+            lambda endpoint, payload: {"created": True, "post_url": "https://ex.com/p/"},
+        )
+
+        class _NowDialog:
+            def __init__(self, *a, **k): pass
+            def exec(self): return 1
+            def schedule_enabled(self): return False
+            def start_qdatetime(self): return None
+            def chapters_per_day(self): return 1
+
+        monkeypatch.setattr("translation_assistant.ui.dlg_open._BatchPublishDialog", _NowDialog)
+        monkeypatch.setattr("translation_assistant.ui.dlg_open.QProgressDialog", _DummyProgress)
+        monkeypatch.setattr("translation_assistant.ui.dlg_open.QDialog.exec", lambda self: 1)
+        # _BatchPublishWorker.start is deliberately NOT patched here.
+
+        dlg._on_publish_batch(doc_ids)
+
+        from PySide6.QtTest import QTest
+        for _ in range(200):  # up to ~10s, exits as soon as all rows land
+            QTest.qWait(50)
+            if all(
+                mem_db.get_document_wp_status(d)["wp_status"] == "publish"
+                for d in doc_ids
+            ):
+                break
+
+        assert not dlg._batch_worker.isRunning()
+        for did in doc_ids:
+            assert mem_db.get_document_wp_status(did)["wp_status"] == "publish"
+
     def test_batch_schedule_steps_dates(self, qapp, mem_db, tmp_settings, monkeypatch):
         dlg = self._dlg(mem_db, tmp_settings, n=3)
         doc_ids = [dlg._doc_ids[id(dlg._tree.topLevelItem(i))] for i in range(3)]
@@ -1435,10 +1479,16 @@ class TestBatchPublish:
 
         dlg._on_publish_batch(doc_ids)
 
+        # Timezone-robust: assert the stepping relationship, not literal dates.
+        # QDateTime.toPython() is naive-local; .astimezone(utc) reinterprets it,
+        # so the literal UTC date depends on the host's zone.
+        from datetime import datetime, timedelta, timezone
         assert all(d is not None for d in seen_dates)
-        assert seen_dates[0].startswith("2026-09-03")
-        assert seen_dates[1].startswith("2026-09-03")   # chapters_per_day == 2
-        assert seen_dates[2].startswith("2026-09-04")   # rolls to next day
+        slots = [datetime.strptime(s, "%Y-%m-%dT%H:%M:%SZ") for s in seen_dates]
+        expected_first = start.toPython().astimezone(timezone.utc).replace(tzinfo=None)
+        assert slots[0] == expected_first
+        assert slots[1].date() == slots[0].date()                      # chapters_per_day == 2
+        assert slots[2].date() == slots[0].date() + timedelta(days=1)  # rolls to next day
 
     def test_batch_continues_past_one_failure(self, qapp, mem_db, tmp_settings, monkeypatch):
         dlg = self._dlg(mem_db, tmp_settings, n=3)

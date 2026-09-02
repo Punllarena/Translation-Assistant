@@ -130,7 +130,29 @@ class TestEnsureSeriesWpMeta:
     def test_returns_none_when_still_unset_after_dialog(self, db, monkeypatch):
         monkeypatch.setattr(wpf, "SeriesManagerDialog", lambda *a, **k: _RejectDialog())
         monkeypatch.setattr(wpf, "remember_dialog_geometry", lambda *a, **k: None)
+        monkeypatch.setattr(wpf.QMessageBox, "information", lambda *a, **k: None)
         assert wpf.ensure_series_wp_meta(db, _Settings(), "Nov", None) is None
+
+    def test_shows_info_hint_before_series_manager_when_fields_unset(self, db, monkeypatch):
+        seen = []
+        monkeypatch.setattr(
+            wpf.QMessageBox, "information",
+            lambda parent, title, text, *a, **k: seen.append((title, text)),
+        )
+        monkeypatch.setattr(wpf, "SeriesManagerDialog", lambda *a, **k: _RejectDialog())
+        monkeypatch.setattr(wpf, "remember_dialog_geometry", lambda *a, **k: None)
+        wpf.ensure_series_wp_meta(db, _Settings(), "Nov", None)
+        assert seen and seen[0][0] == "WP Fields Missing"
+        assert "Nov" in seen[0][1]
+
+    def test_no_info_hint_when_fields_already_set(self, db, monkeypatch):
+        db.set_series_wp_meta("Nov", series_slug="nov", series_title_short="N")
+        seen = []
+        monkeypatch.setattr(
+            wpf.QMessageBox, "information", lambda *a, **k: seen.append(a)
+        )
+        wpf.ensure_series_wp_meta(db, _Settings(), "Nov", None)
+        assert seen == []
 
 
 class _RejectDialog:

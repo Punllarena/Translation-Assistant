@@ -36,44 +36,48 @@ class _BatchPublishWorker(QThread):
     progress = Signal(int, int, int, dict)      # index, total, doc_id, {"ok": bool, ...}
     finished_all = Signal(list)                 # [{doc_id, series_order, ok, result|error}]
 
-    def __init__(self, db, settings, endpoint_url, api_key, jobs, parent=None):
+    def __init__(self, endpoint_url, api_key, tasks, parent=None):
         super().__init__(parent)
-        self._db = db
-        self._settings = settings
         self._endpoint_url = endpoint_url
         self._api_key = api_key
-        self._jobs = jobs                       # [(doc_id, scheduled_date | None)]
+        # tasks: list[dict] pre-built on the MAIN thread (Database is not
+        # thread-safe — check_same_thread). Each has doc_id / series_order /
+        # scheduled_date and either payload+password+unlock_chapter_index or
+        # build_error. The worker only calls publish().
+        self._tasks = tasks
         self._cancel = False
 
     def cancel(self):
         self._cancel = True
 
     def run(self):
-        from translation_assistant.ui.wp_publish_flow import (
-            PublishJobError, build_job, job_to_payload,
-        )
         from translation_assistant.wp_publisher import WPPublishError, publish
         summary = []
-        total = len(self._jobs)
-        for i, (doc_id, sched) in enumerate(self._jobs):
+        total = len(self._tasks)
+        for i, task in enumerate(self._tasks):
             if self._cancel:
                 break
-            row = {"doc_id": doc_id, "series_order": None, "scheduled_date": sched}
-            try:
-                job = build_job(self._db, self._settings, doc_id)
-                row["series_order"] = job.series_order
-                payload = job_to_payload(
-                    job, self._api_key, scheduled_date=sched,
-                    attribution=self._settings.wp_attribution_enabled,
-                )
-                result = publish(self._endpoint_url, payload)
-                row.update(ok=True, result=result, password=job.password)
-            except (PublishJobError, ValueError, WPPublishError) as exc:
-                row.update(ok=False, error=str(exc))
-            except Exception as exc:  # noqa: BLE001 — worker boundary
-                row.update(ok=False, error=str(exc))
+            row = {
+                "doc_id": task["doc_id"],
+                "series_order": task["series_order"],
+                "scheduled_date": task["scheduled_date"],
+            }
+            if task.get("build_error"):
+                row.update(ok=False, error=task["build_error"])
+            else:
+                try:
+                    result = publish(self._endpoint_url, task["payload"])
+                    row.update(
+                        ok=True, result=result,
+                        password=task["password"],
+                        unlock_chapter_index=task["unlock_chapter_index"],
+                    )
+                except WPPublishError as exc:
+                    row.update(ok=False, error=exc.message)
+                except Exception as exc:  # noqa: BLE001 — worker boundary
+                    row.update(ok=False, error=f"{type(exc).__name__}: {exc}")
             summary.append(row)
-            self.progress.emit(i + 1, total, doc_id, row)
+            self.progress.emit(i + 1, total, task["doc_id"], row)
         self.finished_all.emit(summary)
 
 
@@ -415,7 +419,8 @@ class OpenDocumentDialog(QDialog):
     def _on_publish_batch(self, doc_ids: list[int]) -> None:
         from datetime import timezone
         from translation_assistant.ui.wp_publish_flow import (
-            ensure_series_wp_meta, ensure_wp_config,
+            PublishJobError, build_job, ensure_series_wp_meta, ensure_wp_config,
+            job_to_payload,
         )
         from translation_assistant.wp_publisher import compute_auto_schedule
 
@@ -466,14 +471,32 @@ class OpenDocumentDialog(QDialog):
         else:
             slots = [None] * len(ordered)
 
-        jobs = list(zip(ordered, slots))
-        prog = QProgressDialog("Publishing…", "Cancel", 0, len(jobs), self)
+        # Build jobs + payloads on the MAIN thread — Database is not thread-safe.
+        tasks = []
+        for doc_id, slot in zip(ordered, slots):
+            t = {
+                "doc_id": doc_id,
+                "series_order": docs[doc_id]["series_order"],
+                "scheduled_date": slot,
+            }
+            try:
+                job = build_job(self._db, self._settings, doc_id)
+                t["series_order"] = job.series_order
+                t["password"] = job.password
+                t["unlock_chapter_index"] = job.unlock_chapter_index
+                t["payload"] = job_to_payload(
+                    job, api_key, scheduled_date=slot,
+                    attribution=self._settings.wp_attribution_enabled,
+                )
+            except (PublishJobError, ValueError) as exc:
+                t["build_error"] = str(exc)
+            tasks.append(t)
+
+        prog = QProgressDialog("Publishing…", "Cancel", 0, len(tasks), self)
         prog.setWindowModality(Qt.WindowModality.WindowModal)
         prog.setMinimumDuration(0)
 
-        worker = _BatchPublishWorker(
-            self._db, self._settings, endpoint_url, api_key, jobs, parent=self
-        )
+        worker = _BatchPublishWorker(endpoint_url, api_key, tasks, parent=self)
         self._batch_worker = worker  # keepalive
 
         def _on_progress(idx, total, doc_id, row):
@@ -522,6 +545,15 @@ class OpenDocumentDialog(QDialog):
             lines.append("")
             lines.append("Passwords:")
             lines.extend(pws)
+        unlocks = [
+            f"ch {r['series_order']}: chapter {r['unlock_chapter_index']} unlocked"
+            for r in summary
+            if r.get("ok") and r.get("unlock_chapter_index") is not None
+        ]
+        if unlocks:
+            lines.append("")
+            lines.append("Unlocked:")
+            lines.extend(unlocks)
         box = QPlainTextEdit("\n".join(lines))
         box.setReadOnly(True)
         layout.addWidget(box)

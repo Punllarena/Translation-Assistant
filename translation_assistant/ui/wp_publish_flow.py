@@ -22,6 +22,10 @@ from translation_assistant.ui import remember_dialog_geometry
 from translation_assistant.ui.dlg_series import SeriesManagerDialog
 from translation_assistant.ui.dlg_wp_settings import WPSettingsDialog
 
+# Keepalive for PublishWorkers spawned with parent=None — without a Qt parent
+# and without a surviving Python ref they can be GC'd mid-flight.
+_ORPHAN_WORKERS: set = set()
+
 
 class PublishWorker(QThread):
     succeeded = Signal(dict)
@@ -195,6 +199,10 @@ def ensure_series_wp_meta(db, settings, series_title: str, parent):
     meta = db.get_series_wp_meta(series_title)
     if meta["series_slug"] and meta["series_title_short"]:
         return meta
+    QMessageBox.information(
+        parent, "WP Fields Missing",
+        f'Set "Series Slug" and "Short Title" for "{series_title}" in Series Manager.',
+    )
     dlg = SeriesManagerDialog(db, settings=settings, parent=parent)
     remember_dialog_geometry(dlg, settings, "dlg_series")
     dlg.exec()
@@ -210,8 +218,6 @@ class PublishConfirmDialog(QDialog):
         self._job = job
         self._db = db
         self._settings = settings
-        self._dte = None
-        self._schedule_cb = None
         self._status_worker = None
         self.setWindowTitle("Publish to WordPress")
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
@@ -325,7 +331,6 @@ class PublishConfirmDialog(QDialog):
     def scheduled_date_utc(self):
         if not self._schedule_cb.isChecked():
             return None
-        from datetime import timezone
         local = self._dte.dateTime().toPython()
         return local.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -414,10 +419,19 @@ def run_single_publish(db, settings, doc_id, parent, *, on_status_changed=None):
         return
 
     worker = PublishWorker(endpoint_url, payload, parent=parent)
-    keep = getattr(parent, "_wp_flow_keepalive", None)
-    if keep is None and parent is not None:
-        keep = []
-        parent._wp_flow_keepalive = keep
+    if parent is not None:
+        keep = getattr(parent, "_wp_flow_keepalive", None)
+        if keep is None:
+            keep = []
+            parent._wp_flow_keepalive = keep
+    else:
+        keep = _ORPHAN_WORKERS  # no widget parent — hold a ref so it survives
+
+    def _release():
+        try:
+            keep.remove(worker)
+        except (ValueError, KeyError):
+            pass
 
     def _done(result):
         if persist_publish_result(
@@ -426,16 +440,16 @@ def run_single_publish(db, settings, doc_id, parent, *, on_status_changed=None):
         ) and on_status_changed:
             on_status_changed()
         show_publish_result(result, job, scheduled_date, parent)
-        if keep is not None and worker in keep:
-            keep.remove(worker)
+        _release()
 
     def _err(msg):
         QMessageBox.warning(parent, "Publish Failed", msg)
-        if keep is not None and worker in keep:
-            keep.remove(worker)
+        _release()
 
     worker.succeeded.connect(_done)
     worker.error.connect(_err)
-    if keep is not None:
+    if isinstance(keep, set):
+        keep.add(worker)
+    else:
         keep.append(worker)
     worker.start()
