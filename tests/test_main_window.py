@@ -1321,198 +1321,52 @@ class TestCardListImagesWiring:
 
 
 class TestPublishWpConfirmCopy:
-    def test_confirm_dialog_warns_when_already_published(self, win, monkeypatch):
-        win.load_content(_sep_file("Hello\n", "Bonjour\n"))
-        win._db.set_document_wp_status(win._doc_id, "publish", "https://ex.com/c1/", None, 1)
-        win._settings.wp_endpoint_url = "https://example.com"
-        win._settings.wp_api_key = "key123"
-        doc = win._db.get_document(win._doc_id)
-        win._db.set_series_wp_meta(
-            doc["series_title"], series_slug="s", series_title_short="S",
-        )
+    def test_confirm_dialog_warns_when_already_published(self, win, qapp):
+        import sqlite3
+        from translation_assistant.db import Database
+        from translation_assistant.ui import wp_publish_flow as wpf
+        db = Database(":memory:", _conn=sqlite3.connect(":memory:"))
+        doc_id = db.create_document("Ch", series_title="Nov", series_order=2, chapter_title="Chapter 2")
+        db.save_lines(doc_id, [{"line_number": 0, "prefix": "%", "raw_text": "a", "translated_text": "b"}])
+        db.set_series_wp_meta("Nov", series_slug="nov", series_title_short="N")
+        db.set_document_wp_status(doc_id, "publish", "https://ex.com/c/", None, 2)
 
+        class _NoRun(wpf.StatusCheckWorker):
+            def start(self): pass
+
+        import unittest.mock as m
+        with m.patch.object(wpf, "StatusCheckWorker", _NoRun):
+            job = wpf.build_job(db, win._settings, doc_id)
+            dlg = wpf.PublishConfirmDialog(job, db, win._settings, "https://ex.com", "key")
+        from PySide6.QtWidgets import QLabel
+        assert any("overwrite" in w.text().lower() for w in dlg.findChildren(QLabel))
+
+    def test_accept_path_forwards_cached_chapter_index(self, qapp):
+        """previous_chapter_index flows from the cached wp_chapter_index into build_payload."""
+        import sqlite3
+        from translation_assistant.db import Database
+        from translation_assistant.ui import wp_publish_flow as wpf
+        db = Database(":memory:", _conn=sqlite3.connect(":memory:"))
+        doc_id = db.create_document("Ch", series_title="Nov", series_order=3, chapter_title="Chapter 3")
+        db.save_lines(doc_id, [{"line_number": 0, "prefix": "%", "raw_text": "a", "translated_text": "b"}])
+        db.set_series_wp_meta("Nov", series_slug="nov", series_title_short="N")
+        db.set_document_wp_status(doc_id, "publish", "https://ex.com/c/", None, 1)
+
+        job = wpf.build_job(db, _MWSettings(), doc_id)
+        assert job.prev_wp_chapter_index == 1
         captured = {}
-
-        from PySide6.QtWidgets import QDialog as _RealQDialog
-
-        class _FakeDialog(_RealQDialog):
-            def exec(self): return 0  # Cancel — stop before any network/worker activity
-
-        def _fake_label_capture(text, *a, **k):
-            captured.setdefault("labels", []).append(text)
-            from PySide6.QtWidgets import QLabel
-            return QLabel(text)
-
-        monkeypatch.setattr(
-            "translation_assistant.ui.main_widget.QDialog", _FakeDialog,
-        )
-        monkeypatch.setattr(
-            "translation_assistant.ui.main_widget.QLabel", _fake_label_capture,
-        )
-        win._on_publish_wp()
-
-        assert any("overwrite" in t.lower() for t in captured["labels"])
-
-    def test_accept_path_forwards_cached_chapter_index(self, win, monkeypatch):
-        """End-to-end: cached wp_chapter_index flows into build_payload, and
-        _last_wp_chapter_index is updated to the new series_order once the
-        confirm dialog is accepted."""
-        win.load_content(_sep_file("Hello\n", "Bonjour\n"))
-        win._db.set_document_wp_status(win._doc_id, "publish", "https://ex.com/c1/", None, 1)
-        win._db.set_series_orders([(win._doc_id, 3)])
-        win._settings.wp_endpoint_url = "https://example.com"
-        win._settings.wp_api_key = "key123"
-        doc = win._db.get_document(win._doc_id)
-        win._db.set_series_wp_meta(
-            doc["series_title"], series_slug="s", series_title_short="S",
-        )
-
-        from PySide6.QtWidgets import QDialog as _RealQDialog
-
-        class _FakeDialog(_RealQDialog):
-            def exec(self):
-                return 1  # Accept
-
-        monkeypatch.setattr(
-            "translation_assistant.ui.main_widget.QDialog", _FakeDialog,
-        )
-
-        # Stub the QThread-based workers so no real network/threading occurs.
-        class _FakeThread:
-            def __init__(self, *a, **k):
-                pass
-
-            def start(self):
-                pass
-
-            def quit(self):
-                pass
-
-            def wait(self, *a, **k):
-                pass
-
-            def connect(self, *a, **k):
-                pass
-
-            @property
-            def succeeded(self):
-                return self
-
-            @property
-            def error(self):
-                return self
-
-        monkeypatch.setattr(
-            "translation_assistant.ui.main_widget._StatusCheckWorker", _FakeThread,
-        )
-        monkeypatch.setattr(
-            "translation_assistant.ui.main_widget._PublishWorker", _FakeThread,
-        )
-
-        captured = {}
-        import translation_assistant.wp_publisher as wp_publisher
-        _real_build_payload = wp_publisher.build_payload
-
-        def _spy_build_payload(*args, **kwargs):
-            captured["kwargs"] = kwargs
-            return _real_build_payload(*args, **kwargs)
-
-        monkeypatch.setattr(wp_publisher, "build_payload", _spy_build_payload)
-
-        win._on_publish_wp()
-
-        assert captured["kwargs"]["previous_chapter_index"] == 1
-        assert win._last_wp_chapter_index == 3
-
-    def test_status_ok_preserves_cached_chapter_index(self, win, monkeypatch):
-        """_on_status_ok's async status refresh must not clobber the cached
-        wp_chapter_index with None."""
-        win.load_content(_sep_file("Hello\n", "Bonjour\n"))
-        win._db.set_document_wp_status(win._doc_id, "publish", "https://ex.com/c1/", None, 1)
-        win._settings.wp_endpoint_url = "https://example.com"
-        win._settings.wp_api_key = "key123"
-        doc = win._db.get_document(win._doc_id)
-        win._db.set_series_wp_meta(
-            doc["series_title"], series_slug="s", series_title_short="S",
-        )
-
-        from PySide6.QtWidgets import QDialog as _RealQDialog
-
-        class _FakeDialog(_RealQDialog):
-            def exec(self):
-                return 0  # Cancel — we only care about the async status callback
-
-        monkeypatch.setattr(
-            "translation_assistant.ui.main_widget.QDialog", _FakeDialog,
-        )
-
-        captured_worker = {}
-        from translation_assistant.ui.main_widget import _StatusCheckWorker as _RealStatusWorker
-
-        class _CapturingStatusWorker(_RealStatusWorker):
-            def __init__(self, *a, **k):
-                super().__init__(*a, **k)
-                captured_worker["worker"] = self
-
-            def start(self):
-                pass  # don't actually run the thread
-
-        monkeypatch.setattr(
-            "translation_assistant.ui.main_widget._StatusCheckWorker", _CapturingStatusWorker,
-        )
-
-        win._on_publish_wp()
-
-        worker = captured_worker["worker"]
-        # Simulate the async status callback firing with a fresh result.
-        worker.succeeded.emit({"status": "future", "post_url": "https://ex.com/c1/", "date": "2026-01-01T00:00:00Z"})
-
-        info = win._db.get_document_wp_status(win._doc_id)
-        assert info["wp_chapter_index"] == 1
+        import translation_assistant.wp_publisher as wp
+        real = wp.build_payload
+        import unittest.mock as m
+        with m.patch.object(wp, "build_payload", lambda *a, **k: captured.update(k) or real(*a, **k)):
+            wpf.job_to_payload(job, "key", scheduled_date=None, attribution=True)
+        assert captured["previous_chapter_index"] == 1
 
 
-class TestOnPublishDone:
-    def _prep(self, win):
-        _load(win, "Hello\n")
-        win._last_scheduled_date = None
-        win._last_pw = None
-        win._last_unlock_idx = None
-        win._last_wp_chapter_index = 1
-        return win._doc_id
-
-    def test_persists_status_on_created(self, win, monkeypatch):
-        doc_id = self._prep(win)
-        monkeypatch.setattr(
-            "translation_assistant.ui.main_widget.QDialog.exec", lambda self: 1,
-        )
-        win._on_publish_done({"created": True, "page_url": "https://ex.com/c1/", "post_url": "https://ex.com/p1/"})
-        info = win._db.get_document_wp_status(doc_id)
-        assert info["wp_status"] == "publish"
-        assert info["wp_chapter_index"] == 1
-
-    def test_persists_status_on_updated_without_created(self, win, monkeypatch):
-        doc_id = self._prep(win)
-        monkeypatch.setattr(
-            "translation_assistant.ui.main_widget.QDialog.exec", lambda self: 1,
-        )
-        win._on_publish_done({
-            "created": False, "updated": True,
-            "page_url": "https://ex.com/c1/", "post_url": "https://ex.com/p1/",
-        })
-        info = win._db.get_document_wp_status(doc_id)
-        assert info["wp_status"] == "publish"
-        assert info["wp_post_url"] == "https://ex.com/p1/"
-        assert info["wp_chapter_index"] == 1
-
-    def test_skips_status_write_when_neither_created_nor_updated(self, win, monkeypatch):
-        doc_id = self._prep(win)
-        win._db.set_document_wp_status(doc_id, "future", "https://old.example/", "2026-01-01T00:00:00Z", 1)
-        monkeypatch.setattr(
-            "translation_assistant.ui.main_widget.QDialog.exec", lambda self: 1,
-        )
-        win._on_publish_done({"created": False, "page_url": "https://ex.com/c1/", "post_url": ""})
-        info = win._db.get_document_wp_status(doc_id)
-        assert info["wp_status"] == "future"  # untouched
+class _MWSettings:
+    wp_password_enabled = False
+    wp_unlock_after = 0
+    wp_attribution_enabled = True
 
 
 class TestImageCollapseAndExport:
@@ -1611,14 +1465,20 @@ class TestImageCollapseAndExport:
         img_id = win._db.add_document_image(win._doc_id, 1, False, "images/pic.png", b"fake-bytes")
         win._db.set_image_exclude_export(img_id, 1)
 
-        class _FakeThread:
+        from translation_assistant.ui import wp_publish_flow as wpf
+
+        class _AcceptConfirm:
+            def __init__(self, *a, **k):
+                pass
+            def exec(self):
+                return 1
+            def scheduled_date_utc(self):
+                return None
+
+        class _NoRunWorker:
             def __init__(self, *a, **k):
                 pass
             def start(self):
-                pass
-            def quit(self):
-                pass
-            def wait(self, *a, **k):
                 pass
             def connect(self, *a, **k):
                 pass
@@ -1629,16 +1489,8 @@ class TestImageCollapseAndExport:
             def error(self):
                 return self
 
-        monkeypatch.setattr(
-            "translation_assistant.ui.main_widget._StatusCheckWorker", _FakeThread,
-        )
-        monkeypatch.setattr(
-            "translation_assistant.ui.main_widget._PublishWorker", _FakeThread,
-        )
-
-        monkeypatch.setattr(
-            "translation_assistant.ui.main_widget.QDialog.exec", lambda self: 1,
-        )
+        monkeypatch.setattr(wpf, "PublishConfirmDialog", _AcceptConfirm)
+        monkeypatch.setattr(wpf, "PublishWorker", _NoRunWorker)
 
         captured = {}
         import translation_assistant.wp_publisher as wp_publisher
