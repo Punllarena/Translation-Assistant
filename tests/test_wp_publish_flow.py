@@ -138,6 +138,56 @@ class _RejectDialog:
         return 0
 
 
+class TestPublishConfirmDialog:
+    def _job(self, db, **over):
+        doc_id = _doc_with_lines(db, series_order=over.get("series_order", 2))
+        return wpf.build_job(db, _Settings(), doc_id), doc_id
+
+    def test_scheduled_date_none_when_unchecked(self, qapp, db, monkeypatch):
+        monkeypatch.setattr(wpf, "StatusCheckWorker", _NoRunWorker)
+        job, _ = self._job(db)
+        dlg = wpf.PublishConfirmDialog(job, db, _Settings(), "https://ex.com", "key")
+        assert dlg.scheduled_date_utc() is None
+
+    def test_scheduled_date_iso_when_checked(self, qapp, db, monkeypatch):
+        monkeypatch.setattr(wpf, "StatusCheckWorker", _NoRunWorker)
+        job, _ = self._job(db)
+        dlg = wpf.PublishConfirmDialog(job, db, _Settings(), "https://ex.com", "key")
+        dlg._schedule_cb.setChecked(True)
+        s = dlg.scheduled_date_utc()
+        assert s is not None and s.endswith("Z") and "T" in s
+
+    def test_warns_when_already_published(self, qapp, db, monkeypatch):
+        monkeypatch.setattr(wpf, "StatusCheckWorker", _NoRunWorker)
+        job, doc_id = self._job(db)
+        db.set_document_wp_status(doc_id, "publish", "https://ex.com/c/", None, 2)
+        job = wpf.build_job(db, _Settings(), doc_id)
+        dlg = wpf.PublishConfirmDialog(job, db, _Settings(), "https://ex.com", "key")
+        from PySide6.QtWidgets import QLabel
+        texts = [w.text() for w in dlg.findChildren(QLabel)]
+        assert any("overwrite" in t.lower() for t in texts)
+
+
+class _NoRunWorker:
+    """StatusCheckWorker stand-in that never touches the network."""
+    def __init__(self, *a, **k):
+        pass
+    def start(self):
+        pass
+    def quit(self):
+        pass
+    def wait(self, *a, **k):
+        pass
+    @property
+    def succeeded(self):
+        return self
+    @property
+    def error(self):
+        return self
+    def connect(self, *a, **k):
+        pass
+
+
 class _Settings:
     """Minimal stand-in for AppSettings — only the wp_* attrs build_job reads."""
     def __init__(self, **over):

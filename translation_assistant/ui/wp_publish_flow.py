@@ -10,10 +10,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from PySide6.QtCore import QThread, Signal
+from PySide6.QtCore import QDateTime, Qt, QThread, QTime, Signal
+from PySide6.QtWidgets import (
+    QCheckBox, QDateTimeEdit, QDialog, QDialogButtonBox, QLabel, QVBoxLayout,
+)
 
 import translation_assistant.wp_publisher as _wp
-from translation_assistant.wp_publisher import WPPublishError
+from translation_assistant.wp_publisher import WPPublishError, compute_auto_schedule
 from translation_assistant.ui import remember_dialog_geometry
 from translation_assistant.ui.dlg_series import SeriesManagerDialog
 from translation_assistant.ui.dlg_wp_settings import WPSettingsDialog
@@ -198,3 +201,135 @@ def ensure_series_wp_meta(db, settings, series_title: str, parent):
     if not meta["series_slug"] or not meta["series_title_short"]:
         return None
     return meta
+
+
+class PublishConfirmDialog(QDialog):
+    def __init__(self, job, db, settings, endpoint_url, api_key, parent=None):
+        super().__init__(parent)
+        self._job = job
+        self._db = db
+        self._settings = settings
+        self._dte = None
+        self._schedule_cb = None
+        self._status_worker = None
+        self.setWindowTitle("Publish to WordPress")
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
+
+        doc_meta, series_meta = job.doc_meta, job.series_meta
+        layout = QVBoxLayout(self)
+
+        prev_status = None
+        prev_scheduled = False
+        if job.series_order > 0:
+            prev_status = db.get_wp_status_by_series_position(
+                doc_meta["series_title"], job.series_order - 1
+            )
+            prev_scheduled = prev_status is not None and prev_status.get("wp_status") == "future"
+
+        cached = db.get_document_wp_status(job.doc_id)
+        status_text_map = {"publish": "Published", "future": "Scheduled", "draft": "Draft"}
+        cached_text = status_text_map.get(cached["wp_status"] or "", "Not published")
+        self._status_lbl = QLabel(f"WP status: {cached_text}")
+        layout.addWidget(self._status_lbl)
+
+        chapter_label = "Synopsis" if job.series_order == 0 else f"Chapter {job.series_order}"
+        prompt = f'Publish <b>{doc_meta["chapter_title"]}</b> ({chapter_label}) to WordPress?'
+        if cached["wp_status"] == "publish":
+            prompt += " — republishing will overwrite the live chapter."
+        layout.addWidget(QLabel(prompt))
+
+        if prev_scheduled:
+            warn = QLabel(
+                f"Warning: Chapter {job.series_order - 1} is still scheduled "
+                "and hasn't gone live yet."
+            )
+            warn.setWordWrap(True)
+            layout.addWidget(warn)
+
+        self._schedule_cb = QCheckBox("Schedule for later")
+        layout.addWidget(self._schedule_cb)
+
+        default_time = settings.wp_default_schedule_time
+        h = m = None
+        if default_time:
+            try:
+                h, m = map(int, default_time.split(":"))
+            except (ValueError, IndexError):
+                default_time = ""
+        if default_time:
+            candidate = QDateTime.currentDateTime()
+            candidate.setTime(QTime(h, m))
+            if candidate <= QDateTime.currentDateTime():
+                candidate = candidate.addDays(1)
+            self._dte = QDateTimeEdit(candidate)
+        else:
+            self._dte = QDateTimeEdit(QDateTime.currentDateTime().addSecs(3600))
+        self._dte.setCalendarPopup(True)
+        self._dte.setDisplayFormat("yyyy-MM-dd HH:mm")
+        self._dte.setEnabled(False)
+        self._schedule_cb.toggled.connect(self._dte.setEnabled)
+        layout.addWidget(self._dte)
+
+        if prev_scheduled:
+            self._schedule_cb.setChecked(True)
+            prev_date = prev_status.get("wp_date") if prev_status else None
+            if prev_date:
+                scope_series = (
+                    None if settings.wp_schedule_scope_global else doc_meta["series_title"]
+                )
+                try:
+                    auto = compute_auto_schedule(
+                        prev_date,
+                        db.get_wp_dates(scope_series),
+                        settings.wp_chapters_per_day,
+                        settings.wp_default_schedule_time,
+                    )
+                    self._dte.setDateTime(QDateTime(auto))
+                except ValueError:
+                    pass
+
+        if prev_scheduled:
+            btns = QDialogButtonBox()
+            btns.addButton("Cancel", QDialogButtonBox.ButtonRole.RejectRole)
+            btns.addButton("Publish Anyway", QDialogButtonBox.ButtonRole.AcceptRole)
+        else:
+            btns = QDialogButtonBox(
+                QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+            )
+        btns.accepted.connect(self.accept)
+        btns.rejected.connect(self.reject)
+        layout.addWidget(btns)
+
+        self._status_worker = StatusCheckWorker(
+            endpoint_url, api_key, series_meta["series_slug"], job.series_order, parent=self
+        )
+        self._cached = cached
+        self._cached_text = cached_text
+        self._status_worker.succeeded.connect(self._on_status_ok)
+        self._status_worker.error.connect(self._on_status_err)
+        self._status_worker.start()
+
+    def _on_status_ok(self, result: dict) -> None:
+        m = {"publish": "Published", "future": "Scheduled", "draft": "Draft",
+             "not_found": "Not published"}
+        self._status_lbl.setText(f"WP status: {m.get(result.get('status', ''), 'Unknown')}")
+        self._db.set_document_wp_status(
+            self._job.doc_id, result.get("status") or None, result.get("post_url"),
+            result.get("date"), self._cached.get("wp_chapter_index"),
+        )
+
+    def _on_status_err(self, msg: str) -> None:
+        self._status_lbl.setText(f"WP status: {self._cached_text} (cached — {msg})")
+
+    def scheduled_date_utc(self):
+        if not self._schedule_cb.isChecked():
+            return None
+        from datetime import timezone
+        local = self._dte.dateTime().toPython()
+        return local.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    def done(self, r: int) -> None:
+        if self._status_worker is not None:
+            self._status_worker.quit()
+            self._status_worker.wait(500)
+        super().done(r)
