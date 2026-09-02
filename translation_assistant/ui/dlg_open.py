@@ -435,11 +435,8 @@ class OpenDocumentDialog(QDialog):
             key=lambda i: (docs[i]["series_title"] or "", docs[i]["series_order"]),
         )
         for series_title in {docs[i]["series_title"] for i in ordered}:
+            # ensure_series_wp_meta shows its own "WP Fields Missing" prompt.
             if ensure_series_wp_meta(self._db, self._settings, series_title, self) is None:
-                QMessageBox.warning(
-                    self, "WP Fields Missing",
-                    f'Set slug + short title for "{series_title}" in Series Manager.',
-                )
                 return
 
         chapters = [
