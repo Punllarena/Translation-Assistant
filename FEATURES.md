@@ -5,6 +5,7 @@ Desktop app (PySide6) for translating Japanese web novels line-by-line. Basis fo
 ## Core translation workflow
 - Side-by-side line-by-line translation editor: source paragraph shown, user types translation below
 - Keyboard-driven navigation between lines/paragraphs (all keys routed through one handler)
+- Find bar (Ctrl+F) in the source-editing dialogs — Edit Source and Split Chapter — with wrap-around, case-insensitive matching and an n/total hit counter
 - Auto-copy current source line to clipboard (debounced, 400 ms) for use with external MT tools
 - Machine translation aggregator panel alongside the editor
 - Autosave with configurable interval; progress indicator per document
@@ -13,6 +14,7 @@ Desktop app (PySide6) for translating Japanese web novels line-by-line. Basis fo
 ## Documents & series
 - Documents stored in SQLite (no loose files); document picker dialog replaces file dialogs
 - Series grouping: manage series, per-series URL, drag-drop chapter reorder, renumber by title
+- Merge selected chapters into one, or split an over-long imported chapter into consecutive chapters at manually placed markers — translations, line prefixes and images follow into the right segment; series order re-compacts
 - Batch operations: new series creation, batch import from files/folder, batch fetch
 - Import/export legacy TXT format; export Markdown (plain translation or ruby-annotated)
 - Per-series Markdown export; database backup export/import
