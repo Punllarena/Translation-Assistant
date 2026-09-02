@@ -167,6 +167,18 @@ class TestPublishConfirmDialog:
         texts = [w.text() for w in dlg.findChildren(QLabel)]
         assert any("overwrite" in t.lower() for t in texts)
 
+    def test_status_ok_preserves_cached_chapter_index(self, qapp, db, monkeypatch):
+        """The async status refresh must not clobber the cached wp_chapter_index."""
+        monkeypatch.setattr(wpf, "StatusCheckWorker", _NoRunWorker)
+        doc_id = _doc_with_lines(db, series_order=2)
+        db.set_document_wp_status(doc_id, "publish", "https://ex.com/c/", None, 1)
+        job = wpf.build_job(db, _Settings(), doc_id)
+        dlg = wpf.PublishConfirmDialog(job, db, _Settings(), "https://ex.com", "key")
+        dlg._on_status_ok(
+            {"status": "future", "post_url": "https://ex.com/c/", "date": "2026-01-01T00:00:00Z"}
+        )
+        assert db.get_document_wp_status(doc_id)["wp_chapter_index"] == 1
+
 
 class _NoRunWorker:
     """StatusCheckWorker stand-in that never touches the network."""
@@ -186,6 +198,75 @@ class _NoRunWorker:
         return self
     def connect(self, *a, **k):
         pass
+
+
+class TestRunSinglePublish:
+    def test_end_to_end_persists_and_calls_callback(self, qapp, db, monkeypatch):
+        doc_id = _doc_with_lines(db)
+        s = _Settings(); s.wp_endpoint_url = "https://ex.com"; s.wp_api_key = "key"
+
+        monkeypatch.setattr(wpf, "PublishConfirmDialog", _AcceptConfirm)
+        monkeypatch.setattr(wpf, "PublishWorker", _ImmediateWorker(
+            {"created": True, "page_url": "https://ex.com/c/", "post_url": "https://ex.com/p/"}
+        ))
+        monkeypatch.setattr(wpf, "show_publish_result", lambda *a, **k: None)
+
+        called = []
+        wpf.run_single_publish(db, s, doc_id, None, on_status_changed=lambda: called.append(1))
+
+        assert called == [1]
+        info = db.get_document_wp_status(doc_id)
+        assert info["wp_status"] == "publish"
+        assert info["wp_post_url"] == "https://ex.com/p/"
+
+    def test_aborts_when_config_cancelled(self, qapp, db, monkeypatch):
+        doc_id = _doc_with_lines(db)
+        monkeypatch.setattr(wpf, "ensure_wp_config", lambda *a, **k: None)
+        # must not raise, must not write
+        wpf.run_single_publish(db, _Settings(), doc_id, None)
+        assert db.get_document_wp_status(doc_id)["wp_status"] is None
+
+    def test_warns_and_returns_on_empty_translation(self, qapp, db, monkeypatch):
+        doc_id = _doc_with_lines(db, translated=("",))
+        s = _Settings(); s.wp_endpoint_url = "https://ex.com"; s.wp_api_key = "key"
+        monkeypatch.setattr(wpf, "ensure_series_wp_meta", lambda *a, **k: {"series_slug": "n", "series_title_short": "N"})
+        warned = []
+        monkeypatch.setattr(
+            "translation_assistant.ui.wp_publish_flow.QMessageBox.warning",
+            lambda *a, **k: warned.append(a),
+        )
+        wpf.run_single_publish(db, s, doc_id, None)
+        assert warned
+
+
+class _AcceptConfirm:
+    def __init__(self, *a, **k):
+        pass
+    def exec(self):
+        return 1
+    def scheduled_date_utc(self):
+        return None
+
+
+def _ImmediateWorker(result):
+    class _W:
+        def __init__(self, *a, **k):
+            self._subs = {"succeeded": [], "error": []}
+        class _Sig:
+            def __init__(self, name, outer):
+                self.name, self.outer = name, outer
+            def connect(self, fn):
+                self.outer._subs[self.name].append(fn)
+        @property
+        def succeeded(self):
+            return _W._Sig("succeeded", self)
+        @property
+        def error(self):
+            return _W._Sig("error", self)
+        def start(self):
+            for fn in self._subs["succeeded"]:
+                fn(result)
+    return _W
 
 
 class _Settings:

@@ -12,7 +12,8 @@ from datetime import datetime, timezone
 
 from PySide6.QtCore import QDateTime, Qt, QThread, QTime, Signal
 from PySide6.QtWidgets import (
-    QCheckBox, QDateTimeEdit, QDialog, QDialogButtonBox, QLabel, QVBoxLayout,
+    QCheckBox, QDateTimeEdit, QDialog, QDialogButtonBox, QFormLayout, QLabel,
+    QLineEdit, QMessageBox, QVBoxLayout,
 )
 
 import translation_assistant.wp_publisher as _wp
@@ -333,3 +334,108 @@ class PublishConfirmDialog(QDialog):
             self._status_worker.quit()
             self._status_worker.wait(500)
         super().done(r)
+
+
+def show_publish_result(result, job, scheduled_date, parent):
+    created = result.get("created", False)
+    updated = result.get("updated", False)
+    page_url = result.get("page_url", "")
+    post_url = result.get("post_url", "")
+
+    dlg = QDialog(parent)
+    dlg.setWindowTitle("WordPress Publish")
+    dlg.setWindowFlags(dlg.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
+    dlg.setMinimumWidth(420)
+    layout = QVBoxLayout(dlg)
+
+    if created:
+        status_text = "Scheduled!" if scheduled_date else "Published!"
+    elif updated:
+        status_text = "Scheduled!" if scheduled_date else "Updated!"
+    else:
+        status_text = "Already published."
+    layout.addWidget(QLabel(status_text))
+
+    form = QFormLayout()
+    if page_url:
+        lbl = QLabel(f'<a href="{page_url}">{page_url}</a>')
+        lbl.setOpenExternalLinks(True)
+        form.addRow("Page:", lbl)
+    if post_url and (created or updated):
+        lbl = QLabel(f'<a href="{post_url}">{post_url}</a>')
+        lbl.setOpenExternalLinks(True)
+        form.addRow("Post:", lbl)
+    layout.addLayout(form)
+
+    if (created or updated) and job.password:
+        pw_edit = QLineEdit(job.password)
+        pw_edit.setReadOnly(True)
+        pw_edit.selectAll()
+        layout.addWidget(QLabel("Password (copy this):"))
+        layout.addWidget(pw_edit)
+
+    if (created or updated) and job.unlock_chapter_index is not None:
+        layout.addWidget(QLabel(f"Chapter {job.unlock_chapter_index} is now unlocked."))
+
+    btns = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
+    btns.accepted.connect(dlg.accept)
+    layout.addWidget(btns)
+    dlg.exec()
+
+
+def run_single_publish(db, settings, doc_id, parent, *, on_status_changed=None):
+    cfg = ensure_wp_config(settings, parent)
+    if cfg is None:
+        return
+    endpoint_url, api_key = cfg
+
+    series_title = db.get_document(doc_id)["series_title"]
+    if ensure_series_wp_meta(db, settings, series_title, parent) is None:
+        return
+
+    try:
+        job = build_job(db, settings, doc_id)
+    except PublishJobError as exc:
+        QMessageBox.warning(parent, "Nothing to Publish", str(exc))
+        return
+
+    dlg = PublishConfirmDialog(job, db, settings, endpoint_url, api_key, parent=parent)
+    if not dlg.exec():
+        return
+    scheduled_date = dlg.scheduled_date_utc()
+
+    try:
+        payload = job_to_payload(
+            job, api_key, scheduled_date=scheduled_date,
+            attribution=settings.wp_attribution_enabled,
+        )
+    except ValueError as exc:
+        QMessageBox.warning(parent, "Payload Error", str(exc))
+        return
+
+    worker = PublishWorker(endpoint_url, payload, parent=parent)
+    keep = getattr(parent, "_wp_flow_keepalive", None)
+    if keep is None and parent is not None:
+        keep = []
+        parent._wp_flow_keepalive = keep
+
+    def _done(result):
+        if persist_publish_result(
+            db, doc_id, result, scheduled_date=scheduled_date,
+            chapter_index=job.series_order,
+        ) and on_status_changed:
+            on_status_changed()
+        show_publish_result(result, job, scheduled_date, parent)
+        if keep is not None and worker in keep:
+            keep.remove(worker)
+
+    def _err(msg):
+        QMessageBox.warning(parent, "Publish Failed", msg)
+        if keep is not None and worker in keep:
+            keep.remove(worker)
+
+    worker.succeeded.connect(_done)
+    worker.error.connect(_err)
+    if keep is not None:
+        keep.append(worker)
+    worker.start()
