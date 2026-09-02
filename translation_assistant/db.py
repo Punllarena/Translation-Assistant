@@ -621,6 +621,64 @@ class Database:
         self._conn.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
         self._conn.commit()
 
+    def merge_documents(self, doc_ids: list[int], merged_title: str) -> int:
+        """Merge 2+ chapters of one series into the lowest-series_order one.
+
+        Lines of the other chapters are appended in series_order order and
+        renumbered contiguously (each appended chapter's first line forced to
+        a '%' paragraph start); their images are re-anchored onto the target;
+        the source rows are deleted. The surviving row keeps its own id,
+        chapter metadata and wp_* fields but takes ``merged_title`` as its
+        chapter_title. series_order across the series is then compacted to
+        1..N. Returns the surviving (target) document id.
+        """
+        if len(doc_ids) < 2:
+            raise ValueError("merge_documents needs at least 2 documents")
+        docs = [self.get_document(d) for d in doc_ids]
+        if len({d["series_title"] for d in docs}) != 1:
+            raise ValueError("cannot merge documents from different series")
+        docs.sort(key=lambda d: d["series_order"])
+        target = docs[0]
+        target_id = target["id"]
+
+        combined: list[dict] = []
+        for d in docs:
+            offset = len(combined)
+            rows = self.get_lines(d["id"])
+            for i, ln in enumerate(rows):
+                combined.append({
+                    "line_number": offset + i,
+                    "prefix": "%" if (i == 0 and d["id"] != target_id) else ln["prefix"],
+                    "raw_text": ln["raw_text"],
+                    "translated_text": ln["translated_text"],
+                })
+            if d["id"] != target_id:
+                self._conn.execute(
+                    "UPDATE document_images SET document_id = ?, "
+                    "anchor_position = anchor_position + ? WHERE document_id = ?",
+                    (target_id, offset, d["id"]),
+                )
+        self._conn.commit()
+
+        self.save_lines(target_id, combined)
+        for d in docs[1:]:
+            self.delete_document(d["id"])
+        self._conn.execute(
+            "UPDATE documents SET chapter_title = ?, updated_at = datetime('now') "
+            "WHERE id = ?",
+            (merged_title, target_id),
+        )
+        self._conn.commit()
+
+        if target["series_title"]:
+            remaining = self._conn.execute(
+                "SELECT id FROM documents WHERE series_title = ? ORDER BY series_order, id",
+                (target["series_title"],),
+            ).fetchall()
+            self.set_series_orders([(r[0], i + 1) for i, r in enumerate(remaining)])
+
+        return target_id
+
     def get_document(self, doc_id: int) -> dict:
         row = self._conn.execute(
             "SELECT id, title, series_title, series_order, chapter_title, "
