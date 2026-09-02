@@ -486,22 +486,29 @@ class OpenDocumentDialog(QDialog):
         self._select_doc(merged_id)
 
     def _on_delete(self) -> None:
-        leaf = self._current_leaf()
-        if leaf is None:
+        leaves = [lf for lf in self._tree.selectedItems() if id(lf) in self._doc_ids]
+        if not leaves:
+            cur = self._current_leaf()
+            leaves = [cur] if cur is not None and id(cur) in self._doc_ids else []
+        if not leaves:
             return
-        title = leaf.text(1)
+        if len(leaves) == 1:
+            prompt = f'Delete "{leaves[0].text(1)}"? This cannot be undone.'
+        else:
+            prompt = f"Delete these {len(leaves)} chapters? This cannot be undone."
         answer = QMessageBox.question(
             self,
             "Delete Document",
-            f'Delete "{title}"? This cannot be undone.',
+            prompt,
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
         if answer != QMessageBox.StandardButton.Yes:
             return
-        doc_id = self._doc_ids.pop(id(leaf), None)
-        if doc_id is not None:
-            self._db.delete_document(doc_id)
+        for lf in leaves:
+            doc_id = self._doc_ids.pop(id(lf), None)
+            if doc_id is not None:
+                self._db.delete_document(doc_id)
         series_raw = self._current_series_raw()
         self._load_series()
         self._restore_series(series_raw)

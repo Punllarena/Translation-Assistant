@@ -942,3 +942,39 @@ class TestMergeChapters:
             dlg._on_merge()
         assert dlg.open_doc_merged_away is False
 
+
+class TestBatchDelete:
+    def test_delete_batch_removes_all_selected(self, qapp, mem_db):
+        from unittest.mock import patch
+        from PySide6.QtWidgets import QMessageBox
+        ids = _mk_series_chapters(mem_db, ["A", "B", "C"])
+        dlg = OpenDocumentDialog(mem_db)
+        _select_leaves(dlg, {ids[0], ids[2]})
+        with patch.object(QMessageBox, "question",
+                          return_value=QMessageBox.StandardButton.Yes):
+            dlg._on_delete()
+        left = {d["chapter_title"] for d in mem_db.list_documents()}
+        assert left == {"B"}
+
+    def test_delete_batch_confirmation_mentions_count(self, qapp, mem_db):
+        from unittest.mock import patch
+        from PySide6.QtWidgets import QMessageBox
+        ids = _mk_series_chapters(mem_db, ["A", "B", "C"])
+        dlg = OpenDocumentDialog(mem_db)
+        _select_leaves(dlg, set(ids))
+        with patch.object(QMessageBox, "question",
+                          return_value=QMessageBox.StandardButton.No) as mock_q:
+            dlg._on_delete()
+        assert "3" in " ".join(str(a) for a in mock_q.call_args[0])
+        assert len(mem_db.list_documents()) == 3
+
+    def test_delete_batch_aborted_changes_nothing(self, qapp, mem_db):
+        from unittest.mock import patch
+        from PySide6.QtWidgets import QMessageBox
+        ids = _mk_series_chapters(mem_db, ["A", "B"])
+        dlg = OpenDocumentDialog(mem_db)
+        _select_leaves(dlg, set(ids))
+        with patch.object(QMessageBox, "question",
+                          return_value=QMessageBox.StandardButton.No):
+            dlg._on_delete()
+        assert len(mem_db.list_documents()) == 2
