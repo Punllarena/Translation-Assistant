@@ -1137,6 +1137,60 @@ def test_find_tm_matches_returns_doc_title_and_updated_at(db):
 
 
 # ---------------------------------------------------------------------------
+# Find in series
+# ---------------------------------------------------------------------------
+
+def _make_series_doc(db: Database, series: str, chapter_title: str, translations: list[str]) -> int:
+    doc_id = db.create_document(f"{series} {chapter_title}", series_title=series, chapter_title=chapter_title)
+    db.save_lines(doc_id, [
+        {"line_number": i, "prefix": "%", "raw_text": f"raw{i}", "translated_text": t}
+        for i, t in enumerate(translations)
+    ])
+    return doc_id
+
+
+def test_find_in_series_matches_across_documents(db):
+    _make_series_doc(db, "Alpha", "Ch1", ["The cat meowed", "Nothing here"])
+    _make_series_doc(db, "Alpha", "Ch2", ["A dog barked", "The cat ran"])
+    matches = db.find_in_series("Alpha", "cat")
+    assert len(matches) == 2
+    assert {m["translated_text"] for m in matches} == {"The cat meowed", "The cat ran"}
+
+
+def test_find_in_series_excludes_other_series(db):
+    _make_series_doc(db, "Alpha", "Ch1", ["The cat meowed"])
+    _make_series_doc(db, "Beta", "Ch1", ["The cat sat"])
+    matches = db.find_in_series("Alpha", "cat")
+    assert len(matches) == 1
+    assert matches[0]["translated_text"] == "The cat meowed"
+
+
+def test_find_in_series_case_insensitive_by_default(db):
+    _make_series_doc(db, "Alpha", "Ch1", ["The Cat meowed"])
+    matches = db.find_in_series("Alpha", "cat")
+    assert len(matches) == 1
+
+
+def test_find_in_series_case_sensitive(db):
+    _make_series_doc(db, "Alpha", "Ch1", ["The Cat meowed"])
+    matches = db.find_in_series("Alpha", "cat", case_sensitive=True)
+    assert matches == []
+
+
+def test_find_in_series_no_match(db):
+    _make_series_doc(db, "Alpha", "Ch1", ["The cat meowed"])
+    assert db.find_in_series("Alpha", "elephant") == []
+
+
+def test_find_in_series_returns_doc_id_and_chapter_title(db):
+    doc_id = _make_series_doc(db, "Alpha", "Ch1", ["The cat meowed"])
+    matches = db.find_in_series("Alpha", "cat")
+    assert matches[0]["doc_id"] == doc_id
+    assert matches[0]["chapter_title"] == "Ch1"
+    assert matches[0]["line_number"] == 0
+
+
+# ---------------------------------------------------------------------------
 # get_document_ids_by_series
 # ---------------------------------------------------------------------------
 

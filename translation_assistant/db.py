@@ -1017,6 +1017,24 @@ class Database:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    def find_in_series(
+        self, series_title: str, needle: str, case_sensitive: bool = False
+    ) -> list[dict]:
+        rows = self._conn.execute(
+            "SELECT l.document_id AS doc_id, d.chapter_title, l.line_number, l.translated_text "
+            "FROM lines l "
+            "JOIN documents d ON d.id = l.document_id "
+            "WHERE d.series_title = ? AND l.translated_text != '' "
+            "ORDER BY d.series_order, l.line_number",
+            (series_title,),
+        ).fetchall()
+        if not case_sensitive:
+            needle = needle.lower()
+        return [
+            dict(r) for r in rows
+            if needle in (r["translated_text"] if case_sensitive else r["translated_text"].lower())
+        ]
+
 
 # ── Migration helper ──────────────────────────────────────────────────────────
 
