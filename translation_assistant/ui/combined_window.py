@@ -179,6 +179,7 @@ class CombinedMainWindow(QMainWindow):
         tools_menu.addAction(clear_cache_action)
         tools_menu.addSeparator()
         tools_menu.addAction(ta.action_series_phrases)
+        tools_menu.addAction(ta.action_find_replace)
         tools_menu.addAction(ta.action_stats)      # #3: moved from Help
         tools_menu.addSeparator()
         punct_menu = QMenu("Special Punctuations", self)  # #5: demoted from top-level
@@ -292,6 +293,9 @@ class CombinedMainWindow(QMainWindow):
             qs.setValue(key, splitter.saveState().toBase64().data().decode())
 
     def closeEvent(self, event) -> None:
+        # Qt aborts the process if a running QThread is destroyed on the way out.
+        from translation_assistant.ui.wp_publish_flow import wait_for_workers
+        wait_for_workers()
         self._ta_widget._settings.set_geometry("main_window", self.saveGeometry())
         self._save_splitter()
         self._ta_widget.save_state()

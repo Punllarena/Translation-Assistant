@@ -279,6 +279,9 @@ class TranslationAssistantWidget(QWidget):
         self.action_series_phrases.setShortcut("Ctrl+Shift+P")
         self.action_series_phrases.triggered.connect(self._on_series_phrases)
 
+        self.action_find_replace = QAction("Find && Replace in Series…", self)
+        self.action_find_replace.triggered.connect(self._on_find_replace)
+
         self.action_font_larger = QAction("Larger", self)
         self.action_font_larger.setShortcut("Ctrl+=")
         self.action_font_larger.triggered.connect(lambda: self._adjust_font_size(+1))
@@ -1801,6 +1804,25 @@ class TranslationAssistantWidget(QWidget):
             parent=self,
         )
         remember_dialog_geometry(dlg, self._settings, "dlg_series_phrases")
+        dlg.exec()
+
+    def _on_find_replace(self) -> None:
+        from translation_assistant.ui.dlg_find_replace import FindReplaceDialog
+        from translation_assistant.ui.dlg_series_phrases import _get_series_for_doc
+        series_title = _get_series_for_doc(self._db, self._doc_id)
+        if not series_title:
+            QMessageBox.information(
+                self, "Find & Replace in Series",
+                "Open a document that belongs to a series first.",
+            )
+            return
+
+        def _on_replaced(doc_id: int) -> None:
+            if doc_id == self._doc_id:
+                self.open_document(doc_id)
+
+        dlg = FindReplaceDialog(self._db, series_title, on_replaced=_on_replaced, parent=self)
+        remember_dialog_geometry(dlg, self._settings, "dlg_find_replace")
         dlg.exec()
 
     # ------------------------------------------------------------------
